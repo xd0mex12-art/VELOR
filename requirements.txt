@@ -19,5 +19,11 @@ python-docx==1.2.0         # чтение DOCX
 reportlab==5.0.0           # экспорт в PDF (кириллица через DejaVu)
 openpyxl==3.1.5            # экспорт в Excel
 
+# --- База данных ---
+# SQLite — встроен в Python (локально). Для прод-хранилища на Postgres (Supabase)
+# нужен драйвер psycopg + пул соединений. Активируется переменной DATABASE_URL.
+psycopg[binary]==3.2.3     # драйвер PostgreSQL
+psycopg-pool==3.2.4        # пул соединений
+
 # --- Прочее ---
 python-dotenv==1.0.0       # чтение секретов из .env

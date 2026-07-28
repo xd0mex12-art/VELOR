@@ -7,8 +7,129 @@ import datetime
 import hashlib
 import hmac
 import os
+import re
 import sqlite3
 from config import DB_PATH
+
+# ============================================================
+#  ВЫБОР БАЗЫ: SQLite (локально) или PostgreSQL (прод, Supabase)
+# ============================================================
+# Если задан DATABASE_URL (postgres://…) — работаем с Postgres через тонкий
+# адаптер, который на лету переводит SQLite-диалект в Postgres (плейсхолдеры ?→%s,
+# функции дат, DDL). Если нет — всё как раньше, SQLite. Так локальная разработка не
+# меняется, а на Render/Supabase данные живут постоянно.
+DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
+_PG = DATABASE_URL.startswith(("postgres://", "postgresql://"))
+_pg_pool = None
+
+if _PG:
+    from psycopg_pool import ConnectionPool
+    # Пул: не открываем новое TLS-соединение на каждый из сотен запросов.
+    # prepare_threshold=None — чтобы работать и через транзакционный пулер Supabase.
+    _pg_pool = ConnectionPool(
+        DATABASE_URL, min_size=1, max_size=5, open=True,
+        kwargs={"autocommit": False, "prepare_threshold": None},
+    )
+
+
+class _Row(dict):
+    """Строка результата: и по имени row['col'], и по индексу row[0] — как sqlite3.Row."""
+    def __init__(self, cols, vals):
+        super().__init__(zip(cols, vals))
+        self._vals = list(vals)
+
+    def __getitem__(self, k):
+        return self._vals[k] if isinstance(k, int) else super().__getitem__(k)
+
+
+def _pg_row_factory(cursor):
+    cols = [c.name for c in cursor.description] if cursor.description else []
+    return lambda vals: _Row(cols, vals)
+
+
+_RE_DATE_NOW_PARAM = re.compile(r"date\(\s*'now'\s*,\s*\?\s*\)")
+_RE_DATE_NOW_LIT = re.compile(r"date\(\s*'now'\s*,\s*'([^']+)'\s*\)")
+_RE_STRFTIME_COL = re.compile(r"strftime\(\s*'%Y-%m'\s*,\s*([A-Za-z_][\w.]*)\s*\)")
+_RE_DATE_COL = re.compile(r"date\(\s*([A-Za-z_][\w.]*)\s*\)")
+
+
+def _translate(sql: str) -> str:
+    """Перевести SQLite-SQL в PostgreSQL: даты, DDL, плейсхолдеры."""
+    s = sql
+    # ---- функции дат (время храним текстом 'YYYY-MM-DD HH:MM:SS', как в SQLite) ----
+    s = _RE_DATE_NOW_PARAM.sub("to_char((now() at time zone 'utc') + (%s)::interval, 'YYYY-MM-DD')", s)
+    s = _RE_DATE_NOW_LIT.sub(lambda m: "to_char((now() at time zone 'utc') + interval '%s', 'YYYY-MM-DD')" % m.group(1), s)
+    s = s.replace("datetime('now')", "to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS')")
+    s = s.replace("date('now')", "to_char(now() at time zone 'utc', 'YYYY-MM-DD')")
+    s = re.sub(r"strftime\(\s*'%Y-%m'\s*,\s*'now'\s*\)", "to_char(now() at time zone 'utc', 'YYYY-MM')", s)
+    s = _RE_STRFTIME_COL.sub(r"substr(\1, 1, 7)", s)
+    s = _RE_DATE_COL.sub(r"substr(\1, 1, 10)", s)   # date('now') уже заменён выше
+    # ---- DDL: целые числа = 64 бита (Telegram id, совпадение типов для FK) ----
+    s = re.sub(r"INTEGER\s+PRIMARY\s+KEY(\s+AUTOINCREMENT)?", "BIGSERIAL PRIMARY KEY", s, flags=re.I)
+    s = re.sub(r"\bAUTOINCREMENT\b", "", s, flags=re.I)
+    s = re.sub(r"\bINTEGER\b", "BIGINT", s, flags=re.I)
+    s = re.sub(r"DEFAULT\s+CURRENT_TIMESTAMP",
+               "DEFAULT to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS')", s, flags=re.I)
+    s = re.sub(r"CREATE\s+TABLE\s+(?!IF NOT EXISTS)", "CREATE TABLE IF NOT EXISTS ", s, flags=re.I)
+    s = re.sub(r"ADD\s+COLUMN\s+(?!IF NOT EXISTS)", "ADD COLUMN IF NOT EXISTS ", s, flags=re.I)
+    # ---- плейсшолдеры в самом конце ----
+    return s.replace("?", "%s")
+
+
+def _split_sql(script: str):
+    """Разбить многооператорный скрипт на отдельные операторы (у Postgres нет executescript)."""
+    return [st for st in script.split(";") if st.strip()]
+
+
+class _PGCursor:
+    """Обёртка курсора psycopg под интерфейс sqlite3 (execute/fetchone/fetchall/lastrowid)."""
+    def __init__(self, cur):
+        self._cur = cur
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    def __iter__(self):
+        return iter(self._cur.fetchall())
+
+    @property
+    def lastrowid(self):
+        self._cur.execute("SELECT lastval()")
+        return self._cur.fetchone()[0]
+
+
+class _PGConn:
+    """Обёртка соединения psycopg под интерфейс sqlite3.Connection, что ждёт код."""
+    def __init__(self, raw):
+        self._raw = raw
+
+    def execute(self, sql, params=()):
+        cur = self._raw.cursor()
+        cur.execute(_translate(sql), tuple(params))
+        return _PGCursor(cur)
+
+    def executescript(self, script):
+        for stmt in _split_sql(script):
+            self._raw.cursor().execute(_translate(stmt))
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            self._raw.rollback() if exc_type else self._raw.commit()
+        finally:
+            _pg_pool.putconn(self._raw)
+        return False
 
 
 # ---------- ПАРОЛИ (хранятся только в виде соли+хеша) ----------
@@ -66,13 +187,22 @@ def plan_status(business):
 
 
 def _connect():
-    """Открыть соединение с базой. row_factory — чтобы читать поля по имени."""
+    """Открыть соединение с базой. row_factory — чтобы читать поля по имени.
+
+    Postgres (если задан DATABASE_URL) — соединение из пула в обёртке, которая
+    переводит SQLite-диалект. Иначе — SQLite, как раньше.
+    """
+    if _PG:
+        raw = _pg_pool.getconn()
+        raw.row_factory = _pg_row_factory
+        return _PGConn(raw)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     # Встроенный LOWER() в SQLite не понимает кириллицу: «Доставка» остаётся с
     # заглавной Д и не находится по «доставк». Подменяем на питоновский .lower(),
     # который правильно приводит регистр в юникоде — от него зависит весь поиск.
+    # (В Postgres встроенный lower() и так корректен для юникода.)
     conn.create_function("LOWER", 1, lambda s: s.lower() if s else s, deterministic=True)
     return conn
 
