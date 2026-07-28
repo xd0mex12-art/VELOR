@@ -8,9 +8,12 @@
 Панель заказов:           http://127.0.0.1:8000/dashboard.html
 """
 import datetime
+import hashlib
 import json
 import logging
 import re
+
+import requests
 
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse, Response, JSONResponse
@@ -26,6 +29,7 @@ import auth
 import ratelimit
 import errorlog
 import config
+import botcore
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
 
@@ -560,7 +564,16 @@ def api_update_business(body: BusinessPatch, x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, body.business_id)
     fields = body.model_dump(exclude={"business_id"}, exclude_none=True)
     database.update_business(bid, **fields)
-    return {"ok": True}
+    # Сохранили токен бота → сразу подключаем webhook, чтобы клиенты писали в кабинет
+    # без отдельного процесса. Best-effort: если не вышло — настройки всё равно сохранены.
+    webhook = None
+    tok = (fields.get("tg_bot_token") or "").strip()
+    if tok and _public_base():
+        try:
+            webhook = bool((set_webhook_for(tok) or {}).get("ok"))
+        except Exception:
+            logging.exception("Не удалось поставить webhook при сохранении токена (biz %s)", bid)
+    return {"ok": True, "webhook": webhook}
 
 
 @app.get("/api/stats")
@@ -2227,6 +2240,96 @@ def api_ask(body: AskIn, x_auth: str = Header(default="")):
 
 
 # ---------- Отдаём сайт ----------
+
+# ============================================================
+#  TELEGRAM-БОТ ЧЕРЕЗ WEBHOOK (живёт внутри веб-сервиса, без отдельного воркера)
+# ============================================================
+# Для бесплатного хостинга: не поднимаем всегда-включённый процесс bot.py, а
+# принимаем апдейты Telegram прямо в веб-сервис. У каждого бизнеса свой токен →
+# свой URL /api/tg/webhook/{token}, поэтому сообщения разных ботов не смешиваются.
+
+def _public_base() -> str:
+    """Публичный адрес сервиса. Render кладёт его в RENDER_EXTERNAL_URL; можно
+    переопределить PUBLIC_URL. Без него webhook не зарегистрировать."""
+    base = (_os.getenv("RENDER_EXTERNAL_URL") or _os.getenv("PUBLIC_URL") or "").strip()
+    return base.rstrip("/")
+
+
+def _tg_secret(token: str) -> str:
+    """Секрет для заголовка X-Telegram-Bot-Api-Secret-Token: подтверждает, что
+    апдейт пришёл от Telegram, а не подделан. Стабилен per-deploy, нигде не хранится."""
+    return hashlib.sha256((token + "|" + auth._secret().hex()).encode()).hexdigest()[:48]
+
+
+def _tg_api(token: str, method: str, **params):
+    """Вызов Telegram Bot API (без python-telegram-bot — просто HTTPS)."""
+    try:
+        r = requests.post(f"https://api.telegram.org/bot{token}/{method}",
+                          json=params, timeout=15)
+        return r.json()
+    except Exception:
+        logging.exception("Telegram API %s не удался", method)
+        return None
+
+
+def set_webhook_for(token: str):
+    """Зарегистрировать webhook для одного бота на наш публичный адрес."""
+    base = _public_base()
+    if not base or not token:
+        return {"ok": False, "error": "no_public_url"}
+    url = f"{base}/api/tg/webhook/{token}"
+    return _tg_api(token, "setWebhook", url=url, secret_token=_tg_secret(token),
+                   allowed_updates=["message"], drop_pending_updates=True) or {"ok": False}
+
+
+@app.post("/api/tg/webhook/{token}")
+async def api_tg_webhook(token: str, request: Request):
+    """Приём апдейтов Telegram: находим бизнес по токену, отвечаем как сотрудник."""
+    # чужой POST (даже зная токен) не пройдёт без подписи, которую ставит Telegram
+    if request.headers.get("x-telegram-bot-api-secret-token") != _tg_secret(token):
+        return JSONResponse({"ok": True}, status_code=200)
+    biz = database.find_business_by_token(token)
+    if not biz:
+        return {"ok": True}
+    bid = biz["id"]
+    try:
+        update = await request.json()
+    except Exception:
+        return {"ok": True}
+    msg = update.get("message") or update.get("edited_message") or {}
+    chat_id = (msg.get("chat") or {}).get("id")
+    text = msg.get("text")
+    frm = msg.get("from") or {}
+    if not chat_id or not text:
+        return {"ok": True}                       # не текст (фото/стикер) — тихо пропускаем
+    full_name = " ".join(x for x in (frm.get("first_name"), frm.get("last_name")) if x) \
+        or frm.get("username") or "клиент"
+    try:
+        reply = (botcore.greeting_text(bid) if text.strip() == "/start"
+                 else botcore.handle_message(bid, frm.get("id"), full_name, text))
+    except Exception:
+        logging.exception("Ошибка обработки webhook (biz %s)", bid)
+        reply = "Ой, я на секунду задумалась. Напишите ещё раз, пожалуйста."
+    if reply:
+        _tg_api(token, "sendMessage", chat_id=chat_id, text=reply)
+    return {"ok": True}
+
+
+@app.post("/api/tg/register")
+def api_tg_register(x_auth: str = Header(default="")):
+    """Подключить/переподключить webhook для бота текущего бизнеса (кнопка в кабинете)."""
+    bid = _resolve_bid(x_auth, 0)
+    token = ((database.get_business(bid) or {}).get("tg_bot_token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="Сначала сохраните токен бота в настройках.")
+    if not _public_base():
+        raise HTTPException(status_code=400,
+                            detail="Публичный адрес сервиса не задан (RENDER_EXTERNAL_URL/PUBLIC_URL).")
+    res = set_webhook_for(token)
+    if res and res.get("ok"):
+        return {"ok": True, "detail": "Бот подключён — клиенты пишут прямо в кабинет."}
+    return {"ok": False, "detail": (res or {}).get("description") or "Не удалось подключить бота."}
+
 
 class FreshFiles(StaticFiles):
     """
