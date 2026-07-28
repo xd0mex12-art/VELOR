@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Идеи</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+
+  .scan{ min-height:48px; padding:13px 30px; border-radius:26px; background:var(--iris); border:none;
+    color:#fff; font-weight:600; font-size:13.5px; letter-spacing:.1em; text-transform:uppercase;
+    transition:filter .2s; margin-bottom:14px; }
+  .scan:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+  .scan:disabled{ opacity:.5; }
+  .hint{ font-size:13.5px; color:var(--ash); margin-bottom:38px; }
+
+  /* фильтр по направлениям */
+  .filters{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:30px; }
+  .filters button{ padding:8px 15px; border-radius:18px; background:rgba(255,255,255,.04);
+    border:1px solid var(--hairline); font-size:13px; color:var(--silver); transition:.2s; }
+  .filters button:hover{ color:#fff; }
+  .filters button.on{ background:rgba(128,82,255,.16); border-color:rgba(128,82,255,.4); color:#fff; }
+
+  .cards{ display:grid; gap:16px; }
+  .idea{ position:relative; border:1px solid var(--hairline); border-radius:22px; padding:24px 26px;
+    background:linear-gradient(165deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+    opacity:0; transform:translateY(12px); animation:iIn .5s cubic-bezier(.22,1,.36,1) forwards;
+    transition:border-color .25s; }
+  .idea:hover{ border-color:rgba(128,82,255,.35); }
+  @keyframes iIn{ to{ opacity:1; transform:none } }
+  .idea::before{ content:''; position:absolute; left:0; top:22px; bottom:22px; width:3px;
+    border-radius:0 3px 3px 0; background:var(--iris); }
+  .idea.done{ opacity:.45; }
+  .idea.done .i-title{ text-decoration:line-through; }
+
+  .i-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .cat{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+    padding:5px 11px; border-radius:16px; background:rgba(128,82,255,.16); color:#c9bfff; }
+  .eff{ font-size:12px; color:var(--ash); display:flex; align-items:center; gap:6px; }
+  .eff .dots{ display:inline-flex; gap:3px; }
+  .eff .dot{ width:7px; height:7px; border-radius:50%; background:rgba(255,255,255,.16); }
+  .eff.e1 .dot:nth-child(-n+1), .eff.e2 .dot:nth-child(-n+2), .eff.e3 .dot:nth-child(-n+3){ background:var(--verdant); }
+  .eff.e2 .dot:nth-child(-n+2){ background:var(--saffron); }
+  .eff.e3 .dot:nth-child(-n+3){ background:var(--coral); }
+
+  .i-title{ font-weight:400; font-size:20px; letter-spacing:-.02em; line-height:1.3; margin-bottom:14px; }
+  .i-benefit{ padding:14px 16px; border-radius:14px; background:rgba(47,212,178,.07);
+    border:1px solid rgba(47,212,178,.22); }
+  .i-benefit .t{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--verdant); margin-bottom:5px; }
+  .i-benefit .p{ font-weight:200; font-size:15px; line-height:1.55; color:var(--silver); }
+  .i-how{ margin-top:12px; color:var(--silver); font-weight:200; font-size:14.5px; line-height:1.55; }
+  .i-how b{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ash); display:block; margin-bottom:4px; }
+
+  .i-btns{ display:flex; gap:9px; margin-top:16px; }
+  .ib{ padding:9px 17px; border-radius:20px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-size:13px; transition:.2s; }
+  .ib:hover{ color:#fff; border-color:rgba(255,255,255,.22); }
+  .ib.ok:hover{ border-color:var(--verdant); color:var(--verdant); }
+
+  .empty{ color:var(--ash); font-size:15px; padding:28px 0; line-height:1.6; }
+
+  @media(min-width:900px){ .cards{ grid-template-columns:1fr 1fr; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <span class="label">// Ideas · Развитие</span>
+  <h1>Идеи.</h1>
+  <p class="lead">Сотрудник постоянно накидывает, что можно попробовать: новые услуги, акции, контент, автоматизации, партнёрства и способы поднять прибыль. У каждой идеи — ожидаемая польза и уровень сложности внедрения.</p>
+
+  <button class="scan" id="more">Придумать ещё идеи</button>
+  <div class="hint" id="hint">Сотрудник смотрит на ваш бизнес и предлагает новое.</div>
+
+  <div class="filters" id="filters"></div>
+  <div class="cards" id="cards"><div class="empty">Загружаю…</div></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3200);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const EFFORT = { 1:'легко внедрить', 2:'средняя сложность', 3:'сложно внедрить' };
+let ALL = [], filter = '';
+
+function card(o, i){
+  const ef = Math.min(3, Math.max(1, o.effort || 2));
+  return `<article class="idea ${o.status === 'done' ? 'done' : ''}"
+      style="animation-delay:${Math.min(i,8)*70}ms" data-id="${o.id}">
+    <div class="i-head">
+      <span class="cat">${esc(o.category || 'идея')}</span>
+      <span class="eff e${ef}">${EFFORT[ef]}
+        <span class="dots"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span></span>
+    </div>
+    <div class="i-title">${esc(o.title)}</div>
+    ${o.benefit ? `<div class="i-benefit"><div class="t">Ожидаемая польза</div><div class="p">${esc(o.benefit)}</div></div>` : ''}
+    ${o.how ? `<div class="i-how"><b>Как внедрить</b>${esc(o.how)}</div>` : ''}
+    <div class="i-btns">
+      <button class="ib ok" data-st="${o.status === 'done' ? 'new' : 'done'}">
+        ${o.status === 'done' ? 'Вернуть' : 'Беру в работу'}</button>
+      <button class="ib" data-st="hidden">Не интересно</button>
+    </div>
+  </article>`;
+}
+
+function renderFilters(){
+  const cats = [...new Set(ALL.map(o => o.category).filter(Boolean))];
+  const chip = (val, label) => `<button class="${filter === val ? 'on' : ''}" data-cat="${esc(val)}">${esc(label)}</button>`;
+  document.getElementById('filters').innerHTML =
+    cats.length > 1 ? chip('', 'Все') + cats.map(c => chip(c, c)).join('') : '';
+}
+
+function renderCards(){
+  const box = document.getElementById('cards');
+  const items = filter ? ALL.filter(o => o.category === filter) : ALL;
+  box.innerHTML = items.length
+    ? items.map(card).join('')
+    : `<div class="empty">Идей пока нет.<br>Нажмите «Придумать ещё идеи» — сотрудник предложит, что попробовать.</div>`;
+}
+
+async function load(){
+  try{
+    const d = await (await fetch('/api/ideas')).json();
+    ALL = d.items || [];
+    renderFilters();
+    renderCards();
+  }catch{ document.getElementById('cards').innerHTML = '<div class="empty">Не удалось загрузить.</div>'; }
+}
+
+document.getElementById('more').addEventListener('click', async e => {
+  const b = e.currentTarget; b.disabled = true; b.textContent = 'Придумываю…';
+  document.getElementById('hint').textContent = 'Сотрудник разбирает ваш бизнес и ищет новые идеи…';
+  try{
+    const d = await (await fetch('/api/ideas/more', { method:'POST' })).json();
+    if (d.ok){ ALL = d.items || []; renderFilters(); renderCards();
+      toast(d.added ? 'Добавил ' + d.added + ' новых идей' : 'Свежих идей пока не набралось'); }
+    else toast(d.error || 'Не получилось');
+  }catch{ toast('Ошибка связи с сервером'); }
+  b.disabled = false; b.textContent = 'Придумать ещё идеи';
+  document.getElementById('hint').textContent = 'Сотрудник смотрит на ваш бизнес и предлагает новое.';
+});
+
+document.getElementById('filters').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  filter = btn.dataset.cat; renderFilters(); renderCards();
+});
+
+document.getElementById('cards').addEventListener('click', async e => {
+  const btn = e.target.closest('.ib'); if (!btn) return;
+  const id = btn.closest('.idea').dataset.id, status = btn.dataset.st;
+  try{
+    await fetch('/api/ideas/' + id + '/status', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+    const o = ALL.find(x => String(x.id) === String(id));
+    if (o){ if (status === 'hidden') ALL = ALL.filter(x => x !== o); else o.status = status; }
+    renderCards();
+    if (status === 'done') toast('Взяли в работу');
+    if (status === 'hidden') toast('Убрал из списка');
+  }catch{ toast('Не удалось сохранить'); }
+});
+
+load();
+</script>
+</body>
+</html>

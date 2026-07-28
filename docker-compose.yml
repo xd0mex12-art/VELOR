@@ -1,0 +1,93 @@
+# VELOR — production-развёртывание одной командой:  docker compose up -d --build
+# Все секреты берутся из файла .env (см. .env.production.example).
+
+services:
+  # ---------- Веб-сервер и API (FastAPI) ----------
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: velor-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/assistant.db
+      LOG_DIR: /app/logs
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    expose:
+      - "8000"          # доступен только другим контейнерам (наружу — через nginx)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 6s
+      retries: 5
+      start_period: 20s
+
+  # ---------- Telegram-бот ----------
+  bot:
+    image: velor-app
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/assistant.db
+      LOG_DIR: /app/logs
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    command: ["python", "bot.py"]
+    depends_on:
+      - web
+
+  # ---------- Nginx (reverse proxy, HTTPS, gzip, кеш, заголовки) ----------
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - web
+
+  # ---------- Автоматическое продление сертификатов Let's Encrypt ----------
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    # проверять продление раз в 12 часов
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $${!}; done'"
+
+  # ---------- Резервное копирование БД и файлов ----------
+  backup:
+    image: velor-app
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/assistant.db
+      UPLOADS_DIR: /app/uploads
+      BACKUP_DIR: /backups
+    volumes:
+      - ./data:/app/data:ro
+      - ./uploads:/app/uploads:ro
+      - ./backups:/backups
+    entrypoint: ["sh", "docker/backup-loop.sh"]

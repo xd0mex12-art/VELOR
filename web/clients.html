@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Клиенты</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --magenta:#ff4fd8;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .num{ font-variant-numeric:tabular-nums; }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; }
+
+  main{ position:relative; z-index:1; max-width:1100px; margin:0 auto; padding:150px 24px 90px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,78px); line-height:1.1; letter-spacing:-0.04em; margin:18px 0 60px; }
+
+  .stats{ display:flex; gap:96px; flex-wrap:wrap; margin-bottom:80px; }
+  .stat .v{ font-weight:400; font-size:clamp(38px,5vw,64px); letter-spacing:-0.04em; }
+  .stat:nth-child(2) .v{ color:var(--iris); text-shadow:0 0 24px rgba(128,82,255,.45); }
+  .stat:nth-child(3) .v{ color:var(--verdant); text-shadow:0 0 24px rgba(47,212,178,.4); }
+  .stat .caption{ margin-top:10px; text-transform:uppercase; letter-spacing:.2em; font-weight:600; }
+
+  .client{ border-bottom:1px solid var(--hairline); }
+  .row{ display:grid; grid-template-columns:1fr auto; gap:18px; align-items:center;
+    padding:26px 0; cursor:pointer; transition:background .3s, padding-left .3s; }
+  .row:hover{ background:linear-gradient(90deg,rgba(128,82,255,.07),transparent 70%); padding-left:14px; }
+  .row .nm{ font-weight:400; font-size:clamp(18px,2vw,24px); letter-spacing:-0.01em; }
+  .row .meta{ margin-top:4px; font-weight:200; font-size:13px; color:var(--ash); }
+  .row .cnt{ font-weight:400; font-size:20px; color:var(--iris); white-space:nowrap; }
+
+  .card{ display:none; padding:6px 0 34px; }
+  .client.open .card{ display:block; }
+  .fields{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:18px; margin-bottom:22px; }
+  .f label{ display:block; font-weight:600; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:8px; }
+  .f input, .f textarea{ width:100%; min-height:44px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:10px 14px; color:var(--bone); font-family:inherit; font-weight:200; font-size:15px; }
+  .f textarea{ resize:vertical; }
+  .save{ min-height:44px; padding:10px 24px; border-radius:24px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:12px; letter-spacing:.15em; text-transform:uppercase; transition:filter .2s; }
+  .save:hover{ filter:brightness(1.2) drop-shadow(0 0 14px rgba(128,82,255,.5)); }
+  .save:disabled{ opacity:.4; }
+  .hist{ margin-top:26px; }
+  .hist .h{ font-weight:600; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:10px; }
+  .hist .o{ display:flex; gap:16px; padding:10px 0; border-top:1px solid var(--hairline); font-size:15px; font-weight:200; }
+  .hist .o .d{ color:var(--ash); white-space:nowrap; }
+
+  /* Поиск */
+  .search{ position:relative; margin-bottom:36px; max-width:520px; }
+  .search input{ width:100%; min-height:52px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:16px; padding:14px 18px 14px 46px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; }
+  .search input:focus{ outline:none; border-color:var(--iris); box-shadow:0 0 18px rgba(128,82,255,.18); }
+  .search svg{ position:absolute; left:16px; top:50%; transform:translateY(-50%); width:18px; height:18px; stroke:var(--ash); }
+
+  /* Сумма покупок в строке */
+  .row .sum{ font-weight:400; font-size:15px; color:var(--verdant); white-space:nowrap; margin-top:4px; }
+  .row .rt{ text-align:right; }
+
+  /* Резюме AI */
+  .ai-sum{ margin-top:22px; border:1px solid rgba(128,82,255,.28); background:rgba(128,82,255,.07);
+    border-radius:18px; padding:18px 20px; }
+  .ai-sum .cap{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
+  .ai-sum .cap span{ font-weight:600; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--iris); }
+  .ai-sum .refresh{ font-weight:600; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ash);
+    background:none; border:1px solid var(--hairline); border-radius:14px; padding:6px 12px; transition:color .2s, border-color .2s; }
+  .ai-sum .refresh:hover{ color:var(--bone); border-color:var(--iris); }
+  .ai-sum .refresh:disabled{ opacity:.4; }
+  .ai-sum .txt{ font-weight:200; font-size:15.5px; line-height:1.5; }
+  .ai-sum .adv{ margin-top:12px; padding-top:12px; border-top:1px solid rgba(128,82,255,.2); font-weight:200; font-size:15px; }
+  .ai-sum .adv b{ color:var(--verdant); font-weight:600; font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    display:block; margin-bottom:5px; }
+
+  /* Переписка */
+  .chat{ margin-top:26px; }
+  .chat .h{ font-weight:600; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:12px; }
+  .chat .scroll{ max-height:280px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:4px; }
+  .msg{ max-width:78%; padding:9px 14px; border-radius:16px; font-weight:200; font-size:14.5px; line-height:1.45; }
+  .msg.user{ align-self:flex-start; background:rgba(255,255,255,.06); border:1px solid var(--hairline); border-bottom-left-radius:5px; }
+  .msg.assistant{ align-self:flex-end; background:rgba(128,82,255,.14); border:1px solid rgba(128,82,255,.28); border-bottom-right-radius:5px; }
+  .msg .who{ display:block; font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--ash); margin-bottom:3px; }
+
+  .more{ display:block; margin:40px auto 0; min-height:48px; padding:12px 32px; border-radius:24px;
+    background:none; border:1px solid var(--hairline); color:var(--silver); font-weight:600; font-size:12px;
+    letter-spacing:.15em; text-transform:uppercase; transition:color .2s, border-color .2s; }
+  .more:hover{ color:var(--bone); border-color:var(--iris); }
+  .more:disabled{ opacity:.4; }
+
+  .sk{ height:76px; margin:14px 0; border-radius:16px;
+    background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04));
+    background-size:200% 100%; animation:shimmer 1.4s linear infinite; }
+  @keyframes shimmer{ from{ background-position:200% 0 } to{ background-position:-200% 0 } }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none;
+    transition:opacity .3s, transform .3s; text-shadow:0 0 12px rgba(128,82,255,.5); }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  .empty{ padding:60px 0; color:var(--ash); font-weight:200; }
+
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<canvas id="ambientCanvas"></canvas>
+
+
+<main>
+  <span class="label">// Память ядра</span>
+  <h1>Клиенты.</h1>
+
+  <div class="stats" aria-live="polite">
+    <div class="stat"><div class="v num" id="stTotal">—</div><div class="caption">Всего клиентов</div></div>
+    <div class="stat"><div class="v num" id="stPhones">—</div><div class="caption">С телефоном</div></div>
+    <div class="stat"><div class="v num" id="stOrders">—</div><div class="caption">Заказов всего</div></div>
+  </div>
+
+  <div class="search">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+    <input id="q" type="search" aria-label="Поиск по имени или телефону"
+      placeholder="Поиск клиента — имя или телефон" autocomplete="off">
+  </div>
+
+  <div id="list"><div class="sk"></div><div class="sk"></div><div class="sk"></div></div>
+  <button class="more" id="more" style="display:none">Показать ещё</button>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽';
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+const PAGE = 50;
+const listEl = document.getElementById('list');
+const moreEl = document.getElementById('more');
+const qEl = document.getElementById('q');
+let query = '', offset = 0, total = 0, loading = false;
+
+function rowMeta(c){
+  return [c.phone && '☎ '+esc(c.phone), c.birthday && '🎂 '+esc(c.birthday),
+          c.favorite && '💐 '+esc(c.favorite)].filter(Boolean).join(' · ')
+    || 'нет данных — открой и заполни';
+}
+
+function clientHTML(c){
+  return `
+    <div class="client" data-id="${c.id}">
+      <div class="row" role="button" tabindex="0" aria-expanded="false">
+        <div>
+          <div class="nm">${esc(c.name) || 'Без имени'}</div>
+          <div class="meta">${rowMeta(c)}</div>
+        </div>
+        <div class="rt">
+          <div class="cnt num">${c.orders_count || 0} зак.</div>
+          ${c.total_spent ? `<div class="sum num">${money(c.total_spent)}</div>` : ''}
+        </div>
+      </div>
+      <div class="card" data-loaded="0"><div class="caption">…</div></div>
+    </div>`;
+}
+
+function cardHTML(d){
+  const c = d.client;
+  const orders = d.orders || [], messages = d.messages || [];
+  const ordersHTML = orders.length
+    ? orders.map(o => `<div class="o"><span class="d num">№${o.id} · ${esc((o.created_at||'').slice(0,10))}</span>
+        <span>${esc(o.text)}${o.amount ? ' — <span class="num">'+money(o.amount)+'</span>' : ''}</span>
+        <span class="d">${esc(o.status)}</span></div>`).join('')
+    : 'Заказов пока нет.';
+  const chatHTML = messages.length
+    ? `<div class="chat"><div class="h">История переписки</div><div class="scroll">${
+        messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">
+          <span class="who">${m.role === 'user' ? 'клиент' : 'сотрудник'}</span>${esc(m.content)}</div>`).join('')
+      }</div></div>`
+    : '';
+  const aiHTML = `
+    <div class="ai-sum">
+      <div class="cap"><span>Резюме AI</span>
+        <button class="refresh" type="button">Обновить</button></div>
+      <div class="txt">${d.summary ? esc(d.summary) : 'Резюме появится, когда наберётся история — или нажмите «Обновить».'}</div>
+      ${d.advice ? `<div class="adv"><b>Что предложить</b>${esc(d.advice)}</div>` : ''}
+    </div>`;
+  return `
+    <div class="fields">
+      <div class="f"><label>Имя</label><input name="name" value="${esc(c.name)}"></div>
+      <div class="f"><label>Телефон</label><input name="phone" value="${esc(c.phone)}"></div>
+      <div class="f"><label>День рождения</label><input name="birthday" placeholder="например 14 марта" value="${esc(c.birthday)}"></div>
+      <div class="f"><label>Предпочтения</label><input name="favorite" placeholder="что важно для клиента" value="${esc(c.favorite)}"></div>
+      <div class="f" style="grid-column:1/-1"><label>Заметки</label><textarea name="notes" rows="2">${esc(c.notes)}</textarea></div>
+    </div>
+    <button class="save">Сохранить</button>
+    <div class="caption" style="margin-top:14px">Сумма покупок: <span class="num" style="color:var(--verdant)">${money(c.total_spent)}</span> · заказов: ${c.orders_count || 0}</div>
+    ${aiHTML}
+    <div class="hist"><div class="h">История заказов</div><div class="orders caption">${ordersHTML}</div></div>
+    ${chatHTML}`;
+}
+
+async function loadCard(el){
+  const box = el.querySelector('.card');
+  if (box.dataset.loaded === '1') return;
+  const id = el.dataset.id;
+  try{
+    const d = await (await fetch(`/api/clients/${id}`)).json();
+    box.innerHTML = cardHTML(d);
+    box.dataset.loaded = '1';
+    wireCard(el, box);
+  }catch{ box.innerHTML = '<div class="empty">Не удалось загрузить карточку.</div>'; }
+}
+
+function wireCard(el, box){
+  const id = el.dataset.id;
+  box.querySelector('.save').addEventListener('click', async ev => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    const data = {};
+    box.querySelectorAll('input,textarea').forEach(i => data[i.name] = i.value);
+    try{
+      await fetch(`/api/clients/${id}`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
+      });
+      toast('Сохранено');
+      el.querySelector('.meta').textContent = [data.phone && '☎ '+data.phone,
+        data.birthday && '🎂 '+data.birthday, data.favorite && '💐 '+data.favorite]
+        .filter(Boolean).join(' · ') || 'нет данных';
+      el.querySelector('.nm').textContent = data.name || 'Без имени';
+    }catch{ toast('Не сохранилось — проверь сервер'); }
+    btn.disabled = false;
+  });
+  box.querySelector('.refresh').addEventListener('click', async ev => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    const txt = box.querySelector('.ai-sum .txt');
+    const prev = txt.textContent; txt.textContent = 'Собираю резюме…';
+    try{
+      const d = await (await fetch(`/api/clients/${id}/summary/refresh`, {method:'POST'})).json();
+      txt.textContent = d.summary || 'Пока мало данных для резюме.';
+      let adv = box.querySelector('.ai-sum .adv');
+      if (d.advice){
+        if (!adv){ adv = document.createElement('div'); adv.className = 'adv';
+          box.querySelector('.ai-sum').appendChild(adv); }
+        adv.innerHTML = '<b>Что предложить</b>' + esc(d.advice);
+      } else if (adv){ adv.remove(); }
+    }catch{ txt.textContent = prev; toast('Не получилось обновить'); }
+    btn.disabled = false;
+  });
+}
+
+function wireRow(el){
+  const row = el.querySelector('.row');
+  const toggle = () => {
+    el.classList.toggle('open');
+    row.setAttribute('aria-expanded', el.classList.contains('open'));
+    if (el.classList.contains('open')) loadCard(el);
+  };
+  row.addEventListener('click', toggle);
+  row.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); toggle(); }
+  });
+}
+
+async function loadPage(reset){
+  if (loading) return;
+  loading = true;
+  if (reset){ offset = 0; listEl.innerHTML = '<div class="sk"></div><div class="sk"></div><div class="sk"></div>'; }
+  moreEl.disabled = true;
+  try{
+    const url = `/api/clients?limit=${PAGE}&offset=${offset}` + (query ? `&q=${encodeURIComponent(query)}` : '');
+    const d = await (await fetch(url)).json();
+    total = d.total || 0;
+    const items = d.items || [];
+    document.getElementById('stTotal').textContent = total;
+    document.getElementById('stPhones').textContent = d.with_phone ?? '—';
+    document.getElementById('stOrders').textContent = d.orders_total ?? '—';
+
+    if (reset) listEl.innerHTML = '';
+    if (!total){
+      listEl.innerHTML = `<div class="empty">${query
+        ? 'Никого не нашли по этому запросу.'
+        : 'Пока пусто. Клиенты появятся сами, как только напишут боту.'}</div>`;
+      moreEl.style.display = 'none';
+      return;
+    }
+    items.forEach(c => {
+      listEl.insertAdjacentHTML('beforeend', clientHTML(c));
+      wireRow(listEl.lastElementChild);
+    });
+    offset += items.length;
+    moreEl.style.display = offset < total ? 'block' : 'none';
+  }catch{
+    if (reset) listEl.innerHTML = '<div class="empty">Сервер не отвечает. Запусти: python server.py</div>';
+    else toast('Не удалось загрузить ещё');
+  }finally{
+    loading = false; moreEl.disabled = false;
+  }
+}
+
+let searchT;
+qEl.addEventListener('input', () => {
+  clearTimeout(searchT);
+  searchT = setTimeout(() => { query = qEl.value.trim(); loadPage(true); }, 250);
+});
+moreEl.addEventListener('click', () => loadPage(false));
+loadPage(true);
+</script>
+</body>
+</html>

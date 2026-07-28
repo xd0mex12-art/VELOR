@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Тариф</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --coral:#ff6b6b;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
+
+  main{ position:relative; z-index:1; max-width:1000px; margin:0 auto; padding:140px 24px 100px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:16px 0 12px; }
+  .lead{ color:var(--silver); font-weight:200; margin-bottom:40px; max-width:600px; }
+
+  /* Текущий расход */
+  .usage{ background:rgba(255,255,255,.04); border:1px solid var(--hairline); border-radius:22px; padding:26px 24px; margin-bottom:48px; }
+  .usage .row{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; }
+  .usage .now{ font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); }
+  .usage .plan{ font-weight:400; font-size:26px; letter-spacing:-.02em; }
+  .usage .cnt{ color:var(--silver); font-size:15px; }
+  .bar{ height:8px; border-radius:6px; background:rgba(255,255,255,.08); margin-top:18px; overflow:hidden; }
+  .bar > i{ display:block; height:100%; border-radius:6px; background:linear-gradient(90deg,var(--iris),var(--verdant)); transition:width .5s; }
+  .bar.warn > i{ background:linear-gradient(90deg,var(--saffron),var(--coral)); }
+
+  .grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+  .tier{ background:rgba(255,255,255,.03); border:1px solid var(--hairline); border-radius:22px; padding:26px 22px; display:flex; flex-direction:column; }
+  .tier.cur{ border-color:var(--iris); box-shadow:0 0 24px rgba(128,82,255,.18); }
+  .tier .tn{ font-weight:600; font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--bone); }
+  .tier .pr{ font-weight:400; font-size:30px; letter-spacing:-.02em; margin:14px 0 4px; }
+  .tier .pr small{ font-size:14px; color:var(--ash); font-weight:200; }
+  .tier .lim{ color:var(--verdant); font-size:14px; margin-bottom:12px; }
+  .tier .nt{ color:var(--silver); font-size:14px; font-weight:200; flex:1; }
+  .tier .badge{ margin-top:16px; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--iris); font-weight:600; }
+
+  .foot{ color:var(--ash); font-size:14px; margin-top:32px; }
+
+  @media (max-width:820px){ .grid{ grid-template-columns:1fr 1fr; } }
+  @media (max-width:480px){ .grid{ grid-template-columns:1fr; } }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+
+<main>
+  <span class="label">// Тариф и лимиты</span>
+  <h1>Тариф.</h1>
+  <p class="lead">VELOR работает по подписке. Лимит — число обработанных сообщений клиентов в месяц. Расход обнуляется каждый месяц.</p>
+
+  <div class="usage">
+    <div class="row">
+      <div>
+        <div class="now">Ваш тариф</div>
+        <div class="plan" id="uPlan">—</div>
+      </div>
+      <div class="cnt num" id="uCnt">— / —</div>
+    </div>
+    <div class="bar" id="uBar"><i style="width:0%"></i></div>
+    <div class="caption" id="uNote" style="margin-top:12px"></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <p class="foot">Оплата и смена тарифа — по запросу: напишите нам, подключим. Пробный период даётся при старте.</p>
+</main>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+function fmt(n){ return (n||0).toLocaleString('ru-RU'); }
+async function load(){
+  try{
+    const d = await (await fetch('/api/plan')).json();
+    const s = d.status, plans = d.plans;
+    document.getElementById('uPlan').textContent = s.name;
+    document.getElementById('uCnt').textContent = fmt(s.used) + ' / ' + fmt(s.limit) + ' сообщений';
+    const pct = Math.min(100, Math.round(s.used / s.limit * 100));
+    const bar = document.getElementById('uBar');
+    bar.querySelector('i').style.width = pct + '%';
+    if(pct >= 80) bar.classList.add('warn');
+    document.getElementById('uNote').textContent = s.over
+      ? 'Лимит месяца исчерпан — клиентам отвечает заглушка. Смените тариф, чтобы включить ИИ снова.'
+      : 'Осталось ' + fmt(s.remaining) + ' сообщений в этом месяце.';
+
+    const order = ['free','starter','business','pro'];
+    document.getElementById('grid').innerHTML = order.map(k => {
+      const p = plans[k]; if(!p) return '';
+      const cur = k === s.plan;
+      return `<div class="tier ${cur?'cur':''}">
+        <div class="tn">${p.name}</div>
+        <div class="pr">${p.price ? fmt(p.price)+' <small>₽/мес</small>' : 'Бесплатно'}</div>
+        <div class="lim num">${fmt(p.limit)} сообщений/мес</div>
+        <div class="nt">${p.note}</div>
+        ${cur ? '<div class="badge">Текущий</div>' : ''}
+      </div>`;
+    }).join('');
+  }catch{ document.getElementById('uPlan').textContent = 'сервер не отвечает'; }
+}
+load();
+</script>
+</body>
+</html>

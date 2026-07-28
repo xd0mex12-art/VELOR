@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Импорт финансов</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:#a99cff;
+    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .drop{ border:1px dashed rgba(255,255,255,.2); border-radius:20px; padding:38px 24px; text-align:center;
+    color:var(--ash); cursor:pointer; transition:border-color .25s, background .25s, color .25s; }
+  .drop:hover, .drop.over{ border-color:var(--lilac); background:rgba(128,82,255,.06); color:var(--silver); }
+  .drop b{ color:var(--lilac); font-weight:500; }
+  .drop .big{ font-size:19px; color:var(--bone); font-weight:400; margin-bottom:8px; }
+  .drop.busy{ opacity:.6; pointer-events:none; }
+
+  .cap{ font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--lilac); margin-bottom:10px; }
+  .sect{ margin-top:44px; }
+
+  .tot{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .t{ border:1px solid var(--hairline); border-radius:18px; padding:20px 24px; }
+  .t .k{ font-size:12px; color:var(--ash); }
+  .t .v{ font-size:26px; font-weight:400; letter-spacing:-.02em; margin-top:5px; }
+  .t .v.plus{ color:var(--verdant); } .t .v.minus{ color:var(--coral); }
+
+  /* диаграмма расходов */
+  .chart{ display:flex; height:16px; border-radius:9px; overflow:hidden; margin-bottom:18px;
+    background:rgba(255,255,255,.05); }
+  .chart i{ display:block; height:100%; transition:width .8s cubic-bezier(.22,1,.36,1); }
+  .legend{ display:grid; grid-template-columns:1fr 1fr; gap:9px 22px; }
+  .lg{ display:flex; align-items:center; gap:10px; font-size:14px; }
+  .lg .sw{ width:10px; height:10px; border-radius:3px; flex:none; }
+  .lg .nm{ color:var(--silver); }
+  .lg .vl{ margin-left:auto; font-variant-numeric:tabular-nums; color:var(--ash); }
+
+  .op{ display:flex; align-items:center; gap:14px; padding:13px 0; border-bottom:1px solid var(--hairline); }
+  .op:last-child{ border-bottom:none; }
+  .op .dt{ font-size:12.5px; color:var(--ash); width:82px; flex:none; font-variant-numeric:tabular-nums; }
+  .op .ds{ flex:1; min-width:0; font-size:14.5px; }
+  .op .ds .cp{ font-size:12.5px; color:var(--ash); }
+  .op .am{ font-variant-numeric:tabular-nums; font-size:15px; width:118px; text-align:right; flex:none; }
+  .op select{ background:rgba(255,255,255,.05); border:1px solid var(--hairline); border-radius:10px;
+    padding:7px 10px; color:var(--bone); font-family:inherit; font-size:13px; flex:none; }
+  .op select option{ background:#0a0a0a; }
+
+  .box{ border:1px solid var(--hairline); border-radius:20px; padding:24px 26px; }
+  .box.warn{ border-color:rgba(255,184,41,.28); background:rgba(255,184,41,.04); }
+  .hint{ font-size:13.5px; color:var(--ash); margin-top:14px; }
+  .rules{ display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  .rule{ font-size:12.5px; padding:6px 12px; border-radius:14px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); }
+  .rule b{ color:var(--lilac); font-weight:500; }
+  .empty{ color:var(--ash); }
+  @media(max-width:760px){ .tot{ grid-template-columns:1fr; } .legend{ grid-template-columns:1fr; }
+    .op{ flex-wrap:wrap; } .op .ds{ width:100%; order:3; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <span class="label">Core · Импорт финансов</span>
+  <h1>Выписка вместо ручного ввода.</h1>
+  <p class="sub">Загрузите выписку из банка — сотрудник сам разберёт операции, отделит доходы
+    от расходов и разложит траты по категориям. Спорное покажет отдельно и спросит вас.</p>
+
+  <div class="drop" id="drop">
+    <div class="big">Перетащите выписку сюда или <b>выберите файл</b></div>
+    CSV, XLSX или PDF, до 8 МБ. Повторная загрузка того же файла ничего не задвоит.
+  </div>
+  <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.pdf" hidden>
+  <div id="result"></div>
+
+  <div class="sect" id="summary"></div>
+  <div class="sect" id="unsureBox"></div>
+  <div class="sect" id="rulesBox"></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3500);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+const day = s => (s || '').slice(0, 10).split('-').reverse().slice(0, 2).join('.');
+
+const COLORS = { 'аренда':'#8052ff', 'реклама':'#ff4fd8', 'доставка':'#2fd4b2', 'закупки':'#ffb829',
+  'зарплата':'#5b9cff', 'налоги':'#ff6b6b', 'прочее':'#7a7a7a', 'выручка':'#2fd4b2' };
+const color = c => COLORS[c] || '#7a7a7a';
+
+let CATEGORIES = [];
+
+function totals(t){
+  return `<div class="cap">Итог</div>
+    <div class="tot">
+      <div class="t"><div class="k">Выручка</div><div class="v num plus">${money(t.income)}</div></div>
+      <div class="t"><div class="k">Расходы</div><div class="v num">${money(t.expense)}</div></div>
+      <div class="t"><div class="k">Прибыль</div>
+        <div class="v num ${t.profit >= 0 ? 'plus' : 'minus'}">${money(t.profit)}</div></div>
+    </div>`;
+}
+
+function chart(rows){
+  const spend = (rows || []).filter(r => r.category !== 'выручка' && r.total > 0);
+  const sum = spend.reduce((a, r) => a + r.total, 0);
+  if (!sum) return '<div class="empty">Расходов пока нет.</div>';
+  return `
+    <div class="chart">${spend.map(r =>
+      `<i style="width:${r.total / sum * 100}%;background:${color(r.category)}" title="${esc(r.category)}"></i>`).join('')}</div>
+    <div class="legend">${spend.map(r => `
+      <div class="lg"><span class="sw" style="background:${color(r.category)}"></span>
+        <span class="nm">${esc(r.category)}</span>
+        <span class="vl">${money(r.total)} · ${Math.round(r.total / sum * 100)}%</span></div>`).join('')}</div>`;
+}
+
+function opRow(o){
+  const opts = CATEGORIES.map(c =>
+    `<option value="${c}" ${c === o.category ? 'selected' : ''}>${c}</option>`).join('');
+  return `<div class="op" data-id="${o.id}">
+    <span class="dt">${day(o.op_date)}</span>
+    <span class="ds">${esc(o.note || 'без описания')}
+      ${o.counterparty ? `<div class="cp">${esc(o.counterparty)}</div>` : ''}</span>
+    <span class="am">${money(o.amount)}</span>
+    <select>${opts}</select>
+  </div>`;
+}
+
+function render(d){
+  CATEGORIES = d.categories || CATEGORIES;
+  document.getElementById('summary').innerHTML =
+    totals(d.totals) + '<div class="sect"><div class="cap">Расходы по категориям</div>' + chart(d.by_category) + '</div>';
+
+  const unsure = d.unsure || d.operations || [];
+  document.getElementById('unsureBox').innerHTML = unsure.length
+    ? `<div class="cap">Не уверен в категории</div>
+       <div class="box warn">${unsure.map(opRow).join('')}
+         <div class="hint">Поправьте категорию — сотрудник запомнит выбор и сам применит его
+           к похожим операциям, в этой выписке и во всех следующих.</div></div>`
+    : `<div class="cap">Не уверен в категории</div>
+       <div class="box"><div class="empty">Все операции разобраны уверенно.</div></div>`;
+
+  const rules = d.rules || [];
+  document.getElementById('rulesBox').innerHTML = rules.length
+    ? `<div class="cap">Что сотрудник запомнил</div>
+       <div class="box"><div class="rules">${rules.map(r =>
+         `<span class="rule">${esc(r.pattern)} → <b>${esc(r.category)}</b></span>`).join('')}</div>
+         <div class="hint">Эти правила применяются раньше всех остальных — ваш выбор важнее
+           наших умолчаний и догадок ИИ.</div></div>`
+    : '';
+}
+
+async function loadState(){
+  try{ render(await (await fetch('/api/finance/operations?unsure=1')).json()); }catch{}
+}
+
+async function upload(file){
+  const drop = document.getElementById('drop');
+  const res = document.getElementById('result');
+  drop.classList.add('busy');
+  res.innerHTML = '<div class="sect box">Разбираю выписку…</div>';
+  try{
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch('/api/finance/import', { method:'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok){ res.innerHTML = `<div class="sect box warn">${esc(d.detail || 'Не получилось разобрать файл')}</div>`; }
+    else {
+      res.innerHTML = `<div class="sect box"><b>${esc(d.filename)}</b> — распознано ${d.total} операций,
+        добавлено ${d.added}${d.skipped ? `, пропущено дублей ${d.skipped}` : ''}.</div>`;
+      toast('Выписка загружена');
+    }
+    await loadState();
+  }catch{ res.innerHTML = '<div class="sect box warn">Сервер не ответил.</div>'; }
+  drop.classList.remove('busy');
+}
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+drop.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) upload(fileInput.files[0]); });
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => {
+  ev.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', ev => { if (ev.dataTransfer.files[0]) upload(ev.dataTransfer.files[0]); });
+
+// смена категории вручную — сотрудник запоминает выбор
+document.getElementById('unsureBox').addEventListener('change', async e => {
+  const sel = e.target.closest('select');
+  const row = e.target.closest('.op');
+  if (!sel || !row) return;
+  try{
+    const r = await fetch('/api/finance/operations/' + row.dataset.id + '/category', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ category: sel.value, remember: true })
+    });
+    const d = await r.json();
+    if (!r.ok) throw 0;
+    toast(d.applied > 1
+      ? `Запомнил «${d.pattern}» — поправил ещё ${d.applied - 1} похожих`
+      : 'Запомнил выбор');
+    await loadState();
+  }catch{ toast('Не удалось сохранить категорию'); }
+});
+
+loadState();
+</script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Совет директоров</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+
+  .top{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:12px; }
+  .scan{ min-height:46px; padding:12px 26px; border-radius:24px; background:var(--iris); border:none;
+    color:#fff; font-weight:600; font-size:12.5px; letter-spacing:.1em; text-transform:uppercase; transition:filter .2s; }
+  .scan:hover{ filter:brightness(1.2) drop-shadow(0 0 16px rgba(128,82,255,.5)); }
+  .scan:disabled{ opacity:.5; }
+  .hint{ font-size:13.5px; color:var(--ash); margin-bottom:36px; }
+
+  .cards{ display:grid; gap:16px; max-width:840px; }
+  .rec{ position:relative; border:1px solid var(--hairline); border-radius:22px; padding:24px 26px;
+    background:linear-gradient(165deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+    opacity:0; transform:translateY(12px); animation:rIn .5s cubic-bezier(.22,1,.36,1) forwards; }
+  @keyframes rIn{ to{ opacity:1; transform:none } }
+  .rec::before{ content:''; position:absolute; left:0; top:22px; bottom:22px; width:3px; border-radius:0 3px 3px 0; }
+  .rec.p1::before{ background:var(--coral); } .rec.p2::before{ background:var(--saffron); } .rec.p3::before{ background:var(--iris); }
+
+  .r-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .prio{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; padding:5px 12px; border-radius:16px; }
+  .p1 .prio{ background:rgba(255,107,107,.16); color:#ff9b9b; }
+  .p2 .prio{ background:rgba(255,184,41,.14); color:#ffd48a; }
+  .p3 .prio{ background:rgba(128,82,255,.16); color:#c9bfff; }
+  .num-badge{ font-size:12px; color:var(--ash); }
+  .deferred-tag{ font-size:11px; color:var(--saffron); letter-spacing:.06em; }
+
+  .r-problem{ font-weight:400; font-size:20px; letter-spacing:-.02em; line-height:1.35; margin-bottom:14px; }
+  .r-block{ margin-top:12px; }
+  .r-block .t{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); margin-bottom:5px; }
+  .r-block .p{ font-weight:200; font-size:15px; line-height:1.55; color:var(--silver); }
+  .r-effect{ margin-top:14px; padding:13px 16px; border-radius:14px; background:rgba(47,212,178,.07);
+    border:1px solid rgba(47,212,178,.22); }
+  .r-effect .t{ color:var(--verdant); }
+
+  .r-btns{ display:flex; gap:9px; margin-top:18px; flex-wrap:wrap; }
+  .rb{ min-height:42px; padding:10px 20px; border-radius:22px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-size:13.5px; font-weight:400; transition:.2s; }
+  .rb:hover{ color:#fff; border-color:rgba(255,255,255,.22); }
+  .rb.acc:hover{ border-color:var(--verdant); color:var(--verdant); }
+  .rb.ign:hover{ border-color:var(--coral); color:var(--coral); }
+
+  .empty{ color:var(--ash); font-size:15px; padding:28px 0; line-height:1.6; max-width:640px; }
+
+  .hist{ margin-top:44px; max-width:840px; }
+  .hist h2{ font-weight:400; font-size:22px; letter-spacing:-.02em; margin-bottom:16px; }
+  .hrow{ display:flex; gap:14px; align-items:flex-start; padding:13px 0; border-top:1px solid var(--hairline); }
+  .hrow .dot{ width:8px; height:8px; border-radius:50%; margin-top:7px; flex:none; }
+  .hrow .dot.acc{ background:var(--verdant); } .hrow .dot.ign{ background:var(--coral); }
+  .hrow .b{ flex:1; }
+  .hrow .p{ font-size:15px; }
+  .hrow .s{ font-size:12.5px; color:var(--ash); margin-top:2px; }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <span class="label">// Board · Совет директоров</span>
+  <h1>Совет директоров.</h1>
+  <p class="lead">Раз в день сотрудник разбирает весь бизнес целиком — финансы, клиентов, контент, документы, историю дел и цели — и выносит до пяти самых важных решений. По каждому вы говорите: принять, отложить или отклонить. Отклонённое и сделанное он запоминает и не предлагает снова без новых причин.</p>
+
+  <div class="top">
+    <button class="scan" id="refresh">Собрать заново</button>
+    <span class="hint" id="hint" style="margin:0">Заседание проходит раз в сутки автоматически.</span>
+  </div>
+
+  <div class="cards" id="cards"><div class="empty">Загружаю…</div></div>
+  <div class="hist" id="hist"></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3200);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const PRIO = { 1:'высокий приоритет', 2:'средний приоритет', 3:'низкий приоритет' };
+
+function card(o, i){
+  const p = Math.min(3, Math.max(1, o.priority || 2));
+  return `<article class="rec p${p}" style="animation-delay:${Math.min(i,6)*70}ms" data-id="${o.id}">
+    <div class="r-head">
+      <span class="prio">${PRIO[p]}</span>
+      <span class="num-badge">№${i + 1}</span>
+      ${o.status === 'deferred' ? '<span class="deferred-tag">отложено — вернулось</span>' : ''}
+    </div>
+    <div class="r-problem">${esc(o.problem)}</div>
+    ${o.why ? `<div class="r-block"><div class="t">Почему</div><div class="p">${esc(o.why)}</div></div>` : ''}
+    ${o.effect ? `<div class="r-effect"><div class="t">Ожидаемый эффект</div><div class="p">${esc(o.effect)}</div></div>` : ''}
+    <div class="r-btns">
+      <button class="rb acc" data-st="accepted">Принять</button>
+      <button class="rb" data-st="deferred">Отложить</button>
+      <button class="rb ign" data-st="ignored">Игнорировать</button>
+    </div>
+  </article>`;
+}
+
+function history(items){
+  if (!items || !items.length) return '';
+  const STATUS = { accepted:['acc','приняли'], ignored:['ign','отклонили'] };
+  return `<h2>Что уже решили</h2>` + items.map(h => {
+    const [cls, label] = STATUS[h.status] || ['', h.status];
+    return `<div class="hrow"><span class="dot ${cls}"></span><div class="b">
+      <div class="p">${esc(h.problem)}</div>
+      <div class="s">${label}${h.decided_at ? ' · ' + esc((h.decided_at || '').slice(0,10)) : ''}</div></div></div>`;
+  }).join('');
+}
+
+async function load(){
+  const box = document.getElementById('cards');
+  try{
+    const d = await (await fetch('/api/board')).json();
+    box.innerHTML = d.items && d.items.length
+      ? d.items.map(card).join('')
+      : `<div class="empty">Пока рекомендаций нет.<br>Нажмите «Собрать заново» — совет разберёт весь бизнес и предложит, за что взяться. Если данных мало, честнее меньше пунктов, чем вода.</div>`;
+    document.getElementById('hist').innerHTML = history(d.history);
+  }catch{ box.innerHTML = '<div class="empty">Не удалось загрузить.</div>'; }
+}
+
+document.getElementById('refresh').addEventListener('click', async e => {
+  const b = e.currentTarget; b.disabled = true; b.textContent = 'Идёт заседание…';
+  document.getElementById('hint').textContent = 'Совет разбирает финансы, клиентов, контент, документы, историю и цели…';
+  try{
+    const d = await (await fetch('/api/board/refresh', { method:'POST' })).json();
+    if (d.ok){ await load(); toast(d.added ? 'Новых рекомендаций: ' + d.added : 'Новых поводов нет — всё уже разобрано'); }
+    else toast(d.error || 'Не получилось');
+  }catch{ toast('Ошибка связи с сервером'); }
+  b.disabled = false; b.textContent = 'Собрать заново';
+  document.getElementById('hint').textContent = 'Заседание проходит раз в сутки автоматически.';
+});
+
+document.getElementById('cards').addEventListener('click', async e => {
+  const btn = e.target.closest('.rb'); if (!btn) return;
+  const id = btn.closest('.rec').dataset.id, status = btn.dataset.st;
+  try{
+    await fetch('/api/board/' + id + '/status', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+    await load();
+    const msg = { accepted:'Принято в работу', deferred:'Отложено', ignored:'Убрал и запомнил' }[status];
+    toast(msg || 'Сохранено');
+  }catch{ toast('Не удалось сохранить'); }
+});
+
+load();
+</script>
+</body>
+</html>

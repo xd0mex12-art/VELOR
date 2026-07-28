@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Инструменты</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:#a99cff;
+    --verdant:#2fd4b2; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .grp{ font-weight:600; font-size:13px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ash); margin:36px 0 16px; }
+  .grp:first-of-type{ margin-top:8px; }
+  .grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+  @media(max-width:760px){ .grid{ grid-template-columns:1fr; } }
+
+  .tool{ position:relative; border:1px solid var(--hairline); border-radius:20px; padding:24px 26px;
+    background:rgba(255,255,255,.02); transition:border-color .25s, background .25s, transform .25s; }
+  .tool .tn{ font-weight:500; font-size:17px; padding-right:70px; }
+  .tool .ta{ font-size:14px; color:var(--ash); margin-top:8px; }
+  .tag{ position:absolute; top:22px; right:24px; font-size:10.5px; font-weight:600; letter-spacing:.14em;
+    text-transform:uppercase; padding:4px 11px; border-radius:12px;
+    background:rgba(255,255,255,.06); border:1px solid var(--hairline); color:var(--ash); }
+
+  .tool.soon{ opacity:.62; }
+  .tool.live{ cursor:pointer; }
+  .tool.live:hover{ border-color:var(--lilac); background:rgba(128,82,255,.06); transform:translateY(-2px); }
+  .tool.live .tag{ color:var(--verdant); border-color:rgba(47,212,178,.3); background:rgba(47,212,178,.08); }
+
+  .note{ margin-top:40px; padding:20px 24px; border:1px solid var(--hairline); border-radius:18px;
+    font-size:14px; color:var(--ash); }
+  .note b{ color:var(--silver); font-weight:400; }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <span class="label">Core · Инструменты</span>
+  <h1>Что сотрудник сделает за вас.</h1>
+  <p class="sub">Разовые дела, которые обычно съедают вечер: документы, выгрузки, письма.
+    Готовые инструменты открываются сразу, остальные помечены «Скоро».</p>
+
+  <div id="list">Загружаю…</div>
+
+  <div class="note">Инструменты подключаются по одному. Как только очередной готов, он сам появляется
+    здесь активным — <b>заходить и проверять вручную не нужно</b>.</div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// как открывать готовый инструмент: пока никого, дальше сюда добавляются обработчики
+const OPEN = {
+  // pdf:   () => location.href = 'tool-pdf.html',
+  // excel: () => download('/api/tools/excel'),
+};
+
+function card(t){
+  return `<div class="tool ${t.ready ? 'live' : 'soon'}" data-id="${t.id}">
+    <span class="tag">${t.ready ? 'Готово' : 'Скоро'}</span>
+    <div class="tn">${esc(t.name)}</div>
+    <div class="ta">${esc(t.about)}</div>
+  </div>`;
+}
+
+(async () => {
+  let tools = [];
+  try{ tools = (await (await fetch('/api/tools')).json()).tools || []; }
+  catch{ document.getElementById('list').textContent = 'Нет связи с сервером.'; return; }
+
+  const groups = [];
+  tools.forEach(t => { if (!groups.includes(t.group)) groups.push(t.group); });
+
+  document.getElementById('list').innerHTML = groups.map(g => `
+    <div class="grp">${esc(g)}</div>
+    <div class="grid">${tools.filter(t => t.group === g).map(card).join('')}</div>`).join('');
+
+  document.getElementById('list').addEventListener('click', e => {
+    const box = e.target.closest('.tool');
+    if (!box) return;
+    if (!box.classList.contains('live')){
+      toast('Этот инструмент ещё готовится — покажу, когда будет готов');
+      return;
+    }
+    const open = OPEN[box.dataset.id];
+    if (open) open(); else toast('Инструмент подключён, но экран для него ещё не готов');
+  });
+})();
+</script>
+</body>
+</html>

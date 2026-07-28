@@ -1,0 +1,36 @@
+clients    csv     250 б | BOM+4 строк | "velor-clients-2026-07-24.csv"
+clients    xlsx   5378 б | zip ok | "velor-clients-2026-07-24.xlsx"
+clients    pdf   82653 б | PDF ok | "velor-clients-2026-07-24.pdf"
+finance    csv      97 б | BOM+1 строк | "velor-finance-2026-07-24.csv"
+finance    xlsx   5164 б | zip ok | "velor-finance-2026-07-24.xlsx"
+finance    pdf   78232 б | PDF ok | "velor-finance-2026-07-24.pdf"
+documents  csv      59 б | BOM+1 строк | "velor-documents-2026-07-24.csv"
+documents  xlsx   5103 б | zip ok | "velor-documents-2026-07-24.xlsx"
+documents  pdf   78622 б | PDF ok | "velor-documents-2026-07-24.pdf"
+reports    csv     156 б | BOM+1 строк | "velor-reports-2026-07-24.csv"
+reports    xlsx   5213 б | zip ok | "velor-reports-2026-07-24.xlsx"
+reports    pdf   78044 б | PDF ok | "velor-reports-2026-07-24.pdf"
+analytics  csv     396 б | BOM+11 строк | "velor-analytics-2026-07-24.csv"
+analytics  xlsx   5400 б | zip ok | "velor-analytics-2026-07-24.xlsx"
+analytics  pdf   82056 б | PDF ok | "velor-analytics-2026-07-24.pdf"
+goals      csv     102 б | BOM+1 строк | "velor-goals-2026-07-24.csv"
+goals      xlsx   5166 б | zip ok | "velor-goals-2026-07-24.xlsx"
+goals      pdf   77910 б | PDF ok | "velor-goals-2026-07-24.pdf"
+--- clients.csv ---
+Имя;Телефон;День рождения;Предпочтения;Заказов;Сумма покупок, ₽;Заметки
+Константин Савин;не указан;;;1;0;
+Дмитрий;;;пионы;1;0;
+Мария;;;;1;0;
+
+--- analytics.csv ---
+Показатель;Значение
+Клиентов в базе;3
+Обработано сообщений;5
+Заказов всего;3
+Заказов выполнено;2
+Спящих клиентов (30+ дней);2
+Клиентов с повторными заказами;0
+Доход всего, ₽;0
+Расход всего, ₽;0
+Прибыль, ₽;0
+Маржа, %;—

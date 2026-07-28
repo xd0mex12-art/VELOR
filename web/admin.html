@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Кабинет владельца</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --magenta:#ff4fd8;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+  .num{ font-variant-numeric:tabular-nums; }
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .ghost{ font-weight:400; font-size:13px; letter-spacing:.3px; text-transform:uppercase; color:var(--ash); background:none; border:none; transition:color .3s; }
+  .ghost:hover{ color:var(--bone); }
+
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50; display:flex; align-items:center; justify-content:space-between;
+    padding:20px 24px; background:linear-gradient(180deg,rgba(0,0,0,.9),transparent); }
+  .logo{ display:flex; align-items:center; gap:10px; font-weight:400; font-size:18px; letter-spacing:.14em; }
+  .nav-links{ display:flex; gap:24px; align-items:center; }
+
+  main{ position:relative; z-index:1; max-width:1200px; margin:0 auto; padding:120px 24px 80px; }
+  h1{ font-weight:400; font-size:clamp(34px,5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:14px 0 50px; }
+
+  /* сводка-деньги */
+  .kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:24px; margin-bottom:60px; }
+  @media(max-width:760px){ .kpis{ grid-template-columns:repeat(2,1fr); gap:20px; } }
+  .kpi .v{ font-weight:400; font-size:clamp(28px,4vw,48px); letter-spacing:-0.03em; }
+  .kpi:nth-child(1) .v{ color:var(--iris); text-shadow:0 0 24px rgba(128,82,255,.4); }
+  .kpi:nth-child(2) .v{ color:var(--verdant); text-shadow:0 0 24px rgba(47,212,178,.4); }
+  .kpi:nth-child(3) .v{ color:var(--saffron); text-shadow:0 0 24px rgba(255,184,41,.3); }
+  .kpi .c{ margin-top:8px; text-transform:uppercase; letter-spacing:.15em; font-weight:600; font-size:11px; color:var(--ash); }
+
+  .barhead{ display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; }
+  .pill{ display:inline-flex; align-items:center; gap:8px; background:var(--iris); color:#fff; border:none;
+    font-weight:600; font-size:13px; letter-spacing:.15em; text-transform:uppercase; padding:12px 22px; border-radius:24px; transition:filter .3s; }
+  .pill:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+
+  /* карточки бизнесов */
+  .biz{ border-bottom:1px solid var(--hairline); }
+  .biz .row{ display:grid; grid-template-columns:1fr repeat(3,auto) auto; gap:28px; align-items:center; padding:26px 0;
+    cursor:pointer; transition:background .3s, padding-left .3s; }
+  @media(max-width:760px){ .biz .row{ grid-template-columns:1fr auto; gap:12px; } .biz .m{ display:none; } }
+  .biz .row:hover{ background:linear-gradient(90deg,rgba(128,82,255,.07),transparent 70%); padding-left:14px; }
+  .biz .nm{ font-weight:400; font-size:clamp(18px,2vw,24px); letter-spacing:-0.01em; }
+  .biz .about{ margin-top:4px; font-weight:200; font-size:13px; color:var(--ash); }
+  .biz .m{ text-align:right; } .biz .m .mv{ font-weight:400; font-size:19px; } .biz .m .ml{ font-size:10px; text-transform:uppercase; letter-spacing:.15em; color:var(--ash); }
+  .biz .m.turn .mv{ color:var(--verdant); } .biz .m.fee .mv{ color:var(--iris); }
+  .chev{ color:var(--ash); transition:transform .3s; } .biz.open .chev{ transform:rotate(90deg); }
+
+  .detail{ display:none; padding:6px 0 40px; }
+  .biz.open .detail{ display:block; }
+  .tabs{ display:flex; gap:10px; margin-bottom:24px; }
+  .tab{ padding:10px 20px; border-radius:22px; background:rgba(255,255,255,.05); border:none; color:var(--silver);
+    font-weight:600; font-size:12px; letter-spacing:.12em; text-transform:uppercase; transition:background .2s,color .2s; }
+  .tab.active{ background:var(--iris); color:#fff; }
+  .pane{ display:none; } .pane.active{ display:block; }
+
+  /* настройки */
+  .fields{ display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:18px; margin-bottom:20px; }
+  .f label{ display:block; font-weight:600; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:8px; }
+  .f input, .f textarea{ width:100%; min-height:46px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:12px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:15px; }
+  .f textarea{ resize:vertical; grid-column:1/-1; }
+  .f input:focus, .f textarea:focus{ border-color:var(--iris); box-shadow:0 0 14px rgba(128,82,255,.3); outline:none; }
+  .rowbtns{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+  .save{ min-height:46px; padding:12px 28px; border-radius:24px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:12px; letter-spacing:.15em; text-transform:uppercase; transition:filter .2s; }
+  .save:hover{ filter:brightness(1.2) drop-shadow(0 0 14px rgba(128,82,255,.5)); }
+  .del{ min-height:46px; padding:12px 22px; border-radius:24px; background:none; border:1px solid rgba(255,79,216,.4); color:var(--magenta);
+    font-weight:600; font-size:12px; letter-spacing:.15em; text-transform:uppercase; transition:background .2s; }
+  .del:hover{ background:rgba(255,79,216,.12); }
+
+  /* чаты */
+  .chats{ display:grid; grid-template-columns:280px 1fr; gap:24px; }
+  @media(max-width:760px){ .chats{ grid-template-columns:1fr; } }
+  .chatlist{ display:flex; flex-direction:column; gap:6px; max-height:420px; overflow:auto; }
+  .ci{ text-align:left; padding:12px 14px; border-radius:14px; background:rgba(255,255,255,.03); border:1px solid transparent; color:var(--bone);
+    display:block; width:100%; transition:background .2s; }
+  .ci:hover{ background:rgba(255,255,255,.07); } .ci.active{ border-color:var(--iris); background:rgba(128,82,255,.12); }
+  .ci .cn{ font-weight:400; font-size:15px; } .ci .cl{ font-size:12px; color:var(--ash); margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .thread{ max-height:420px; overflow:auto; padding:4px; display:flex; flex-direction:column; gap:10px; }
+  .msg{ max-width:78%; padding:10px 15px; border-radius:16px; font-weight:200; font-size:15px; }
+  .msg.user{ align-self:flex-start; background:rgba(255,255,255,.07); border-bottom-left-radius:4px; }
+  .msg.assistant{ align-self:flex-end; background:rgba(128,82,255,.18); border-bottom-right-radius:4px; }
+  .msg .t{ display:block; font-size:10px; color:var(--ash); margin-top:5px; }
+  .muted{ color:var(--ash); font-weight:200; padding:30px 0; }
+
+  .sk{ height:78px; margin:14px 0; border-radius:16px;
+    background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04));
+    background-size:200% 100%; animation:shimmer 1.4s linear infinite; }
+  @keyframes shimmer{ from{ background-position:200% 0 } to{ background-position:-200% 0 } }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none; transition:opacity .3s, transform .3s; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  dialog{ border:none; background:#0b0b0f; color:var(--bone); border-radius:22px; padding:32px; width:min(92vw,440px);
+    box-shadow:0 30px 80px rgba(0,0,0,.7); }
+  dialog::backdrop{ background:rgba(0,0,0,.6); backdrop-filter:blur(4px); }
+  dialog h3{ font-weight:400; font-size:24px; margin-bottom:20px; }
+
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<canvas id="ambientCanvas"></canvas>
+
+<nav>
+  <a href="index.html" class="logo"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 1 L17 16 L1 16 Z" fill="#8052ff"/></svg>VELOR AI</a>
+  <div class="nav-links">
+    <a class="ghost" href="errors.html" style="display:inline-block">Журнал ошибок</a>
+    <span class="caption" id="whoami">владелец</span>
+    <button class="ghost" id="logout">Выйти</button>
+  </div>
+</nav>
+
+<main>
+  <span class="label">// Кабинет владельца</span>
+  <h1>Мои бизнесы.</h1>
+
+  <div class="kpis">
+    <div class="kpi"><div class="v num" id="kIncome">—</div><div class="c">Доход в мес, ₽</div></div>
+    <div class="kpi"><div class="v num" id="kTurnover">—</div><div class="c">Оборот бизнесов, ₽</div></div>
+    <div class="kpi"><div class="v num" id="kOrders">—</div><div class="c">Заказов всего</div></div>
+    <div class="kpi"><div class="v num" id="kCount">—</div><div class="c">Бизнесов</div></div>
+  </div>
+
+  <div class="barhead">
+    <span class="label" style="color:var(--ash)">// Подключённые бизнесы</span>
+    <button class="pill" id="addBtn">+ Добавить бизнес</button>
+  </div>
+
+  <div id="list"><div class="sk"></div><div class="sk"></div></div>
+</main>
+
+<dialog id="addDlg">
+  <h3>Новый бизнес</h3>
+  <div class="f" style="margin-bottom:14px"><label>Название</label><input id="nName" placeholder="Напр. Барбершоп BRODA"></div>
+  <div class="f" style="margin-bottom:14px"><label>Чем занимается</label><input id="nAbout" placeholder="барбершоп: стрижки и бороды"></div>
+  <div class="f" style="margin-bottom:14px"><label>Приветствие</label><textarea id="nGreet" rows="2" placeholder="Здравствуйте! Чем помочь?"></textarea></div>
+  <div class="f" style="margin-bottom:14px"><label>Абонплата ₽/мес</label><input id="nFee" type="number" value="0"></div>
+  <div class="f" style="margin-bottom:14px"><label>Логин для входа бизнеса</label><input id="nLogin" placeholder="напр. broda"></div>
+  <div class="f" style="margin-bottom:20px"><label>Пароль для входа бизнеса</label><input id="nPass" placeholder="придумай пароль"></div>
+  <div class="rowbtns"><button class="save" id="nSave">Создать</button><button class="ghost" id="nCancel" type="button">Отмена</button></div>
+</dialog>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="core-live.js?v=10"></script>
+<script>
+if (!localStorage.getItem('coreon_token')) location.replace('login.html');
+const H = () => ({ 'Content-Type':'application/json', 'X-Auth': localStorage.getItem('coreon_token') });
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (n||0).toLocaleString('ru-RU');
+let toastT;
+function toast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),3000); }
+
+function goLogin(){ localStorage.removeItem('coreon_token'); localStorage.removeItem('coreon_refresh'); location.replace('login.html'); }
+document.getElementById('logout').onclick = () => {
+  const rt = localStorage.getItem('coreon_refresh');
+  fetch('/api/logout', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ refresh_token: rt || '' }) })
+    .catch(()=>{}).then(goLogin);
+};
+
+// обновить access по refresh; true — получилось
+async function refreshAccess(){
+  const rt = localStorage.getItem('coreon_refresh');
+  if (!rt) return false;
+  const r = await fetch('/api/refresh', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ refresh_token: rt }) });
+  if (!r.ok) return false;
+  const d = await r.json();
+  if (!d.token) return false;
+  localStorage.setItem('coreon_token', d.token);
+  return true;
+}
+
+async function api(url, opts={}){
+  let r = await fetch(url, { headers:H(), ...opts });
+  if (r.status === 401){
+    if (await refreshAccess()) r = await fetch(url, { headers:H(), ...opts });
+    else { goLogin(); throw new Error('auth'); }
+    if (r.status === 401){ goLogin(); throw new Error('auth'); }
+  }
+  return r.json();
+}
+
+async function load(){
+  const list = document.getElementById('list');
+  let data;
+  try{ data = await api('/api/admin/overview'); }
+  catch(e){ if(e.message!=='auth') list.innerHTML = '<div class="muted">Сервер не отвечает — запусти python server.py</div>'; return; }
+
+  document.getElementById('kIncome').textContent = money(data.totals.income);
+  document.getElementById('kTurnover').textContent = money(data.totals.turnover);
+  document.getElementById('kOrders').textContent = data.totals.orders;
+  document.getElementById('kCount').textContent = data.totals.count;
+
+  if (!data.businesses.length){ list.innerHTML = '<div class="muted">Пока нет бизнесов. Нажми «+ Добавить бизнес».</div>'; return; }
+
+  list.innerHTML = data.businesses.map(b => `
+    <div class="biz" data-id="${b.id}">
+      <div class="row" role="button" tabindex="0">
+        <div><div class="nm">${esc(b.name)}</div><div class="about">${esc(b.about) || 'без описания'} · тариф ${esc(b.plan)||'—'}</div></div>
+        <div class="m"><div class="mv num">${b.clients_count}</div><div class="ml">клиентов</div></div>
+        <div class="m turn"><div class="mv num">${money(b.turnover)} ₽</div><div class="ml">оборот</div></div>
+        <div class="m fee"><div class="mv num">${money(b.fee)} ₽</div><div class="ml">абонплата</div></div>
+        <div class="chev">›</div>
+      </div>
+      <div class="detail">
+        <div class="tabs">
+          <button class="tab active" data-pane="set">Настройки</button>
+          <button class="tab" data-pane="chat">Чаты (${b.clients_count})</button>
+        </div>
+        <div class="pane set active">
+          <div class="fields">
+            <div class="f"><label>Название</label><input name="name" value="${esc(b.name)}"></div>
+            <div class="f"><label>Тариф</label><input name="plan" value="${esc(b.plan)}"></div>
+            <div class="f"><label>Абонплата ₽/мес</label><input name="fee" type="number" value="${b.fee||0}"></div>
+            <div class="f"><label>Токен бота (Telegram)</label><input name="tg_bot_token" value="${esc(b.tg_bot_token)}" placeholder="от @BotFather"></div>
+            <div class="f"><label>Логин входа бизнеса</label><input name="login" value="${esc(b.login)}" placeholder="логин сотрудника"></div>
+            <div class="f"><label>Пароль входа бизнеса</label><input name="password" value="" placeholder="пусто = не менять"></div>
+            <div class="f"><label>Чем занимается (для ИИ)</label><input name="about" value="${esc(b.about)}"></div>
+            <div class="f"><label>Приветствие клиенту</label><textarea name="greeting" rows="2">${esc(b.greeting)}</textarea></div>
+          </div>
+          <div class="rowbtns">
+            <button class="save">Сохранить</button>
+            <button class="del">Удалить бизнес</button>
+          </div>
+        </div>
+        <div class="pane chat">
+          <div class="chats">
+            <div class="chatlist muted">Загрузка…</div>
+            <div class="thread muted">Выбери чат слева.</div>
+          </div>
+        </div>
+      </div>
+    </div>`).join('');
+
+  list.querySelectorAll('.biz').forEach(bindBiz);
+}
+
+function bindBiz(el){
+  const id = el.dataset.id;
+  const row = el.querySelector('.row');
+  const toggle = () => { el.classList.toggle('open'); };
+  row.addEventListener('click', toggle);
+  row.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } });
+
+  // вкладки
+  el.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    el.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    el.querySelectorAll('.pane').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    el.querySelector('.pane.'+t.dataset.pane).classList.add('active');
+    if (t.dataset.pane === 'chat') loadChats(el, id);
+  }));
+
+  // сохранить настройки
+  el.querySelector('.save').addEventListener('click', async ev => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    const d = {};
+    el.querySelectorAll('.pane.set [name]').forEach(i => {
+      if (i.name === 'password' && !i.value.trim()) return;  // пустой пароль — не менять
+      d[i.name] = i.name==='fee' ? Number(i.value)||0 : i.value;
+    });
+    try{ await api('/api/admin/businesses/'+id, { method:'POST', body: JSON.stringify(d) }); toast('Сохранено — VELOR AI подстроился ✨'); load(); }
+    catch{ toast('Не сохранилось'); }
+    btn.disabled = false;
+  });
+
+  // удалить
+  el.querySelector('.del').addEventListener('click', async () => {
+    if (!confirm('Удалить бизнес со всеми заказами и чатами? Это навсегда.')) return;
+    try{ await api('/api/admin/businesses/'+id, { method:'DELETE' }); toast('Бизнес удалён'); load(); }
+    catch{ toast('Не удалось'); }
+  });
+}
+
+async function loadChats(el, id){
+  const listBox = el.querySelector('.chatlist');
+  const thread = el.querySelector('.thread');
+  if (listBox.dataset.loaded) return;
+  const chats = await api('/api/admin/businesses/'+id+'/chats');
+  listBox.dataset.loaded = '1';
+  if (!chats.length){ listBox.className='chatlist muted'; listBox.textContent='Чатов пока нет.'; return; }
+  listBox.className = 'chatlist';
+  listBox.innerHTML = chats.map(c => `
+    <button class="ci" data-cid="${c.client_id}">
+      <div class="cn">${esc(c.name)||'Клиент'} · ${c.msg_count}</div>
+      <div class="cl">${esc(c.last_msg)||''}</div>
+    </button>`).join('');
+  listBox.querySelectorAll('.ci').forEach(ci => ci.addEventListener('click', async () => {
+    listBox.querySelectorAll('.ci').forEach(x=>x.classList.remove('active')); ci.classList.add('active');
+    thread.className='thread muted'; thread.textContent='Загрузка…';
+    const msgs = await api('/api/admin/businesses/'+id+'/chats/'+ci.dataset.cid);
+    thread.className='thread';
+    thread.innerHTML = msgs.map(m => `<div class="msg ${m.role}">${esc(m.content)}<span class="t num">${esc((m.created_at||'').slice(11,16))}</span></div>`).join('');
+    thread.scrollTop = thread.scrollHeight;
+  }));
+}
+
+// добавление бизнеса
+const dlg = document.getElementById('addDlg');
+document.getElementById('addBtn').onclick = () => dlg.showModal();
+document.getElementById('nCancel').onclick = () => dlg.close();
+document.getElementById('nSave').onclick = async () => {
+  const name = document.getElementById('nName').value.trim();
+  if (!name){ toast('Впиши название'); return; }
+  await api('/api/admin/businesses', { method:'POST', body: JSON.stringify({
+    name, about: document.getElementById('nAbout').value.trim(),
+    greeting: document.getElementById('nGreet').value.trim(),
+    fee: Number(document.getElementById('nFee').value)||0,
+    login: document.getElementById('nLogin').value.trim(),
+    password: document.getElementById('nPass').value.trim()
+  })});
+  dlg.close(); toast('Бизнес создан'); load();
+};
+
+load();
+</script>
+</body>
+</html>

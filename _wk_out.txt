@@ -1,0 +1,16 @@
+week_start=2026-07-20
+FIN income=80000 expense=30000 profit=50000 inc_change=33 prof_change=43 top=[('реклама', 20000), ('закупки', 10000)]
+CLIENTS new=3 prev=1 msgs=3
+ORDERS new=3 done=2
+CONTENT count=2 prev=0
+GOALS [('Выручка 200 000 за месяц', 70, 'behind')]
+achievements=''
+mistakes=''
+finance_note=''
+content_note=''
+clients_note=''
+goals_note=''
+next_week=''
+cache same=True second_call=0.003s
+prev week income=60000 clients=1
+history weeks=['2026-07-20', '2026-07-13']

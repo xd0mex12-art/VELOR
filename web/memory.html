@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Память компании</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --verdant:#2fd4b2; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50; display:flex; align-items:center; justify-content:space-between;
+    padding:20px 24px; background:linear-gradient(180deg,rgba(0,0,0,.9),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); border-left:1px solid var(--hairline); padding-left:9px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.02em; color:var(--ash); background:none; border:none; transition:color .3s; }
+  .ghost:hover{ color:var(--bone); } .ghost.active{ color:var(--bone); }
+  @media(max-width:820px){ .nav-links .hideMob{ display:none; } }
+
+  main{ position:relative; z-index:1; max-width:1000px; margin:0 auto; padding:118px 24px 80px; }
+  .label{ font-weight:600; font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:#a99cff; }
+  h1{ font-weight:500; font-size:clamp(30px,4.4vw,48px); line-height:1.12; letter-spacing:-0.03em; margin:12px 0 8px; }
+  .sub{ color:var(--silver); margin-bottom:44px; max-width:600px; }
+
+  .sect{ font-weight:600; font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); margin:8px 0 16px; }
+
+  /* аналитика пользы */
+  .metrics{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:56px; }
+  @media(max-width:820px){ .metrics{ grid-template-columns:1fr 1fr; } }
+  .metric{ border:1px solid var(--hairline); border-radius:20px; padding:24px; background:rgba(255,255,255,.02); }
+  .metric .v{ font-weight:500; font-size:clamp(28px,4vw,40px); letter-spacing:-0.03em; }
+  .metric:nth-child(1) .v{ color:#c9bfff; }
+  .metric:nth-child(2) .v{ color:var(--verdant); }
+  .metric .l{ margin-top:8px; font-size:13px; color:var(--ash); }
+
+  /* блоки памяти */
+  .mem{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
+  @media(max-width:820px){ .mem{ grid-template-columns:1fr; } }
+  .card{ border:1px solid var(--hairline); border-radius:20px; padding:26px; background:rgba(255,255,255,.02); }
+  .card .ct{ font-weight:500; font-size:17px; margin-bottom:14px; display:flex; align-items:center; gap:9px; }
+  .card .dot{ width:8px; height:8px; border-radius:50%; background:#a99cff; }
+  .kv{ display:flex; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid var(--hairline); }
+  .kv:last-child{ border-bottom:none; }
+  .kv .k{ color:var(--ash); font-size:14px; } .kv .v{ font-weight:400; font-size:15px; text-align:right; }
+  .know{ white-space:pre-wrap; font-weight:200; font-size:14.5px; line-height:1.6; color:var(--silver); max-height:340px; overflow:auto; }
+  .empty{ color:var(--ash); }
+  .empty a{ color:#a99cff; }
+  .full{ grid-column:1/-1; }
+  .edit{ display:inline-block; margin-top:16px; font-size:14px; color:#a99cff; }
+  .edit:hover{ color:#fff; }
+
+  /* документы */
+  .drop{ border:1px dashed rgba(255,255,255,.18); border-radius:16px; padding:22px; text-align:center; color:var(--ash);
+    transition:border-color .25s, background .25s; cursor:pointer; }
+  .drop:hover, .drop.over{ border-color:#a99cff; background:rgba(128,82,255,.06); color:var(--silver); }
+  .drop b{ color:#a99cff; font-weight:500; }
+  .doc{ display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--hairline); }
+  .doc:last-child{ border-bottom:none; }
+  .doc .fn{ font-size:15px; } .doc .meta{ font-size:13px; color:var(--ash); margin-left:auto; }
+  .doc .del{ background:none; border:none; color:var(--ash); font-size:20px; line-height:1; padding:2px 8px; transition:color .2s; }
+  .doc .del:hover{ color:#ff6b6b; }
+  .docHint{ font-size:13px; color:var(--ash); margin-top:12px; }
+
+  /* списки памяти: услуги, товары, правила, цели */
+  .item{ display:flex; align-items:flex-start; gap:12px; padding:12px 0; border-bottom:1px solid var(--hairline); }
+  .item:last-of-type{ border-bottom:none; }
+  .item .txt{ flex:1; min-width:0; }
+  .item .t{ font-size:15px; font-weight:400; }
+  .item .b{ font-size:13.5px; color:var(--ash); margin-top:3px; white-space:pre-wrap; }
+  .item .act{ background:none; border:none; color:var(--ash); font-size:13px; padding:2px 6px; transition:color .2s; }
+  .item .act:hover{ color:#a99cff; }
+  .item .act.rm:hover{ color:#ff6b6b; }
+  .addRow{ display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
+  .addRow input{ flex:1; min-width:140px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:12px; padding:10px 14px; color:var(--bone); font-family:inherit; font-weight:200; font-size:14.5px; }
+  .addRow input.det{ flex:1.4; }
+  .addRow button{ border:none; border-radius:12px; background:var(--iris); color:#fff;
+    font-weight:600; font-size:12px; letter-spacing:.1em; text-transform:uppercase; padding:0 18px; min-height:40px; }
+  .know-edit{ width:100%; min-height:170px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:14px 16px; color:var(--bone); font-family:inherit; font-weight:200;
+    font-size:14.5px; line-height:1.6; resize:vertical; display:none; }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+
+<main>
+  <span class="label">Core · Память компании</span>
+  <h1>Что знает ваш AI.</h1>
+  <p class="sub">Всё, что VELOR запомнил о вашем бизнесе, и сколько пользы он уже принёс. Чем полнее память — тем точнее сотрудник.</p>
+
+  <div class="sect">Польза VELOR</div>
+  <div class="metrics">
+    <div class="metric"><div class="v num" id="m-msgs">—</div><div class="l">Обращений обработано</div></div>
+    <div class="metric"><div class="v num" id="m-time">—</div><div class="l">Времени сэкономлено</div></div>
+    <div class="metric"><div class="v num" id="m-orders">—</div><div class="l">Заявок оформлено</div></div>
+    <div class="metric"><div class="v num" id="m-clients">—</div><div class="l">Клиентов в памяти</div></div>
+  </div>
+
+  <div class="sect">Память</div>
+  <div class="mem">
+    <div class="card">
+      <div class="ct"><span class="dot"></span>Профиль компании</div>
+      <div class="kv"><span class="k">Название</span><span class="v" id="p-name">—</span></div>
+      <div class="kv"><span class="k">Сфера</span><span class="v" id="p-about">—</span></div>
+      <div class="kv"><span class="k">Стиль общения</span><span class="v" id="p-tone">—</span></div>
+      <div class="kv"><span class="k">Клиентов в базе</span><span class="v num" id="p-clients">—</span></div>
+      <a class="edit" href="onboarding.html">Дообучить сотрудника →</a>
+    </div>
+    <div class="card">
+      <div class="ct"><span class="dot"></span>Knowledge · знания</div>
+      <div class="know" id="know">Загружаю…</div>
+      <textarea class="know-edit" id="knowEdit"></textarea>
+      <a class="edit" href="#" id="knowToggle">Редактировать →</a>
+    </div>
+
+    <div class="card" data-kind="service">
+      <div class="ct"><span class="dot"></span>Услуги</div>
+      <div class="list"></div>
+      <div class="addRow">
+        <input class="ttl" placeholder="Название услуги" maxlength="160">
+        <input class="det" placeholder="Цена, срок, условия" maxlength="2000">
+        <button type="button">Добавить</button>
+      </div>
+    </div>
+
+    <div class="card" data-kind="product">
+      <div class="ct"><span class="dot"></span>Товары</div>
+      <div class="list"></div>
+      <div class="addRow">
+        <input class="ttl" placeholder="Название товара" maxlength="160">
+        <input class="det" placeholder="Цена, наличие, описание" maxlength="2000">
+        <button type="button">Добавить</button>
+      </div>
+    </div>
+
+    <div class="card" data-kind="rule">
+      <div class="ct"><span class="dot"></span>Правила работы</div>
+      <div class="list"></div>
+      <div class="addRow">
+        <input class="ttl" placeholder="Правило" maxlength="160">
+        <input class="det" placeholder="Подробности" maxlength="2000">
+        <button type="button">Добавить</button>
+      </div>
+    </div>
+
+    <div class="card" data-kind="goal">
+      <div class="ct"><span class="dot"></span>Цели бизнеса</div>
+      <div class="list"></div>
+      <div class="addRow">
+        <input class="ttl" placeholder="Цель" maxlength="160">
+        <input class="det" placeholder="Срок и как поймём, что достигли" maxlength="2000">
+        <button type="button">Добавить</button>
+      </div>
+    </div>
+
+    <div class="card full">
+      <div class="ct"><span class="dot"></span>Клиенты</div>
+      <div class="kv"><span class="k">В базе</span><span class="v num" id="c-count">—</span></div>
+      <div class="kv"><span class="k">Последний</span><span class="v" id="c-last">—</span></div>
+      <a class="edit" href="clients.html">Открыть базу клиентов — там можно править и удалять →</a>
+    </div>
+    <div class="card full">
+      <div class="ct"><span class="dot"></span>Документы · файлы компании</div>
+      <div class="drop" id="drop">Перетащите файл сюда или <b>выберите</b> — PDF, DOCX или TXT.<br>VELOR прочитает и будет отвечать по нему.</div>
+      <input type="file" id="fileInput" accept=".pdf,.docx,.txt" hidden>
+      <div id="docs" style="margin-top:16px"></div>
+      <div class="docHint">Прайсы, инструкции, FAQ, договоры — до 8 МБ. Файл разбивается на фрагменты, ядро находит нужный при ответе.</div>
+    </div>
+  </div>
+</main>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+const TONE = { professional:'Профессиональный', friendly:'Дружелюбный', strict:'Строгий' };
+function hours(mins){ if(!mins) return '0 мин'; if(mins<60) return mins+' мин'; return (mins/60).toFixed(mins<600?1:0)+' ч'; }
+
+(async () => {
+  try{
+    const b = await (await fetch('/api/business')).json();
+    document.getElementById('p-name').textContent = b.name || '—';
+    document.getElementById('p-about').textContent = b.about || '—';
+    document.getElementById('p-tone').textContent = TONE[b.tone] || 'не задан';
+    const know = document.getElementById('know');
+    if (b.knowledge && b.knowledge.trim()){ know.textContent = b.knowledge; }
+    else { know.className='know empty'; know.innerHTML = 'AI ещё не обучен. <a href="onboarding.html">Пройдите обучение →</a>'; }
+  }catch{}
+  try{
+    const s = await (await fetch('/api/stats')).json();
+    document.getElementById('m-msgs').textContent = s.messages;
+    document.getElementById('m-time').textContent = hours(s.minutes_saved);
+    document.getElementById('m-orders').textContent = s.orders_done;
+    document.getElementById('m-clients').textContent = s.clients;
+    document.getElementById('p-clients').textContent = s.clients;
+  }catch{}
+  try{
+    const cl = await (await fetch('/api/clients')).json();
+    const arr = cl.clients || cl || [];
+    document.getElementById('c-count').textContent = arr.length;
+    document.getElementById('c-last').textContent = arr.length ? (arr[0].name || arr[0].chat_id || '—') : '—';
+  }catch{}
+  loadDocs();
+  loadFacts();
+})();
+
+// ── знания: правим прямо здесь, без похода в настройки ──
+const knowBox = document.getElementById('know');
+const knowEdit = document.getElementById('knowEdit');
+document.getElementById('knowToggle').addEventListener('click', async e => {
+  e.preventDefault();
+  const link = e.currentTarget;
+  if (knowEdit.style.display !== 'block'){
+    knowEdit.value = knowBox.classList.contains('empty') ? '' : knowBox.textContent;
+    knowBox.style.display = 'none'; knowEdit.style.display = 'block';
+    link.textContent = 'Сохранить';
+    knowEdit.focus();
+    return;
+  }
+  const text = knowEdit.value.trim();
+  try{
+    const r = await fetch('/api/business', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ knowledge: text })
+    });
+    if (!r.ok) throw 0;
+    knowBox.className = text ? 'know' : 'know empty';
+    knowBox.textContent = text || 'Знаний пока нет.';
+    knowEdit.style.display = 'none'; knowBox.style.display = '';
+    link.textContent = 'Редактировать →';
+  }catch{ alert('Не удалось сохранить'); }
+});
+
+// ── услуги, товары, правила, цели ──
+function escq(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function loadFacts(){
+  let facts = [];
+  try{ facts = (await (await fetch('/api/facts')).json()).facts || []; }catch{}
+  document.querySelectorAll('.card[data-kind]').forEach(card => {
+    const mine = facts.filter(f => f.kind === card.dataset.kind);
+    card.querySelector('.list').innerHTML = mine.length ? mine.map(f => `
+      <div class="item" data-id="${f.id}">
+        <div class="txt">
+          <div class="t">${escq(f.title)}</div>
+          ${f.body ? `<div class="b">${escq(f.body)}</div>` : ''}
+        </div>
+        <button class="act ed" type="button">правка</button>
+        <button class="act rm" type="button">удалить</button>
+      </div>`).join('')
+      : '<div class="empty" style="font-size:14px">Пока пусто — добавьте первую запись ниже.</div>';
+  });
+}
+
+document.querySelectorAll('.card[data-kind]').forEach(card => {
+  const kind = card.dataset.kind;
+  const ttl = card.querySelector('.ttl'), det = card.querySelector('.det');
+
+  const add = async () => {
+    const title = ttl.value.trim();
+    if (!title){ ttl.focus(); return; }
+    try{
+      const r = await fetch('/api/facts', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ kind, title, body: det.value.trim() })
+      });
+      if (!r.ok) throw 0;
+      ttl.value = ''; det.value = '';
+      await loadFacts();
+    }catch{ alert('Не удалось добавить'); }
+  };
+  card.querySelector('.addRow button').addEventListener('click', add);
+  [ttl, det].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') add(); }));
+
+  card.querySelector('.list').addEventListener('click', async e => {
+    const row = e.target.closest('.item');
+    if (!row) return;
+    const id = row.dataset.id;
+
+    if (e.target.classList.contains('rm')){
+      if (!confirm('Удалить «' + row.querySelector('.t').textContent + '» из памяти?')) return;
+      await fetch('/api/facts/' + id + '/delete', { method:'POST' });
+      await loadFacts();
+      return;
+    }
+    if (e.target.classList.contains('ed')){
+      const title = prompt('Название', row.querySelector('.t').textContent);
+      if (title === null || !title.trim()) return;
+      const bodyEl = row.querySelector('.b');
+      const body = prompt('Подробности', bodyEl ? bodyEl.textContent : '');
+      if (body === null) return;
+      await fetch('/api/facts/' + id, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ kind, title: title.trim(), body: body.trim() })
+      });
+      await loadFacts();
+    }
+  });
+});
+
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+
+async function loadDocs(){
+  try{
+    const d = await (await fetch('/api/documents')).json();
+    const box = document.getElementById('docs');
+    const rows = d.documents || [];
+    box.innerHTML = rows.length ? rows.map(r => `
+      <div class="doc">
+        <span class="fn">${r.filename||'документ'}</span>
+        <span class="meta">${r.chunks} фрагм.</span>
+        <button class="del" data-id="${r.id}" title="Удалить">×</button>
+      </div>`).join('') : '';
+  }catch{}
+}
+
+async function upload(file){
+  if(!file) return;
+  drop.textContent = 'Читаю «' + file.name + '»…';
+  const fd = new FormData(); fd.append('file', file);
+  try{
+    const d = await (await fetch('/api/documents/upload', {method:'POST', body:fd})).json();
+    if(d.ok) drop.innerHTML = 'Готово: <b>' + d.chunks + ' фрагментов</b> добавлено в знания.';
+    else drop.textContent = d.error || 'Не удалось загрузить файл.';
+  }catch{ drop.textContent = 'Ошибка загрузки — проверьте сервер.'; }
+  setTimeout(() => { drop.innerHTML = 'Перетащите файл сюда или <b>выберите</b> — PDF, DOCX или TXT.'; }, 3500);
+  loadDocs();
+}
+
+drop.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => upload(e.target.files[0]));
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); upload(e.dataTransfer.files[0]); });
+document.getElementById('docs').addEventListener('click', async e => {
+  const b = e.target.closest('.del'); if(!b) return;
+  try{ await fetch('/api/documents/'+b.dataset.id+'/delete', {method:'POST'}); loadDocs(); }catch{}
+});
+</script>
+</body>
+</html>

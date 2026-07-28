@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Утренний брифинг</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:#a99cff;
+    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .date{ font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--ash); }
+  .greet{ font-weight:400; font-size:clamp(28px,3.6vw,40px); letter-spacing:-.03em;
+    line-height:1.2; margin:10px 0 34px; }
+
+  .cap{ font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--lilac); margin-bottom:9px; }
+
+  .today{ border:1px solid rgba(128,82,255,.28); background:rgba(128,82,255,.08);
+    border-radius:20px; padding:24px 28px; margin-bottom:26px; }
+  .today .txt{ font-size:20px; font-weight:400; line-height:1.4; }
+
+  .fin{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:26px; }
+  .f{ border:1px solid var(--hairline); border-radius:16px; padding:18px 20px; }
+  .f .k{ font-size:12px; color:var(--ash); }
+  .f .v{ font-size:23px; font-weight:400; letter-spacing:-.02em; margin-top:5px; }
+  .f .s{ font-size:12px; color:var(--ash); margin-top:3px; }
+  .f .v.plus{ color:var(--verdant); } .f .v.minus{ color:var(--coral); }
+
+  .pair{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:26px; }
+  .box{ border:1px solid var(--hairline); border-radius:18px; padding:20px 24px; }
+  .box .big{ font-size:27px; font-weight:400; letter-spacing:-.02em; }
+  .box .sm{ font-size:13px; color:var(--ash); margin-top:4px; }
+
+  .att{ border:1px solid rgba(255,184,41,.28); background:rgba(255,184,41,.05);
+    border-radius:18px; padding:20px 24px; margin-bottom:26px; }
+  .att li{ list-style:none; font-size:15px; color:var(--silver); padding-left:16px;
+    position:relative; margin-bottom:7px; }
+  .att li:last-child{ margin-bottom:0; }
+  .att li:before{ content:''; position:absolute; left:0; top:9px; width:5px; height:5px;
+    border-radius:50%; background:var(--saffron); }
+  .att.calm{ border-color:rgba(47,212,178,.25); background:rgba(47,212,178,.05); }
+  .att.calm li:before{ background:var(--verdant); }
+
+  .two{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:26px; }
+  .card2{ border:1px solid var(--hairline); border-radius:18px; padding:22px 24px; }
+  .card2.opp{ border-color:rgba(128,82,255,.28); }
+  .card2.risk{ border-color:rgba(255,107,107,.28); }
+  .card2 .t{ font-size:16px; font-weight:500; margin-bottom:7px; }
+  .card2 .a{ font-size:14px; color:var(--silver); }
+  .card2.risk .cap{ color:var(--coral); }
+
+  .rec{ border:1px solid rgba(128,82,255,.28); background:rgba(128,82,255,.08);
+    border-radius:20px; padding:24px 28px; }
+  .rec .txt{ font-size:16.5px; color:var(--silver); line-height:1.5; }
+
+  .foot{ display:flex; gap:18px; align-items:center; margin-top:30px; font-size:14px; color:var(--ash); }
+  .foot button{ background:none; border:none; color:var(--lilac); font-size:14px; }
+  .foot button:hover{ color:#fff; }
+
+  @media(max-width:820px){ .fin{ grid-template-columns:1fr 1fr; }
+    .pair,.two{ grid-template-columns:1fr; } }
+  @media(max-width:520px){ .today,.rec{ padding:20px; } .today .txt{ font-size:17.5px; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <div id="report">Собираю брифинг…</div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+
+function longDate(iso){
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' });
+}
+function sign(n){ return n > 0 ? 'plus' : (n < 0 ? 'minus' : ''); }
+function plural(n, one, few, many){
+  const n10 = n % 10, n100 = n % 100;
+  if (n10 === 1 && n100 !== 11) return n + ' ' + one;
+  if (n10 >= 2 && n10 <= 4 && !(n100 >= 12 && n100 <= 14)) return n + ' ' + few;
+  return n + ' ' + many;
+}
+
+function render(p){
+  const att = p.attention || [];
+  return `
+    <div class="date">${esc(longDate(p.date))} · утренний брифинг</div>
+    <div class="greet">${esc(p.greeting || 'Доброе утро.')}</div>
+
+    ${p.today ? `<div class="today"><div class="cap">Сегодня важно</div>
+      <div class="txt">${esc(p.today)}</div></div>` : ''}
+
+    <div class="cap">Финансы</div>
+    <div class="fin">
+      <div class="f"><div class="k">Доход вчера</div>
+        <div class="v num">${money(p.income_yday)}</div></div>
+      <div class="f"><div class="k">Расход вчера</div>
+        <div class="v num">${money(p.expense_yday)}</div></div>
+      <div class="f"><div class="k">Прибыль вчера</div>
+        <div class="v num ${sign(p.profit_yday)}">${money(p.profit_yday)}</div></div>
+      <div class="f"><div class="k">Прибыль за месяц</div>
+        <div class="v num ${sign(p.profit_month)}">${money(p.profit_month)}</div>
+        <div class="s">доход ${money(p.income_month)}</div></div>
+    </div>
+
+    <div class="pair">
+      <div class="box"><div class="cap">Новые заявки</div>
+        <div class="big num">${p.orders_new}</div>
+        <div class="sm">вчера · всего необработанных ${p.orders_open}</div></div>
+      <div class="box"><div class="cap">Новые клиенты</div>
+        <div class="big num">${p.clients_new}</div>
+        <div class="sm">вчера пришли в базу</div></div>
+    </div>
+
+    <div class="att ${att.length ? '' : 'calm'}">
+      <div class="cap">Что требует внимания</div>
+      <ul>${att.length
+        ? att.map(a => `<li>${esc(a)}</li>`).join('')
+        : '<li>Ничего не горит — можно заниматься развитием.</li>'}</ul>
+      ${p.attention_note ? `<div class="sm">${esc(p.attention_note)}</div>` : ''}
+    </div>
+
+    <div class="two">
+      <div class="card2 opp"><div class="cap">Возможность дня</div>
+        ${p.opportunity
+          ? `<div class="t">${esc(p.opportunity.title)}</div><div class="a">${esc(p.opportunity.action)}</div>`
+          : '<div class="a">Пока не нашёл — загляните в «Возможности» и запустите поиск.</div>'}</div>
+      <div class="card2 risk"><div class="cap">Риск дня</div>
+        ${p.risk
+          ? `<div class="t">${esc(p.risk.title)}</div><div class="a">${esc(p.risk.action)}</div>`
+          : '<div class="a">Явных угроз не вижу.</div>'}</div>
+    </div>
+
+    ${p.advice ? `<div class="rec"><div class="cap">Рекомендация сотрудника</div>
+      <div class="txt">${esc(p.advice)}</div></div>` : ''}
+
+    <div class="foot">
+      <button type="button" id="again">Пересобрать</button>
+      <a href="journal.html">Дневник — что было раньше →</a>
+    </div>`;
+}
+
+async function load(force){
+  const box = document.getElementById('report');
+  if (force) box.textContent = 'Пересобираю…';
+  try{
+    const d = force
+      ? await (await fetch('/api/briefing/refresh', { method:'POST' })).json()
+      : await (await fetch('/api/briefing')).json();
+    box.innerHTML = render(d.payload || {});
+    document.getElementById('again').addEventListener('click', () => load(true));
+    if (!force) fetch('/api/briefing/seen', { method:'POST' });   // прочитан — сегодня не всплываем
+  }catch{ box.textContent = 'Не получилось собрать брифинг — нет связи с сервером.'; }
+}
+load(false);
+</script>
+</body>
+</html>

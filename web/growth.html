@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Продвижение</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
+
+  main{ position:relative; z-index:1; max-width:900px; margin:0 auto; padding:140px 24px 100px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:16px 0 12px; }
+  .lead{ color:var(--silver); font-weight:200; margin-bottom:48px; max-width:600px; }
+
+  section{ margin-bottom:44px; }
+  .sec-h{ font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:16px; }
+  .panel{ background:rgba(255,255,255,.03); border:1px solid var(--hairline); border-radius:22px; padding:24px; }
+
+  textarea, input{ width:100%; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:14px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; transition:.3s; }
+  textarea{ min-height:140px; resize:vertical; }
+  textarea:focus, input:focus{ border-color:var(--iris); box-shadow:0 0 16px rgba(128,82,255,.28); outline:none; }
+
+  .btn{ min-height:48px; padding:12px 30px; border-radius:26px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:14px; letter-spacing:.12em; text-transform:uppercase; transition:filter .2s; margin-top:14px; }
+  .btn:hover{ filter:brightness(1.2) drop-shadow(0 0 16px rgba(128,82,255,.5)); }
+  .btn:disabled{ opacity:.5; }
+
+  .tasks{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:14px; }
+  .task{ padding:11px 20px; border-radius:14px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    color:var(--silver); font-weight:500; font-size:14px; transition:.2s; }
+  .task:hover{ color:#fff; }
+  .task.sel{ border-color:var(--iris); background:rgba(128,82,255,.14); color:#fff; }
+
+  .out{ margin-top:18px; color:var(--silver); font-weight:200; font-size:16px; line-height:1.65;
+    white-space:pre-line; min-height:24px; }
+  .out.filled{ color:var(--bone); }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none; transition:.3s; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+
+
+<main>
+  <span class="label">// Growth · AI-маркетолог</span>
+  <h1>Продвижение.</h1>
+  <p class="lead">VELOR разбирает ваши тексты как маркетолог и пишет контент под ваш бизнес — с учётом продуктов и клиентов.</p>
+
+  <section>
+    <div class="sec-h">Анализатор контента</div>
+    <div class="panel">
+      <textarea id="anText" placeholder="Вставьте пост, описание товара или рекламный текст — VELOR разберёт заголовок, оффер, CTA и шанс привлечь клиента."></textarea>
+      <button class="btn" id="anBtn">Проанализировать</button>
+      <div class="out" id="anOut"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h">Генератор контента</div>
+    <div class="panel">
+      <div class="tasks" id="tasks">
+        <button type="button" class="task sel" data-task="plan">Контент-план на месяц</button>
+        <button type="button" class="task" data-task="post">Написать пост</button>
+        <button type="button" class="task" data-task="ad">Написать рекламу</button>
+      </div>
+      <input id="genTopic" maxlength="160" placeholder="Тема или повод (необязательно) — напр. «скидка ко Дню матери»">
+      <button class="btn" id="genBtn">Сгенерировать</button>
+      <div class="out" id="genOut"></div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT, selectedTask = 'plan';
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+document.getElementById('tasks').addEventListener('click', e => {
+  const b = e.target.closest('.task'); if(!b) return;
+  selectedTask = b.dataset.task;
+  document.querySelectorAll('.task').forEach(t => t.classList.toggle('sel', t===b));
+});
+
+async function run(url, payload, btn, out){
+  out.textContent = 'VELOR думает…'; out.classList.remove('filled'); btn.disabled = true;
+  try{
+    const d = await (await fetch(url, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    })).json();
+    if(d.ok && d.answer){ out.textContent = d.answer; out.classList.add('filled'); }
+    else out.textContent = 'ИИ сейчас недоступен — попробуйте позже.';
+  }catch{ out.textContent = 'Ошибка — проверьте сервер.'; }
+  btn.disabled = false;
+}
+
+document.getElementById('anBtn').addEventListener('click', e => {
+  const text = document.getElementById('anText').value.trim();
+  if(!text){ toast('Вставьте текст для разбора'); return; }
+  run('/api/growth/analyze', {text}, e.currentTarget, document.getElementById('anOut'));
+});
+
+document.getElementById('genBtn').addEventListener('click', e => {
+  run('/api/growth/generate', {task:selectedTask, topic:document.getElementById('genTopic').value.trim()},
+      e.currentTarget, document.getElementById('genOut'));
+});
+</script>
+</body>
+</html>

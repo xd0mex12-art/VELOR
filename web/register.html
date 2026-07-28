@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Регистрация бизнеса</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --iris:#8052ff; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:24px 0; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+  .card{ position:relative; z-index:1; width:min(92vw,420px); text-align:center; padding:20px; }
+  .logo{ display:inline-flex; align-items:center; gap:10px; font-weight:400; font-size:20px; letter-spacing:.14em; margin-bottom:32px; }
+  h1{ font-weight:400; font-size:32px; letter-spacing:-0.03em; margin-bottom:8px; }
+  .sub{ color:var(--ash); font-size:14px; margin-bottom:32px; }
+  input{ width:100%; min-height:50px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:16px; padding:14px 18px; margin-bottom:14px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px;
+    transition:border-color .3s, box-shadow .3s; }
+  input:focus{ border-color:var(--iris); box-shadow:0 0 18px rgba(128,82,255,.3); outline:none; }
+  button{ width:100%; min-height:52px; margin-top:8px; border:none; border-radius:28px; background:var(--iris); color:#fff;
+    font-family:inherit; font-weight:600; font-size:14px; letter-spacing:.15em; text-transform:uppercase; cursor:pointer; transition:filter .2s; }
+  button:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+  button:disabled{ opacity:.4; }
+  .err{ color:#ff4fd8; font-size:14px; min-height:20px; margin-top:12px; }
+  .alt{ margin-top:22px; font-size:14px; color:var(--ash); }
+  .alt a{ color:var(--iris); text-decoration:none; }
+  .consent{ display:flex; align-items:flex-start; gap:10px; text-align:left; margin:4px 2px 6px;
+    font-size:12.5px; line-height:1.5; color:var(--ash); }
+  .consent input{ width:18px; height:18px; min-height:0; margin:2px 0 0; flex:none; accent-color:var(--iris); cursor:pointer; }
+  .consent a{ color:#a99cff; text-decoration:none; } .consent a:hover{ color:#fff; }
+</style>
+</head>
+<body>
+<canvas id="ambientCanvas"></canvas>
+<div class="card">
+  <a class="logo" href="index.html"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 1 L17 16 L1 16 Z" fill="#8052ff"/></svg>VELOR AI</a>
+  <h1>Подключить бизнес</h1>
+  <p class="sub">Создайте аккаунт за минуту — дальше подскажем, как включить бота</p>
+  <form id="f" autocomplete="off">
+    <input id="name" placeholder="Название бизнеса (напр. Барбершоп BRODA)" maxlength="120">
+    <input id="about" placeholder="Чем занимаетесь (напр. стрижки и бороды)" maxlength="200">
+    <input id="login" placeholder="Придумайте логин" autocomplete="username">
+    <input id="pass" type="password" placeholder="Придумайте пароль" autocomplete="new-password">
+    <label class="consent">
+      <input type="checkbox" id="consent">
+      <span>Я принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и даю <a href="consent.html" target="_blank" rel="noopener">Согласие на обработку персональных данных</a> (<a href="privacy.html" target="_blank" rel="noopener">Политика конфиденциальности</a>).</span>
+    </label>
+    <button type="submit" id="btn">Зарегистрироваться</button>
+    <div class="err" id="err"></div>
+  </form>
+  <div class="alt">Уже есть аккаунт? <a href="biz-login.html">Войти</a></div>
+</div>
+<script src="core-live.js?v=10"></script>
+<script>
+if (localStorage.getItem('coreon_biz_token')) location.replace('dashboard.html');
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = document.getElementById('btn'), err = document.getElementById('err');
+  if (!document.getElementById('consent').checked){
+    err.textContent = 'Отметьте согласие с условиями, чтобы продолжить.';
+    return;
+  }
+  btn.disabled = true; err.textContent = '';
+  const body = {
+    name: document.getElementById('name').value.trim(),
+    about: document.getElementById('about').value.trim(),
+    login: document.getElementById('login').value.trim(),
+    password: document.getElementById('pass').value,
+    consent: true,
+  };
+  try{
+    const r = await fetch('/api/register', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok){
+      localStorage.setItem('coreon_biz_token', d.token);
+      if (d.refresh_token) localStorage.setItem('coreon_biz_refresh', d.refresh_token);
+      localStorage.setItem('coreon_biz_name', d.name || 'бизнес');
+      location.replace('onboarding.html');   // сперва обучаем сотрудника — профиль компании
+    } else {
+      err.textContent = d.detail || 'Не получилось. Попробуйте ещё раз.';
+    }
+  }catch{ err.textContent = 'Сервер не отвечает'; }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

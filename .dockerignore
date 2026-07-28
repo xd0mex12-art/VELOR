@@ -1,0 +1,34 @@
+# Секреты и данные — не попадают в образ (передаются томами/переменными).
+.env
+.env.*
+.jwt_secret
+*.db
+data/
+logs/
+backups/
+uploads/
+certbot/
+
+# Служебное
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.claude/
+
+# Черновики и не относящееся к продукту
+agents/
+medsklad/
+portfolio/
+_*.txt
+_*.html
+t.html
+body.html
+row.json
+kwork_*.png
+kwork_*.svg
+карусель_*.html
+курс_*.md
+Kwork_*.md
+*_ТЗ*.md
+ТЗ_*.md

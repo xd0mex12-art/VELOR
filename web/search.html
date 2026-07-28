@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Поиск по бизнесу</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:#a99cff;
+    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .ask{ display:flex; gap:10px; margin-bottom:16px; }
+  .ask input{ flex:1; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:16px; padding:15px 20px; color:var(--bone); font-family:inherit;
+    font-weight:200; font-size:16.5px; }
+  .ask input:focus{ border-color:var(--iris); outline:none; box-shadow:0 0 18px rgba(128,82,255,.18); }
+  .ask button{ border:none; border-radius:16px; background:var(--iris); color:#fff; font-weight:600;
+    font-size:13px; letter-spacing:.1em; text-transform:uppercase; padding:0 26px; }
+  .ask button:disabled{ opacity:.4; }
+
+  .tries{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:34px; }
+  .try{ font-size:13px; padding:8px 14px; border-radius:16px; background:rgba(255,255,255,.04);
+    border:1px solid var(--hairline); color:var(--ash); transition:color .2s, border-color .2s; }
+  .try:hover{ color:#fff; border-color:var(--lilac); }
+
+  .answer{ border:1px solid rgba(128,82,255,.28); background:rgba(128,82,255,.08);
+    border-radius:20px; padding:22px 26px; margin-bottom:12px; }
+  .answer .cap{ font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--lilac); margin-bottom:8px; }
+  .answer .txt{ font-size:17px; line-height:1.5; }
+  .meta{ font-size:12.5px; color:var(--ash); margin-bottom:30px; }
+  .meta b{ color:var(--silver); font-weight:400; }
+
+  .grp{ font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ash); margin:28px 0 12px; }
+  .r{ display:flex; gap:14px; align-items:flex-start; padding:13px 0;
+    border-bottom:1px solid var(--hairline); }
+  .r:last-child{ border-bottom:none; }
+  .r .pin{ width:8px; height:8px; border-radius:50%; margin-top:8px; flex:none; }
+  .r .b{ flex:1; min-width:0; }
+  .r .t{ font-size:15px; }
+  .r .s{ font-size:13px; color:var(--ash); margin-top:3px; }
+  .r .am{ font-variant-numeric:tabular-nums; font-size:14.5px; flex:none; }
+  .r .am.minus{ color:var(--coral); } .r .am.plus{ color:var(--verdant); }
+
+  .tot{ border:1px solid var(--hairline); border-radius:16px; padding:16px 20px; margin-bottom:12px;
+    display:flex; gap:26px; flex-wrap:wrap; font-size:14.5px; }
+  .tot b{ font-weight:400; font-variant-numeric:tabular-nums; }
+  .empty{ color:var(--ash); padding:22px 0; }
+  @media(max-width:620px){ .ask{ flex-direction:column; } .ask button{ padding:14px; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <span class="label">Core · Поиск</span>
+  <h1>Спросите про свой бизнес.</h1>
+  <p class="sub">Один вопрос — сотрудник ищет сразу по памяти, документам, клиентам,
+    заказам, финансам и переписке.</p>
+
+  <form class="ask" id="f" autocomplete="off">
+    <input id="q" placeholder="Например: какие расходы были на рекламу в июне?">
+    <button type="submit" id="go">Найти</button>
+  </form>
+  <div class="tries" id="tries"></div>
+
+  <div id="out"></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+const day = s => (s || '').slice(0, 10).split('-').reverse().join('.');
+
+const SAMPLES = [
+  'Покажи всех клиентов, которые покупали розы',
+  'Найди документы про доставку',
+  'Какие расходы были на рекламу в июне?',
+  'Что клиенты спрашивали про цены?',
+];
+document.getElementById('tries').innerHTML =
+  SAMPLES.map(s => `<button class="try" type="button">${esc(s)}</button>`).join('');
+document.getElementById('tries').addEventListener('click', e => {
+  const b = e.target.closest('.try');
+  if (!b) return;
+  document.getElementById('q').value = b.textContent;
+  document.getElementById('f').dispatchEvent(new Event('submit'));
+});
+
+function group(title, items, render, color){
+  if (!items || !items.length) return '';
+  return `<div class="grp">${esc(title)} · ${items.length}</div>` +
+    items.map(i => `<div class="r"><span class="pin" style="background:${color}"></span>${render(i)}</div>`).join('');
+}
+
+function render(d){
+  const f = d.found || {};
+  let html = '';
+
+  if (d.answer)
+    html += `<div class="answer"><div class="cap">Ответ сотрудника</div>
+      <div class="txt">${esc(d.answer)}</div></div>`;
+
+  const period = d.since || d.until
+    ? ` · период ${d.since ? day(d.since) : '…'} — ${d.until ? day(d.until) : '…'}` : '';
+  html += `<div class="meta">Искал по словам: <b>${(d.terms || []).map(esc).join(', ') || '—'}</b>${period}
+    · найдено записей: <b>${d.hits}</b></div>`;
+
+  const t = f.finance_totals || {};
+  if (t.n)
+    html += `<div class="tot"><span>Операций: <b>${t.n}</b></span>
+      <span>Доходы: <b>${money(t.income)}</b></span>
+      <span>Расходы: <b>${money(t.expense)}</b></span></div>`;
+
+  html += group('Клиенты', f.clients, c =>
+    `<div class="b"><div class="t">${esc(c.name || 'без имени')}</div>
+      <div class="s">заказов: ${c.orders_count || 0}${c.phone ? ' · ' + esc(c.phone) : ''}</div></div>`, '#2fd4b2');
+
+  html += group('Заказы', f.orders, o =>
+    `<div class="b"><div class="t">${esc(o.text || 'без описания')}</div>
+      <div class="s">№${o.id} · ${esc(o.status || '')}${o.client ? ' · ' + esc(o.client) : ''}</div></div>
+     ${o.amount ? `<span class="am">${money(o.amount)}</span>` : ''}`, '#8052ff');
+
+  html += group('Документы', f.documents, d2 =>
+    `<div class="b"><div class="t">${esc(d2.filename)}</div>
+      <div class="s">${esc((d2.excerpt || '').slice(0, 160))}</div></div>`, '#a99cff');
+
+  html += group('Финансы', f.finance, o =>
+    `<div class="b"><div class="t">${esc(o.note || o.category || 'операция')}</div>
+      <div class="s">${day(o.day)} · ${esc(o.category || '')}${o.counterparty ? ' · ' + esc(o.counterparty) : ''}</div></div>
+     <span class="am ${o.kind === 'income' ? 'plus' : 'minus'}">${o.kind === 'income' ? '+' : '−'}${money(o.amount)}</span>`, '#ffb829');
+
+  html += group('Переписка', f.messages, m =>
+    `<div class="b"><div class="t">${esc((m.content || '').slice(0, 180))}</div>
+      <div class="s">${m.role === 'user' ? 'клиент' : 'сотрудник'}${m.client ? ' · ' + esc(m.client) : ''}</div></div>`, '#5b9cff');
+
+  html += group('Память', f.memory, m =>
+    `<div class="b"><div class="t">${esc(m.title)}</div>
+      <div class="s">${esc(m.kind)}${m.body ? ' · ' + esc(m.body.slice(0, 120)) : ''}</div></div>`, '#ff4fd8');
+
+  if (f.knowledge && f.knowledge.length)
+    html += group('База знаний', f.knowledge, k =>
+      `<div class="b"><div class="t">${esc(k.slice(0, 200))}</div></div>`, '#ff4fd8');
+
+  if (!d.hits && !d.answer) html += '<div class="empty">Ничего не нашлось.</div>';
+  return html;
+}
+
+document.getElementById('f').addEventListener('submit', async e => {
+  e.preventDefault();
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('go'), out = document.getElementById('out');
+  btn.disabled = true;
+  out.innerHTML = '<div class="empty">Ищу по всей базе…</div>';
+  try{
+    const r = await fetch('/api/search', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question: q })
+    });
+    const d = await r.json();
+    out.innerHTML = r.ok ? render(d)
+      : `<div class="empty">${esc(d.detail || 'Не получилось выполнить поиск')}</div>`;
+  }catch{ out.innerHTML = '<div class="empty">Сервер не ответил.</div>'; }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

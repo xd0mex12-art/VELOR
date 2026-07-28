@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Цели бизнеса</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:#a99cff;
+    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .goal{ border:1px solid var(--hairline); border-radius:22px; padding:26px 28px;
+    background:rgba(255,255,255,.02); margin-bottom:16px; }
+  .goal.done{ opacity:.55; }
+  .g-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+  .g-title{ font-weight:500; font-size:19px; }
+  .g-metric{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--lilac); }
+  .g-acts{ margin-left:auto; display:flex; gap:4px; }
+  .g-acts button{ background:none; border:none; color:var(--ash); font-size:13px;
+    padding:3px 7px; transition:color .2s; }
+  .g-acts button:hover{ color:var(--lilac); }
+  .g-acts button.rm:hover{ color:var(--coral); }
+
+  .g-nums{ display:flex; align-items:baseline; gap:10px; margin:16px 0 10px; }
+  .g-cur{ font-size:32px; font-weight:400; letter-spacing:-.03em; }
+  .g-of{ color:var(--ash); font-size:15px; }
+  .g-pct{ margin-left:auto; font-size:15px; font-weight:500; }
+
+  .track{ height:7px; border-radius:5px; background:rgba(255,255,255,.07); overflow:hidden; }
+  .track span{ display:block; height:100%; width:0; border-radius:5px; background:var(--iris);
+    transition:width 1s cubic-bezier(.22,1,.36,1); }
+
+  .g-meta{ display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; font-size:13px; }
+  .chip{ padding:5px 12px; border-radius:14px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); }
+  .chip.ahead{ color:var(--verdant); border-color:rgba(47,212,178,.3); }
+  .chip.behind{ color:var(--saffron); border-color:rgba(255,184,41,.3); }
+  .chip.late{ color:var(--coral); border-color:rgba(255,107,107,.3); }
+
+  .g-advice{ margin-top:18px; padding:16px 18px; border-radius:16px;
+    background:rgba(128,82,255,.07); border:1px solid rgba(128,82,255,.2); }
+  .g-advice .cap{ font-size:11px; letter-spacing:.15em; text-transform:uppercase;
+    color:var(--lilac); font-weight:500; margin-bottom:7px; }
+  .g-advice .txt{ font-size:14.5px; color:var(--silver); line-height:1.55; }
+
+  .newgoal{ border:1px dashed rgba(255,255,255,.18); border-radius:22px; padding:24px 28px; }
+  .newgoal .cap{ font-weight:500; font-size:16px; margin-bottom:16px; }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; }
+  .row > *{ background:rgba(255,255,255,.05); border:1px solid var(--hairline); border-radius:12px;
+    padding:11px 15px; color:var(--bone); font-family:inherit; font-weight:200; font-size:14.5px; }
+  .row select{ min-width:170px; } .row select option{ background:#0a0a0a; }
+  .row .t{ flex:1; min-width:180px; } .row .n{ width:150px; } .row .d{ width:170px; }
+  .row button{ border:none; background:var(--iris); color:#fff; font-weight:600; font-size:12px;
+    letter-spacing:.1em; text-transform:uppercase; padding:0 22px; min-height:44px; }
+  .hint{ font-size:13px; color:var(--ash); margin-top:12px; }
+  .empty{ color:var(--ash); margin-bottom:16px; }
+  @media(max-width:620px){ .goal,.newgoal{ padding:20px; } .row > *{ width:100%; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <span class="label">Core · Цели</span>
+  <h1>Куда идём.</h1>
+  <p class="sub">Поставьте измеримую цель — прогресс считается сам из ваших заказов, клиентов и финансов.
+    Каждый день сотрудник смотрит, успеваете ли вы, и предлагает шаг на сегодня.</p>
+
+  <div id="list"><div class="empty">Загружаю…</div></div>
+
+  <div class="newgoal">
+    <div class="cap">Новая цель</div>
+    <div class="row">
+      <select id="metric"></select>
+      <input class="t" id="title" placeholder="Название цели, например «Выйти на 300 000 в месяц»" maxlength="160">
+      <input class="n num" id="target" type="number" min="1" placeholder="Сколько">
+      <input class="d" id="deadline" type="date">
+      <button type="button" id="add">Поставить</button>
+    </div>
+    <div class="hint" id="hint">Доход, прибыль, клиенты и заявки считаются автоматически с сегодняшнего дня.
+      Подписчиков вносите сами — соцсети мы не читаем.</div>
+  </div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const fmt = n => (n || 0).toLocaleString('ru-RU');
+
+let METRICS = {};
+
+function paceChip(g){
+  if (g.days_left === null) return '';
+  if (g.days_left < 0) return `<span class="chip late">срок прошёл ${-g.days_left} дн. назад</span>`;
+  const days = `<span class="chip">осталось ${g.days_left} дн.</span>`;
+  if (g.pace === 'behind')
+    return days + `<span class="chip behind">отстаём${g.per_day ? ' · нужно по ' + fmt(g.per_day) + ' ' + g.unit + ' в день' : ''}</span>`;
+  if (g.pace === 'ahead') return days + '<span class="chip ahead">идём с опережением</span>';
+  return days;
+}
+
+function card(g){
+  const done = g.status !== 'active';
+  return `
+  <div class="goal ${done ? 'done' : ''}" data-id="${g.id}" data-metric="${g.metric}">
+    <div class="g-head">
+      <span class="g-title">${esc(g.title)}</span>
+      <span class="g-metric">${esc(g.metric_name)}</span>
+      <span class="g-acts">
+        ${g.metric === 'subscribers' && !done ? '<button class="val" type="button">внести число</button>' : ''}
+        ${done ? '<button class="back" type="button">вернуть в работу</button>'
+               : '<button class="fin" type="button">достигнута</button>'}
+        <button class="ed" type="button">правка</button>
+        <button class="rm" type="button">удалить</button>
+      </span>
+    </div>
+    <div class="g-nums">
+      <span class="g-cur num">${fmt(g.current)}</span>
+      <span class="g-of">из ${fmt(g.target)} ${esc(g.unit)}</span>
+      <span class="g-pct num">${g.percent}%</span>
+    </div>
+    <div class="track"><span data-w="${g.percent}"></span></div>
+    <div class="g-meta">
+      ${paceChip(g)}
+      ${g.left > 0 && !done ? `<span class="chip">осталось набрать ${fmt(g.left)} ${esc(g.unit)}</span>` : ''}
+      ${done ? '<span class="chip ahead">цель закрыта</span>' : ''}
+    </div>
+    ${g.advice && !done ? `<div class="g-advice"><div class="cap">Шаг на сегодня</div>
+      <div class="txt">${esc(g.advice)}</div></div>` : ''}
+  </div>`;
+}
+
+async function load(){
+  let d;
+  try{ d = await (await fetch('/api/goals')).json(); }
+  catch{ document.getElementById('list').innerHTML = '<div class="empty">Нет связи с сервером.</div>'; return; }
+
+  METRICS = d.metrics || {};
+  const sel = document.getElementById('metric');
+  if (!sel.options.length)
+    sel.innerHTML = Object.entries(METRICS).map(([k, m]) => `<option value="${k}">${m.name}</option>`).join('');
+
+  const goals = d.goals || [];
+  document.getElementById('list').innerHTML = goals.length
+    ? goals.map(card).join('')
+    : '<div class="empty">Целей пока нет. Поставьте первую — сотрудник начнёт вести вас к ней.</div>';
+
+  // полоски заполняем после вставки, чтобы сработал переход
+  setTimeout(() => document.querySelectorAll('.track span')
+    .forEach(b => b.style.width = b.dataset.w + '%'), 60);
+}
+
+document.getElementById('add').addEventListener('click', async () => {
+  const title = document.getElementById('title').value.trim();
+  const target = parseInt(document.getElementById('target').value, 10);
+  if (!title){ toast('Напишите, какая это цель'); return; }
+  if (!target || target <= 0){ toast('Укажите число, к которому идём'); return; }
+  try{
+    const r = await fetch('/api/goals', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ metric: document.getElementById('metric').value, title, target,
+                             deadline: document.getElementById('deadline').value || null })
+    });
+    if (!r.ok) throw 0;
+    document.getElementById('title').value = '';
+    document.getElementById('target').value = '';
+    toast('Цель поставлена');
+    await load();
+  }catch{ toast('Не удалось поставить цель'); }
+});
+
+const patch = (id, body) => fetch('/api/goals/' + id, {
+  method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+
+document.getElementById('list').addEventListener('click', async e => {
+  const btn = e.target.closest('button');
+  const box = e.target.closest('.goal');
+  if (!btn || !box) return;
+  const id = box.dataset.id;
+  const title = box.querySelector('.g-title').textContent;
+
+  if (btn.classList.contains('rm')){
+    if (!confirm('Удалить цель «' + title + '»?')) return;
+    await fetch('/api/goals/' + id + '/delete', { method:'POST' });
+  } else if (btn.classList.contains('fin')){
+    await patch(id, { status:'done' });
+    toast('Поздравляю с целью');
+  } else if (btn.classList.contains('back')){
+    await patch(id, { status:'active' });
+  } else if (btn.classList.contains('val')){
+    const v = prompt('Сколько подписчиков сейчас?', box.querySelector('.g-cur').textContent.replace(/\D/g, ''));
+    if (v === null) return;
+    await patch(id, { manual_value: parseInt(v, 10) || 0 });
+  } else if (btn.classList.contains('ed')){
+    const t = prompt('Название цели', title);
+    if (t === null || !t.trim()) return;
+    const cur = box.querySelector('.g-of').textContent.replace(/\D/g, '');
+    const n = prompt('К какому числу идём?', cur);
+    if (n === null) return;
+    await patch(id, { title: t.trim(), target: parseInt(n, 10) || undefined });
+  } else return;
+
+  await load();
+});
+
+load();
+</script>
+</body>
+</html>

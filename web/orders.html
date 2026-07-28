@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Заказы</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --magenta:#ff4fd8;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{
+    background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden;
+  }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+
+  .label{ font-weight:600; font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:#a99cff; }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  /* блок «Сегодня важно» */
+  .today{ margin-bottom:64px; }
+  .today .label{ display:block; margin-bottom:20px; }
+  .today-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
+  @media(max-width:900px){ .today-grid{ grid-template-columns:1fr 1fr; } }
+  @media(max-width:560px){ .today-grid{ grid-template-columns:1fr; } }
+  .tcard{ border:1px solid var(--hairline); border-radius:20px; padding:24px; background:rgba(255,255,255,.02);
+    transition:border-color .3s, background .3s; }
+  .tcard:hover{ border-color:rgba(128,82,255,.3); background:rgba(128,82,255,.04); }
+  .tcard .tv{ font-weight:500; font-size:clamp(30px,4vw,44px); letter-spacing:-0.03em; }
+  .tcard.attention .tv{ color:#c9bfff; }
+  .tcard .tl{ margin-top:8px; font-weight:400; font-size:13px; color:var(--ash); }
+  .tcard.rec{ grid-column:span 1; display:flex; gap:14px; align-items:flex-start; background:linear-gradient(160deg,rgba(128,82,255,.08),transparent); }
+  @media(max-width:900px){ .tcard.rec{ grid-column:1/-1; } }
+  .rec-badge{ width:34px; height:34px; border-radius:10px; flex-shrink:0; background:linear-gradient(150deg,#8052ff,#5b6cff);
+    display:flex; align-items:center; justify-content:center; font-weight:600; font-size:16px; color:#fff; }
+  .rec-txt{ font-weight:400; font-size:14px; line-height:1.5; color:var(--silver); }
+  .rec-txt b{ color:var(--bone); font-weight:500; }
+
+  .pill{
+    display:inline-block; background:var(--iris); color:#fff; border:none;
+    font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase;
+    padding:14px 26px; border-radius:24px; transition:filter .3s; will-change:transform;
+  }
+  .pill:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  main{ position:relative; z-index:1; max-width:1280px; margin:0 auto; padding:150px 24px 90px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,78px); line-height:1.1; letter-spacing:-0.04em; margin:18px 0 60px; }
+
+  /* сводка: цифры на пустоте, без рамок */
+  .stats{ display:flex; gap:96px; flex-wrap:wrap; margin-bottom:90px; }
+  .stat .v{ font-weight:400; font-size:clamp(38px,5vw,64px); letter-spacing:-0.04em; }
+  .stat:nth-child(1) .v{ color:var(--bone); }
+  .stat:nth-child(2) .v{ color:var(--iris); text-shadow:0 0 24px rgba(128,82,255,.45); }
+  .stat:nth-child(3) .v{ color:var(--verdant); text-shadow:0 0 24px rgba(47,212,178,.4); }
+  .stat .caption{ margin-top:10px; text-transform:uppercase; letter-spacing:.2em; font-weight:600; }
+
+  /* заказы: строки, разделённые воздухом и тонкой линией */
+  .order{
+    display:grid; grid-template-columns:72px 1fr auto; gap:24px; align-items:center;
+    padding:28px 0; border-bottom:1px solid var(--hairline);
+    transition:background .3s, padding-left .3s;
+  }
+  .order:hover{ background:linear-gradient(90deg,rgba(128,82,255,.07),transparent 70%); padding-left:14px; }
+  .order .oid{ font-weight:400; font-size:20px; color:var(--ash); }
+  .order .txt{ font-weight:400; font-size:clamp(17px,2vw,22px); letter-spacing:-0.01em; }
+  .order .meta{ margin-top:6px; font-weight:200; font-size:13px; color:var(--ash); }
+  .order .right{ display:flex; flex-direction:column; align-items:flex-end; gap:12px; }
+  @media(max-width:760px){
+    .order{ grid-template-columns:1fr; gap:12px; }
+    .order .right{ align-items:flex-start; }
+    .stats{ gap:40px; }
+  }
+
+  /* статус: цвет + точка + текст (не только цвет) */
+  .status{
+    display:inline-flex; align-items:center; gap:8px;
+    font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase;
+    padding:8px 16px; border-radius:24px; background:rgba(255,255,255,.05); white-space:nowrap;
+  }
+  .status .dot{ width:7px; height:7px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; }
+
+  .actions{ display:flex; gap:10px; flex-wrap:wrap; }
+  .act{
+    min-height:44px; padding:10px 18px; border-radius:24px;
+    background:rgba(255,255,255,.06); border:none; color:var(--silver);
+    font-weight:600; font-size:12px; letter-spacing:.15em; text-transform:uppercase;
+    transition:background .2s, color .2s, filter .2s; will-change:transform;
+  }
+  .act:hover{ color:#fff; filter:drop-shadow(0 0 12px var(--c,rgba(128,82,255,.5))); background:rgba(255,255,255,.12); }
+  .act:disabled{ opacity:.4; cursor:default; }
+
+  /* скелетон загрузки */
+  .sk{ height:76px; margin:14px 0; border-radius:16px;
+    background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04));
+    background-size:200% 100%; animation:shimmer 1.4s linear infinite; }
+  @keyframes shimmer{ from{ background-position:200% 0 } to{ background-position:-200% 0 } }
+
+  /* тост-подтверждение */
+  #toast{
+    position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.75); backdrop-filter:blur(8px);
+    color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none;
+    transition:opacity .3s, transform .3s; text-shadow:0 0 12px rgba(128,82,255,.5);
+  }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  #flash{ position:fixed; inset:0; z-index:110; pointer-events:none; opacity:0; transition:opacity .5s;
+    background:radial-gradient(ellipse at 50% 40%,rgba(128,82,255,.18),transparent 60%); }
+
+  footer{ position:relative; z-index:1; display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap;
+    max-width:1280px; margin:0 auto; padding:48px 24px; }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation:none !important; transition:none !important; }
+  }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<canvas id="ambientCanvas"></canvas>
+
+
+<main>
+  <span class="label">Заказы и заявки</span>
+  <h1>Заказы.</h1>
+
+  <section class="today" aria-live="polite">
+    <div class="today-grid">
+      <div class="tcard attention"><div class="tv num" id="t-new">—</div><div class="tl">Новых заявок — ждут ответа</div></div>
+      <div class="tcard"><div class="tv num" id="t-today">—</div><div class="tl">Заказов сегодня</div></div>
+      <div class="tcard"><div class="tv num" id="t-clients">—</div><div class="tl">Клиентов в базе</div></div>
+      <div class="tcard rec">
+        <div class="rec-badge">V</div>
+        <div class="rec-txt" id="t-rec">Смотрю, что происходит…</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="stats" aria-live="polite" hidden>
+    <div class="stat"><div class="v num" id="s-count">—</div><div class="caption">Всего заказов</div></div>
+    <div class="stat"><div class="v num" id="s-new">—</div><div class="caption">Новых</div></div>
+    <div class="stat"><div class="v num" id="s-today">—</div><div class="caption">Сегодня</div></div>
+  </div>
+
+  <span class="label" style="color:var(--ash)">Все заказы</span>
+  <div id="orders" style="margin-top:12px" aria-live="polite">
+    <div class="sk"></div><div class="sk"></div><div class="sk"></div>
+  </div>
+</main>
+
+<footer>
+  <span class="caption">VELOR AI · Оператор для малого бизнеса · 2026</span>
+  <span class="caption">Обновляется каждые 15 секунд</span>
+</footer>
+
+<div id="flash"></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script src="https://cdn.jsdelivr.net/npm/motion@12/dist/motion.min.js"></script>
+<script>
+const STATUS_COLOR = { 'новый':'#8052ff', 'принят':'#ffb829', 'выполнен':'#2fd4b2', 'отменён':'#ff4fd8' };
+let ARINA_maxId = null;
+
+function esc(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(()=> t.classList.remove('show'), 3200);
+}
+
+function ARINA_signal(){
+  const f = document.getElementById('flash');
+  f.style.opacity = '1'; setTimeout(()=> f.style.opacity = '0', 480);
+  toast('Новый заказ! ✦');
+  try{
+    const ac = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine'; o.frequency.value = 880;
+    o.connect(g); g.connect(ac.destination);
+    g.gain.setValueAtTime(0.0001, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.2, ac.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.5);
+    o.start(); o.stop(ac.currentTime + 0.5);
+  }catch(e){}
+}
+
+async function ARINA_status(id, status, btn){
+  if (btn){ btn.disabled = true; btn.textContent = '…'; }
+  try{
+    const r = await fetch('/api/orders/' + id + '/status', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ status })
+    });
+    const j = await r.json();
+    if (j.ok){ toast('Заказ №' + id + ' — ' + status); }
+    else { toast('Не получилось обновить статус'); }
+  }catch(e){ toast('Нет связи с сервером'); }
+  ARINA_load();
+}
+
+function actionBtn(id, status, labelText, color){
+  return `<button class="act" style="--c:${color}80" onclick="ARINA_status(${id},'${status}',this)" aria-label="Заказ ${id}: ${labelText}">${labelText}</button>`;
+}
+
+async function ARINA_load(manual){
+  const box = document.getElementById('orders');
+  try{
+    const res = await fetch('/api/orders');
+    const orders = await res.json();
+
+    const today = new Date().toISOString().slice(0,10);
+    const newCount = orders.filter(o=>o.status==='новый').length;
+    const todayCount = orders.filter(o=>(o.created_at||'').startsWith(today)).length;
+    document.getElementById('s-count').textContent = orders.length;
+    document.getElementById('s-new').textContent = newCount;
+    document.getElementById('s-today').textContent = todayCount;
+    // блок «Сегодня важно»
+    document.getElementById('t-new').textContent = newCount;
+    document.getElementById('t-today').textContent = todayCount;
+    setRecommendation(newCount, todayCount, orders.length);
+
+    const maxId = orders.reduce((m,o)=> Math.max(m, o.id), 0);
+    if(ARINA_maxId !== null && maxId > ARINA_maxId) ARINA_signal();
+    ARINA_maxId = maxId;
+    if (manual) toast('Обновлено');
+
+    if(!orders.length){
+      box.innerHTML = '<p style="padding:48px 0;color:var(--ash)">Заказов пока нет. Как только клиент оформит заказ — он появится здесь сам.</p>';
+      return;
+    }
+
+    box.innerHTML = orders.map(o=>{
+      const sc = STATUS_COLOR[o.status] || '#8052ff';
+      const meta = [o.phone, o.date_wanted, o.created_at].filter(Boolean).map(esc).join(' · ');
+      const actions = [
+        actionBtn(o.id, 'принят', 'Принять', '#ffb829'),
+        actionBtn(o.id, 'выполнен', 'Выполнен', '#2fd4b2'),
+        actionBtn(o.id, 'отменён', 'Отменить', '#ff4fd8'),
+      ].join('');
+      return `
+      <div class="order">
+        <span class="oid num">№${o.id}</span>
+        <span>
+          <span class="txt">${esc(o.text)}</span>
+          <span class="meta num" style="display:block">${meta}</span>
+        </span>
+        <span class="right">
+          <span class="status" style="color:${sc}"><span class="dot" aria-hidden="true"></span>${esc(o.status||'новый')}</span>
+          <span class="actions">${actions}</span>
+        </span>
+      </div>`;
+    }).join('');
+    staggerRows();
+  }catch(e){
+    box.innerHTML = '<p style="padding:48px 0;color:var(--magenta)">Не удалось загрузить заказы. Проверь, запущен ли сервер (python server.py), и нажми «Обновить».</p>';
+  }
+}
+
+// каскадное появление строк (Motion stagger)
+let staggered = false;
+function staggerRows(){
+  if (staggered || !window.Motion || !window.Motion.stagger) return;
+  staggered = true;
+  const rows = document.querySelectorAll('.order');
+  window.Motion.animate(rows, { opacity:[0,1], y:[18,0] },
+    { delay: window.Motion.stagger(0.07), duration:0.6, ease:[0.16,1,0.3,1] });
+}
+
+// рекомендация от VELOR — по делу, по свежим цифрам
+function setRecommendation(newCount, todayCount, total){
+  const el = document.getElementById('t-rec');
+  let msg;
+  if (newCount > 0){
+    msg = `<b>${newCount}</b> ${newCount===1?'новая заявка ждёт':'новых заявок ждут'} ответа. Отвечу клиентам сам — переключите меня в роль «Продавец» в разделе AI.`;
+  } else if (todayCount === 0){
+    msg = 'Сегодня новых заявок нет — хороший день, чтобы запустить акцию. Загляните ко мне в роли «Маркетолог».';
+  } else {
+    msg = `Сегодня всё под контролем: ${todayCount} ${todayCount===1?'заказ':'заказов'}, новых заявок без ответа нет. Так держать.`;
+  }
+  el.innerHTML = msg;
+}
+
+// клиенты в базе
+async function loadClientsCount(){
+  try{ const cs = await (await fetch('/api/clients')).json();
+    document.getElementById('t-clients').textContent = Array.isArray(cs) ? cs.length : 0;
+  }catch{}
+}
+
+ARINA_load();
+loadClientsCount();
+setInterval(ARINA_load, 15000);
+</script>
+</body>
+</html>

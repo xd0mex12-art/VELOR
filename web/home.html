@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Ядро</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  /* главная должна умещаться в один экран — отступы здесь плотнее общих.
+     body main, а не main: velor.css подключается после и иначе перебьёт. */
+  body main{ padding-top:104px; padding-bottom:70px; }
+  .top{ display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    flex-wrap:wrap; margin-bottom:18px; }
+  .hi{ font-weight:400; font-size:clamp(26px,3.4vw,40px); letter-spacing:-.035em; }
+  .hi b{ font-weight:500; color:#c9bfff; }
+  .pulse{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ash); }
+  .pulse .dot{ width:7px; height:7px; border-radius:50%; background:var(--verdant);
+    box-shadow:0 0 9px rgba(47,212,178,.8); }
+
+  /* ── первый экран ── */
+  .os{ display:grid; gap:12px; grid-template-columns:repeat(4,1fr); }
+  .b{ border:1px solid var(--hairline); border-radius:20px; padding:18px 22px;
+    background:rgba(255,255,255,.022); transition:border-color .25s, background .25s;
+    opacity:0; transform:translateY(10px); animation:bIn .5s cubic-bezier(.22,1,.36,1) forwards; }
+  @keyframes bIn{ to{ opacity:1; transform:none } }
+  a.b:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,255,.05); }
+  .b .k{ font-weight:600; font-size:9.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--ash); }
+  .b .v{ font-weight:400; font-size:clamp(26px,3vw,34px); letter-spacing:-.03em; margin-top:10px;
+    font-variant-numeric:tabular-nums; line-height:1.1; }
+  .b .s{ font-size:13px; color:var(--ash); margin-top:6px; }
+  .b .s.up{ color:var(--verdant); } .b .s.down{ color:var(--coral); }
+
+  /* фокус дня — во всю ширину */
+  .focus{ grid-column:1/-1; padding:24px 28px;
+    background:linear-gradient(150deg,rgba(128,82,255,.14),rgba(255,255,255,.02));
+    border-color:rgba(128,82,255,.28); }
+  .focus .k{ color:#a99cff; }
+  .focus .f-text{ font-weight:400; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em;
+    line-height:1.28; margin-top:12px; max-width:820px; }
+  .focus .f-note{ color:var(--silver); font-weight:200; font-size:15px; margin-top:10px; max-width:720px; }
+
+  /* карточки риска / возможности */
+  .b.wide{ grid-column:span 2; }
+  .b .tag{ display:inline-block; font-weight:600; font-size:9.5px; letter-spacing:.16em;
+    text-transform:uppercase; padding:4px 10px; border-radius:14px; margin-bottom:11px; }
+  .tag.risk{ background:rgba(255,107,107,.16); color:#ff9b9b; }
+  .tag.opp{ background:rgba(47,212,178,.14); color:#7fe6d0; }
+  .tag.calm{ background:rgba(255,255,255,.06); color:var(--ash); }
+  .b .line{ font-weight:400; font-size:18px; letter-spacing:-.02em; line-height:1.35; }
+  /* длинные объяснения не должны растягивать плитку — обрезаем по двум строкам */
+  .b .why, .focus .f-note{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+    overflow:hidden; }
+  .b .why{ color:var(--ash); font-weight:200; font-size:14px; margin-top:7px; line-height:1.5; }
+
+  /* совет ИИ */
+  .advice{ grid-column:span 2; display:flex; gap:14px; }
+  .advice .ic{ width:30px; height:30px; border-radius:10px; flex:none;
+    background:linear-gradient(150deg,#8052ff,#5b6cff); display:flex; align-items:center;
+    justify-content:center; font-weight:600; font-size:14px; color:#fff; }
+  .advice .p{ font-weight:200; font-size:16px; line-height:1.5; margin-top:8px;
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+
+  /* лента действий — рядом с возможностями, иначе полряда пустует */
+  .feed{ grid-column:span 2; }
+  .ev{ display:flex; align-items:baseline; gap:12px; padding:8px 0;
+    border-bottom:1px solid var(--hairline); }
+  .ev:last-child{ border-bottom:none; padding-bottom:0; }
+  .ev .pin{ width:6px; height:6px; border-radius:50%; background:var(--iris); flex:none;
+    transform:translateY(-2px); }
+  .ev .t{ font-weight:200; font-size:15px; }
+  .ev .d{ color:var(--ash); font-size:13px; }
+  .ev .w{ margin-left:auto; color:var(--ash); font-size:12px; white-space:nowrap; }
+
+  /* ── ядро и диалог с сотрудником: первым экраном ── */
+  .talk{ margin-bottom:56px; border:1px solid var(--hairline); border-radius:26px; overflow:hidden;
+    background:linear-gradient(180deg,rgba(128,82,255,.07),transparent); }
+  .emp{ display:flex; align-items:center; gap:13px; padding:20px 24px; border-bottom:1px solid var(--hairline); }
+  .emp-badge{ width:40px; height:40px; border-radius:12px; flex:none;
+    background:linear-gradient(150deg,#8052ff,#5b6cff); display:flex; align-items:center;
+    justify-content:center; font-weight:600; font-size:18px; color:#fff; }
+  .emp-name{ font-weight:500; font-size:16px; }
+  .emp-role{ color:var(--ash); font-weight:400; }
+  .emp-sub{ font-size:12.5px; color:var(--ash); margin-top:2px; }
+  #coreStage{ display:flex; justify-content:center; padding:30px 0 12px; }
+  /* 40vh в ограничителе: ядро крупное, но поле ввода остаётся на виду */
+  .core-square{ position:relative; width:min(78%,540px,54vh); aspect-ratio:1; }
+  #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important; cursor:pointer; }
+
+  .roles{ display:flex; gap:7px; flex-wrap:wrap; padding:14px 20px 0; }
+  .role{ padding:7px 14px; border-radius:18px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-weight:500; font-size:12px;
+    transition:background .2s, color .2s, border-color .2s; }
+  .role:hover{ color:#fff; }
+  .role.active{ background:var(--iris); color:#fff; border-color:transparent; }
+  .role.add{ background:transparent; border:1px dashed rgba(255,255,255,.22); color:var(--ash); }
+  .role.add:hover{ color:#fff; border-color:var(--iris); }
+  .log{ padding:20px; display:flex; flex-direction:column; gap:12px; max-height:300px; overflow-y:auto; }
+  .msg{ max-width:84%; padding:11px 17px; border-radius:18px; font-weight:200; font-size:15.5px;
+    line-height:1.45; white-space:pre-wrap; word-wrap:break-word; }
+  .msg.me{ align-self:flex-end; background:var(--iris); color:#fff; border-bottom-right-radius:6px; }
+  .msg.core{ align-self:flex-start; background:rgba(255,255,255,.06); border:1px solid var(--hairline);
+    border-bottom-left-radius:6px; }
+  .msg.core.think{ color:var(--ash); font-style:italic; }
+  .ask{ display:flex; gap:10px; padding:16px 20px; border-top:1px solid var(--hairline); }
+  .ask input{ flex:1; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:24px; padding:12px 20px; color:var(--bone); font-size:16px; }
+  .ask button{ min-width:50px; border:none; border-radius:24px; background:var(--iris); color:#fff;
+    font-weight:600; font-size:18px; transition:filter .2s; }
+  .ask button:hover{ filter:brightness(1.2); }
+  .ask button:disabled{ opacity:.4; }
+
+  /* ── здоровье бизнеса ── */
+  .health{ margin-bottom:56px; border:1px solid var(--hairline); border-radius:26px; padding:26px 28px; }
+  .health .sec-h{ margin-bottom:20px; }
+  .h-top{ display:flex; gap:34px; align-items:center; }
+  .ring{ position:relative; flex:none; width:150px; height:150px; }
+  .ring svg{ width:100%; height:100%; transform:rotate(-90deg); }
+  .ring circle{ fill:none; stroke-width:9; stroke-linecap:round; }
+  .ring .bg{ stroke:rgba(255,255,255,.07); }
+  .ring .arc{ stroke:var(--arc,#8052ff); transition:stroke-dashoffset 1s cubic-bezier(.22,1,.36,1), stroke .6s; }
+  .ring .mid{ position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; }
+  .ring .num{ font-size:40px; font-weight:400; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  .ring .lvl{ font-size:11.5px; color:var(--ash); margin-top:2px; }
+  .facts{ flex:1; display:grid; grid-template-columns:1fr 1fr; gap:14px 26px; }
+  .fct .fn{ display:flex; justify-content:space-between; font-size:13px; font-weight:500; }
+  .fct .fn i{ font-style:normal; color:var(--ash); font-weight:400; font-variant-numeric:tabular-nums; }
+  .fct .bar{ height:4px; border-radius:3px; background:rgba(255,255,255,.07); margin:7px 0 5px; overflow:hidden; }
+  .fct .bar span{ display:block; height:100%; width:0; border-radius:3px; background:var(--iris);
+    transition:width 1s cubic-bezier(.22,1,.36,1); }
+  .fct .ff{ font-size:12px; color:var(--ash); font-weight:200; }
+  .h-notes{ display:grid; grid-template-columns:1fr 1fr; gap:14px 26px; margin-top:26px;
+    padding-top:22px; border-top:1px solid var(--hairline); }
+  .h-notes h4{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--lilac);
+    font-weight:500; margin-bottom:10px; }
+  .h-notes li{ list-style:none; font-size:13.5px; font-weight:200; color:var(--silver);
+    line-height:1.5; margin-bottom:8px; padding-left:15px; position:relative; }
+  .h-notes li:before{ content:''; position:absolute; left:0; top:8px; width:5px; height:5px;
+    border-radius:50%; background:var(--iris); }
+  .h-notes .bad li:before{ background:var(--saffron); }
+
+  /* модалка своего сотрудника */
+  .modal{ position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
+    padding:20px; background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }
+  .modal.on{ display:flex; }
+  .modal .box{ width:min(94vw,440px); background:#0a0a0a; border:1px solid var(--hairline);
+    border-radius:24px; padding:26px; }
+  .modal h3{ font-weight:400; font-size:21px; margin-bottom:6px; }
+  .modal p.m-sub{ font-size:13px; color:var(--ash); font-weight:200; margin-bottom:18px; }
+  .modal input, .modal textarea{ width:100%; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); border-radius:14px; padding:12px 16px; color:var(--bone);
+    font-family:inherit; font-weight:200; font-size:15px; margin-bottom:12px; }
+  .modal textarea{ min-height:100px; resize:vertical; }
+  .m-btns{ display:flex; gap:10px; margin-top:6px; }
+  .m-btns button{ flex:1; min-height:46px; border:none; border-radius:24px; font-family:inherit;
+    font-weight:600; font-size:13px; letter-spacing:.1em; text-transform:uppercase; }
+  .m-btns .ok{ background:var(--iris); color:#fff; }
+  .m-btns .no{ background:rgba(255,255,255,.06); color:var(--silver); }
+
+  /* утренний брифинг поверх главной — только при первом входе за день */
+  .modal .box.brief{ width:min(94vw,520px); max-height:88vh; overflow-y:auto; }
+  .b-date{ font-size:11px; letter-spacing:.15em; text-transform:uppercase; color:var(--lilac); margin-bottom:8px; }
+  .b-today{ font-size:16px; line-height:1.45; margin:14px 0 18px; }
+  .b-nums{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+  .b-nums div{ border:1px solid var(--hairline); border-radius:14px; padding:12px 14px; }
+  .b-nums .k{ font-size:11px; color:var(--ash); }
+  .b-nums .v{ font-size:19px; font-weight:400; margin-top:3px; font-variant-numeric:tabular-nums; }
+  .b-att{ font-size:14px; color:var(--saffron); margin-bottom:14px; }
+  .b-att:empty{ display:none; }
+  .b-advice{ font-size:14.5px; color:var(--silver); border-left:2px solid var(--iris);
+    padding-left:14px; margin-bottom:20px; }
+  .b-advice:empty{ display:none; }
+
+  /* на невысоких экранах ноутбуков сводка всё равно должна помещаться целиком */
+  @media(min-width:1001px) and (max-height:800px){
+    body main{ padding-top:92px; }
+    .top{ margin-bottom:12px; }
+    .hi{ font-size:26px; }
+    .os{ gap:10px; }
+    .b{ padding:14px 18px; }
+    .focus{ padding:19px 24px; }
+    .b .v{ font-size:26px; }
+    .focus .f-text{ font-size:21px; }
+    /* ядро уступает место чату: на 720px иначе поле ввода уходит за экран */
+    #coreStage{ padding:16px 0 6px; }
+    .core-square{ width:min(76%,480px,50vh); }
+    .log{ max-height:150px; }
+  }
+
+  @media(max-width:1000px){ .os{ grid-template-columns:repeat(2,1fr); }
+    .b.wide,.advice,.feed{ grid-column:span 2; }
+    .h-top{ flex-direction:column; gap:22px; align-items:flex-start; }
+    .facts{ width:100%; } }
+  @media(max-width:620px){ .os{ grid-template-columns:1fr; }
+    .b.wide,.advice,.feed{ grid-column:span 1; }
+    /* на телефоне ядро тоже крупное, но чат должен оставаться в первом экране */
+    body main{ padding-top:96px; }
+    .top{ margin-bottom:10px; }
+    #coreStage{ padding:20px 0 6px; }
+    .core-square{ width:min(78%,320px,34vh); }
+    .log{ padding:16px; } .ask{ padding:14px 16px; }
+    /* чипов стало на один больше — на телефоне листаем их вбок, а не переносим строкой */
+    .roles{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+    .roles::-webkit-scrollbar{ display:none; }
+    .role{ flex:none; }
+    .health{ padding:22px 20px; }
+    .facts, .h-notes{ grid-template-columns:1fr; }
+    .ring{ width:124px; height:124px; } .ring .num{ font-size:34px; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <div class="top">
+    <h1 class="hi">С возвращением, <b id="hiName">бизнес</b>.</h1>
+    <div class="pulse"><span class="dot"></span><span id="pulse">сотрудник на связи</span></div>
+  </div>
+
+  <section class="talk">
+    <div class="emp">
+      <div class="emp-badge" id="empBadge">V</div>
+      <div>
+        <div class="emp-name" id="empName">VELOR <span class="emp-role">· AI-сотрудник</span></div>
+        <div class="emp-sub" id="empKnows">на связи</div>
+      </div>
+    </div>
+    <div id="coreStage"><div class="core-square"><canvas id="coreCanvas"></canvas></div></div>
+    <div class="roles" id="roles" role="tablist" aria-label="AI-сотрудники">
+      <button class="role active" data-role="assistant">Ассистент</button>
+      <button class="role" data-role="sales">Продавец</button>
+      <button class="role" data-role="marketing">Маркетолог</button>
+      <button class="role" data-role="analyst">Аналитик</button>
+      <button class="role" data-role="admin">Администратор</button>
+      <button class="role add" id="addAgent" type="button">+ Сотрудник</button>
+    </div>
+    <div class="log" id="log" aria-live="polite">
+      <div class="msg core">Здравствуйте. Я изучил ваш бизнес — спросите что угодно по делу.</div>
+    </div>
+    <form class="ask" id="ask">
+      <input id="askInput" placeholder="Спросите про заказы, клиентов или что подсказать по делу…" autocomplete="off">
+      <button type="submit" aria-label="Отправить">→</button>
+    </form>
+  </section>
+
+  <section class="health" id="health">
+    <div class="sec-h">Здоровье бизнеса</div>
+    <div class="h-top">
+      <div class="ring">
+        <svg viewBox="0 0 120 120">
+          <circle class="bg" cx="60" cy="60" r="52"></circle>
+          <circle class="arc" id="hArc" cx="60" cy="60" r="52"
+                  stroke-dasharray="326.7" stroke-dashoffset="326.7"></circle>
+        </svg>
+        <div class="mid"><div class="num" id="hNum">0</div><div class="lvl" id="hLvl">считаю…</div></div>
+      </div>
+      <div class="facts" id="hFacts"></div>
+    </div>
+    <div class="h-notes">
+      <div><h4>Что уже хорошо</h4><ul id="hGood"></ul></div>
+      <div class="bad"><h4>Что улучшить</h4><ul id="hBad"></ul></div>
+    </div>
+  </section>
+
+  <section class="os" id="os">
+    <div class="b focus"><div class="k">// Сегодня важно</div><div class="f-text">Смотрю, что у вас происходит…</div></div>
+  </section>
+</main>
+
+<div class="modal" id="briefModal">
+  <div class="box brief">
+    <div class="b-date" id="bDate"></div>
+    <h3 id="bGreet">Доброе утро.</h3>
+    <div id="bToday" class="b-today"></div>
+    <div class="b-nums" id="bNums"></div>
+    <div id="bAtt" class="b-att"></div>
+    <div id="bAdvice" class="b-advice"></div>
+    <div class="m-btns">
+      <button class="no" type="button" id="bOk">Понятно</button>
+      <a class="ok" href="briefing.html" style="display:flex;align-items:center;justify-content:center">Открыть целиком</a>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="agentModal">
+  <div class="box">
+    <h3>Свой AI-сотрудник</h3>
+    <p class="m-sub">Опишите характер и задачу — он появится чипом рядом с ролями.
+      Чтобы удалить своего сотрудника, дважды кликните по его чипу.</p>
+    <input id="agName" placeholder="Имя, например Ольга" maxlength="60">
+    <input id="agAvatar" placeholder="Эмодзи или буква (необязательно)" maxlength="4">
+    <textarea id="agPersona" placeholder="Кто он и как себя ведёт. Например: строгий закупщик, считает деньги, всегда предлагает более дешёвого поставщика." maxlength="1200"></textarea>
+    <div class="m-btns">
+      <button class="no" type="button" id="agCancel">Отмена</button>
+      <button class="ok" type="button" id="agSave">Создать</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+document.getElementById('hiName').textContent = localStorage.getItem('coreon_biz_name') || 'бизнес';
+
+const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+function chg(pct, goodWhenUp = true){
+  if (pct === null || pct === undefined) return '<span class="s">за 30 дней</span>';
+  if (pct === 0) return '<span class="s">без изменений</span>';
+  const good = goodWhenUp ? pct > 0 : pct < 0;
+  return `<span class="s ${good ? 'up' : 'down'}">${pct > 0 ? '+' : ''}${pct}% к прошлому месяцу</span>`;
+}
+function ago(iso){
+  const d = new Date((iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  const m = Math.round((Date.now() - d) / 60000);
+  if (m < 1) return 'только что';
+  if (m < 60) return m + ' мин назад';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + ' ч назад';
+  return Math.round(h / 24) + ' дн назад';
+}
+
+// утренний брифинг — всплывает один раз в день, при первом заходе
+(async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  if (localStorage.getItem('velor_brief_seen') === today) return;   // уже читали в этой сессии
+  let d;
+  try{ d = await (await fetch('/api/briefing')).json(); }catch{ return; }
+  if (!d.first_today || !d.payload) return;
+  const p = d.payload;
+
+  document.getElementById('bDate').textContent =
+    new Date(p.date + 'T00:00:00').toLocaleDateString('ru-RU',
+      { weekday:'long', day:'numeric', month:'long' }) + ' · брифинг';
+  document.getElementById('bGreet').textContent = p.greeting || 'Доброе утро.';
+  document.getElementById('bToday').textContent = p.today || '';
+  const m = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+  document.getElementById('bNums').innerHTML = `
+    <div><div class="k">Прибыль вчера</div><div class="v">${m(p.profit_yday)}</div></div>
+    <div><div class="k">Новых заявок</div><div class="v">${p.orders_new}</div></div>
+    <div><div class="k">Новых клиентов</div><div class="v">${p.clients_new}</div></div>`;
+  const att = p.attention || [];
+  document.getElementById('bAtt').textContent = att.length ? att[0] : '';
+  document.getElementById('bAdvice').textContent = p.advice || '';
+
+  document.getElementById('briefModal').classList.add('on');
+  document.getElementById('bOk').addEventListener('click', () => {
+    document.getElementById('briefModal').classList.remove('on');
+    localStorage.setItem('velor_brief_seen', today);
+    fetch('/api/briefing/seen', { method:'POST' });
+  });
+})();
+
+// здоровье бизнеса — кольцо, факторы и объяснение
+(async () => {
+  let h;
+  try{ h = await (await fetch('/api/health')).json(); }
+  catch{ document.getElementById('hLvl').textContent = 'нет связи'; return; }
+
+  const arc = document.getElementById('hArc'), num = document.getElementById('hNum');
+  const LEN = 326.7, score = h.score || 0;
+  const color = score >= 70 ? '#2fd4b2' : (score >= 40 ? '#ffb829' : '#ff6b6b');
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.getElementById('hFacts').innerHTML = (h.factors || []).map(f => `
+    <div class="fct">
+      <div class="fn"><span>${esc(f.name)}</span><i>${f.points} / ${f.weight}</i></div>
+      <div class="bar"><span data-w="${f.value}"></span></div>
+      <div class="ff">${esc(f.fact)}</div>
+    </div>`).join('');
+
+  // strengths — строки, advice — {name, tip}
+  const list = (arr, empty, fmt) => (arr && arr.length)
+    ? arr.map(fmt).join('')
+    : `<li>${empty}</li>`;
+  document.getElementById('hGood').innerHTML = list(
+    h.strengths, 'Пока не за что зацепиться — начните с профиля и базы знаний.',
+    t => `<li>${esc(t)}</li>`);
+  document.getElementById('hBad').innerHTML = list(
+    h.advice, 'Всё в порядке, слабых мест не вижу.',
+    a => `<li><b>${esc(a.name)}.</b> ${esc(a.tip)}</li>`);
+
+  document.getElementById('hLvl').textContent = h.level || '';
+  // синхронно, без rAF: в скрытой вкладке rAF не срабатывает и кольцо остаётся пустым
+  arc.style.setProperty('--arc', color);
+  arc.style.stroke = color;          // и переменная, и прямой stroke — надёжнее в разных движках
+  arc.style.strokeDashoffset = still ? LEN - LEN * score / 100 : LEN;
+  document.querySelectorAll('.fct .bar span').forEach(b => {
+    b.style.background = color;
+    if (still) b.style.width = b.dataset.w + '%';
+  });
+  if (still){ num.textContent = score; return; }
+
+  setTimeout(() => {
+    arc.style.strokeDashoffset = LEN - LEN * score / 100;
+    document.querySelectorAll('.fct .bar span').forEach(b => b.style.width = b.dataset.w + '%');
+  }, 60);
+
+  const t0 = Date.now(), dur = 900;
+  const tick = setInterval(() => {
+    const p = Math.min(1, (Date.now() - t0) / dur);
+    num.textContent = Math.round(score * (1 - Math.pow(1 - p, 3)));
+    if (p >= 1) clearInterval(tick);
+  }, 40);
+  setTimeout(() => { clearInterval(tick); num.textContent = score; }, dur + 120);
+})();
+
+// первый экран — одним запросом, без обращений к ИИ
+(async () => {
+  let d;
+  try{ d = await (await fetch('/api/home')).json(); }
+  catch{ document.getElementById('os').innerHTML =
+    '<div class="b focus"><div class="k">// Сегодня важно</div><div class="f-text">Нет связи с сервером.</div></div>'; return; }
+
+  if (d.business.ai_name) {
+    document.getElementById('empName').innerHTML = esc(d.business.ai_name) + ' <span class="emp-role">· AI-сотрудник</span>';
+    document.getElementById('pulse').textContent = esc(d.business.ai_name) + ' на связи';
+  }
+  if (d.business.ai_avatar) document.getElementById('empBadge').textContent = d.business.ai_avatar;
+  document.getElementById('empKnows').textContent = 'Здоровье бизнеса — ' + d.health + ' из 100';
+
+  const f = d.focus;
+  const tile = (href, inner, cls) => href
+    ? `<a class="b ${cls || ''}" href="${href}">${inner}</a>`
+    : `<div class="b ${cls || ''}">${inner}</div>`;
+
+  const risk = d.risks.top
+    ? `<span class="tag risk">риск · ${d.risks.count}</span>
+       <div class="line">${esc(d.risks.top.title)}</div>
+       <div class="why">${esc(d.risks.top.why || '')}</div>`
+    : `<span class="tag calm">риски</span><div class="line">Пока ничего не тревожит</div>
+       <div class="why">Проверьте бизнес, когда накопятся данные за месяц.</div>`;
+
+  const opp = d.opportunities.top
+    ? `<span class="tag opp">возможность · ${d.opportunities.count}</span>
+       <div class="line">${esc(d.opportunities.top.title)}</div>
+       <div class="why">${esc(d.opportunities.top.why || '')}</div>`
+    : `<span class="tag calm">возможности</span><div class="line">Ещё не искали точки роста</div>
+       <div class="why">VELOR разберёт ваши цифры и предложит, за что взяться.</div>`;
+
+  const advice = d.advice
+    ? `<div class="advice-body"><div class="k">// Совет AI</div><div class="p">${esc(d.advice)}</div></div>`
+    : `<div class="advice-body"><div class="k">// Совет AI</div>
+       <div class="p">Появится в дневнике, как только за день что-то произойдёт.</div></div>`;
+
+  const feed = (d.activity || []).length
+    ? d.activity.slice(0, 4).map(e => `<div class="ev"><span class="pin"></span>
+        <span class="t">${esc(e.title)}</span>
+        ${e.detail ? `<span class="d">${esc(e.detail)}</span>` : ''}
+        <span class="w">${ago(e.created_at)}</span></div>`).join('')
+    : '<div class="ev"><span class="t" style="color:var(--ash)">Пока тихо — здесь появятся действия сотрудника.</span></div>';
+
+  document.getElementById('os').innerHTML = [
+    tile(f.href, `<div class="k">// Сегодня важно · ${esc(f.kind)}</div>
+      <div class="f-text">${esc(f.text)}</div>
+      ${f.note ? `<div class="f-note">${esc(f.note)}</div>` : ''}`, 'focus'),
+
+    tile('dashboard.html', `<div class="k">Новые заявки</div><div class="v">${d.orders.new}</div>
+      <span class="s">сегодня ${d.orders.today} · всего ${d.orders.total}</span>`),
+
+    tile('finance.html', `<div class="k">Доход · 30 дней</div><div class="v">${money(d.money.income)}</div>
+      ${chg(d.money.income_change)}`),
+
+    tile('finance.html', `<div class="k">Прибыль · 30 дней</div><div class="v">${money(d.money.profit)}</div>
+      ${chg(d.money.profit_change)}`),
+
+    tile('journal.html', `<div class="k">Дневник</div><div class="v">${d.health}</div>
+      <span class="s">здоровье бизнеса из 100</span>`),
+
+    tile('journal.html', `<span class="ic">V</span>${advice}`, 'advice'),
+    tile('risks.html', risk, 'wide'),
+    tile('opportunities.html', opp, 'wide'),
+
+    tile('timeline.html', `<div class="k">// Последние действия</div>
+      <div style="margin-top:14px">${feed}</div>`, 'feed'),
+  ].join('');
+
+  document.querySelectorAll('.os .b').forEach((el, i) => el.style.animationDelay = Math.min(i, 9) * 55 + 'ms');
+})();
+
+// ── диалог с сотрудником ──
+const log = document.getElementById('log');
+function addMsg(text, who, extra){
+  const d = document.createElement('div');
+  d.className = 'msg ' + who + (extra ? ' ' + extra : '');
+  d.textContent = text;
+  log.appendChild(d); log.scrollTop = log.scrollHeight;
+  return d;
+}
+
+let currentRole = 'assistant';
+const ROLE_INFO = {
+  assistant:   { name:'Ассистент',     hint:'Спросите про заказы, клиентов или что подсказать по делу…' },
+  sales:       { name:'Продавец',      hint:'Например: «Ответь клиенту, который просит скидку»' },
+  marketing:   { name:'Маркетолог',    hint:'Например: «Придумай акцию на выходные и текст поста»' },
+  analyst:     { name:'Аналитик',      hint:'Например: «Что скажешь по заказам за сегодня?»' },
+  admin:       { name:'Администратор', hint:'Например: «Составь план дел на завтра»' },
+};
+
+async function loadAgents(){
+  try{
+    const { agents } = await (await fetch('/api/agents')).json();
+    document.querySelectorAll('.role[data-agent]').forEach(el => el.remove());
+    const box = document.getElementById('roles');
+    (agents || []).forEach(a => {
+      const key = 'agent:' + a.id;
+      ROLE_INFO[key] = { name: a.name, hint: 'Спросите ' + a.name + ' о чём угодно по делу…' };
+      const b = document.createElement('button');
+      b.className = 'role'; b.dataset.role = key; b.dataset.agent = a.id;
+      b.textContent = (a.avatar ? a.avatar + ' ' : '') + a.name;
+      b.title = 'Двойной клик — удалить';
+      box.insertBefore(b, document.getElementById('addAgent'));   // кнопка «+» всегда последняя
+    });
+  }catch{}
+}
+loadAgents();
+
+document.getElementById('roles').addEventListener('click', e => {
+  const btn = e.target.closest('.role');
+  if (!btn || btn.id === 'addAgent' || btn.classList.contains('active')) return;
+  document.querySelectorAll('.role').forEach(r => r.classList.remove('active'));
+  btn.classList.add('active');
+  currentRole = btn.dataset.role;
+  const info = ROLE_INFO[currentRole] || { name:'Сотрудник', hint:'Спросите что угодно…' };
+  document.getElementById('askInput').placeholder = info.hint;
+  addMsg('Теперь с вами — ' + info.name + '. Чем помочь?', 'core');
+});
+
+// создание своего сотрудника
+const agModal = document.getElementById('agentModal');
+const agClose = () => agModal.classList.remove('on');
+document.getElementById('addAgent').addEventListener('click', () => {
+  agModal.classList.add('on');
+  document.getElementById('agName').focus();
+});
+document.getElementById('agCancel').addEventListener('click', agClose);
+agModal.addEventListener('click', e => { if (e.target === agModal) agClose(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') agClose(); });
+
+document.getElementById('agSave').addEventListener('click', async () => {
+  const name = document.getElementById('agName').value.trim();
+  const persona = document.getElementById('agPersona').value.trim();
+  if (!name || !persona){ toast('Нужны имя и описание характера'); return; }
+  const btn = document.getElementById('agSave');
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/agents', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, persona, avatar: document.getElementById('agAvatar').value.trim() })
+    });
+    if (!r.ok) throw 0;
+    document.getElementById('agName').value = '';
+    document.getElementById('agAvatar').value = '';
+    document.getElementById('agPersona').value = '';
+    agClose();
+    await loadAgents();
+    toast(name + ' на связи');
+  }catch{ toast('Не получилось создать сотрудника'); }
+  btn.disabled = false;
+});
+
+document.getElementById('roles').addEventListener('dblclick', async e => {
+  const btn = e.target.closest('.role[data-agent]');
+  if (!btn) return;
+  if (!confirm('Удалить сотрудника «' + btn.textContent + '»?')) return;
+  await fetch('/api/agents/' + btn.dataset.agent + '/delete', { method:'POST' });
+  if (currentRole === btn.dataset.role){
+    currentRole = 'assistant';
+    document.querySelector('.role[data-role="assistant"]').classList.add('active');
+  }
+  await loadAgents();
+});
+
+document.getElementById('ask').addEventListener('submit', async e => {
+  e.preventDefault();
+  const input = document.getElementById('askInput');
+  const q = input.value.trim(); if (!q) return;
+  addMsg(q, 'me'); input.value = '';
+  const btn = e.target.querySelector('button'); btn.disabled = true;
+  const think = addMsg('думаю…', 'core', 'think');
+  const C = window.VELOR_CORE;                 // живое ядро отражает работу сотрудника
+  if (C) C.setState('thinking');
+  try{
+    const r = await fetch('/api/ask', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ question: q, role: currentRole })
+    });
+    const data = await r.json();
+    think.remove();
+    if (data.ok && data.answer){
+      if (C) C.setState('generating');
+      addMsg(data.answer, 'core');
+      if (C) setTimeout(() => C.setState('idle'), 2200);   // плавно назад в покой
+    } else {
+      if (C) C.setState('error');
+      addMsg('Сейчас не могу ответить — попробуйте ещё раз.', 'core');
+    }
+  }catch{ think.remove(); if (C) C.setState('error'); addMsg('Нет связи с сервером.', 'core'); }
+  btn.disabled = false; input.focus();
+});
+</script>
+</body>
+</html>

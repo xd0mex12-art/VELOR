@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — История бизнеса</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --coral:#ff6b6b;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
+
+  main{ position:relative; z-index:1; max-width:860px; margin:0 auto; padding:140px 24px 100px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:16px 0 12px; }
+  .lead{ color:var(--silver); font-weight:200; margin-bottom:40px; max-width:580px; }
+
+  /* своя запись */
+  .form{ background:rgba(255,255,255,.03); border:1px solid var(--hairline); border-radius:22px; padding:22px; margin-bottom:34px; }
+  .row{ display:grid; grid-template-columns:1.3fr 1fr auto; gap:12px; }
+  input{ width:100%; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:12px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; transition:.3s; }
+  input:focus{ border-color:var(--iris); box-shadow:0 0 16px rgba(128,82,255,.28); outline:none; }
+  .add{ min-height:48px; padding:12px 28px; border-radius:24px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:13px; letter-spacing:.12em; text-transform:uppercase; transition:filter .2s; white-space:nowrap; }
+  .add:hover{ filter:brightness(1.2) drop-shadow(0 0 16px rgba(128,82,255,.5)); }
+
+  /* фильтры */
+  .filters{ display:flex; gap:9px; flex-wrap:wrap; margin-bottom:30px; }
+  .flt{ padding:9px 17px; border-radius:20px; background:rgba(255,255,255,.04); border:1px solid var(--hairline);
+    color:var(--silver); font-weight:500; font-size:13px; transition:.2s; }
+  .flt:hover{ color:#fff; }
+  .flt.sel{ border-color:var(--iris); background:rgba(128,82,255,.14); color:#fff; }
+
+  /* лента */
+  .day{ font-weight:600; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash);
+    margin:30px 0 14px; padding-left:34px; }
+  .day:first-of-type{ margin-top:0; }
+  .ev{ position:relative; padding:0 0 22px 34px; }
+  .ev::before{ content:''; position:absolute; left:5px; top:24px; bottom:0; width:1px; background:var(--hairline); }
+  .ev:last-child::before{ display:none; }
+  .ev .pin{ position:absolute; left:0; top:6px; width:11px; height:11px; border-radius:50%;
+    background:var(--iris); box-shadow:0 0 0 4px rgba(128,82,255,.14); }
+  .ev.client  .pin{ background:var(--verdant); box-shadow:0 0 0 4px rgba(47,212,178,.14); }
+  .ev.order   .pin{ background:var(--iris);    box-shadow:0 0 0 4px rgba(128,82,255,.14); }
+  .ev.finance .pin{ background:var(--saffron); box-shadow:0 0 0 4px rgba(255,184,41,.14); }
+  .ev.document .pin,.ev.knowledge .pin{ background:#5b6cff; box-shadow:0 0 0 4px rgba(91,108,255,.14); }
+  .ev.plan    .pin{ background:#ff4fd8; box-shadow:0 0 0 4px rgba(255,79,216,.14); }
+  .ev.note    .pin{ background:var(--bone); box-shadow:0 0 0 4px rgba(255,255,255,.1); }
+  .ev .t{ display:flex; align-items:baseline; gap:12px; }
+  .ev .ttl{ font-weight:400; font-size:17px; letter-spacing:-.01em; }
+  .ev .time{ font-size:12px; color:var(--ash); font-variant-numeric:tabular-nums; }
+  .ev .det{ font-size:14px; color:var(--ash); margin-top:3px; max-width:620px; }
+  .ev .del{ position:absolute; right:0; top:2px; background:none; border:none; color:transparent;
+    font-size:19px; line-height:1; padding:4px 8px; transition:color .2s; }
+  .ev:hover .del{ color:var(--ash); }
+  .ev .del:hover{ color:var(--coral); }
+  .ev{ opacity:0; transform:translateY(10px); animation:evIn .5s cubic-bezier(.22,1,.36,1) forwards; }
+  @keyframes evIn{ to{ opacity:1; transform:none } }
+
+  .empty{ color:var(--ash); font-size:15px; padding:26px 0; }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none; transition:.3s; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media (max-width:720px){ .row{ grid-template-columns:1fr; } }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } .ev{ opacity:1; transform:none; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+
+
+<main>
+  <span class="label">// Timeline · Память компании</span>
+  <h1>История бизнеса.</h1>
+  <p class="lead">Всё важное записывается само: клиенты, заказы, документы, деньги, тариф и настройки. Ваш AI-сотрудник читает эту ленту и помнит, что уже происходило.</p>
+
+  <div class="form">
+    <div class="row">
+      <input id="evTitle" maxlength="120" placeholder="Своё событие: подняли цены на букеты">
+      <input id="evDetail" maxlength="200" placeholder="Подробность (необязательно)">
+      <button class="add" id="evAdd">Записать</button>
+    </div>
+  </div>
+
+  <div class="filters" id="filters">
+    <button class="flt sel" data-kind="">Всё</button>
+    <button class="flt" data-kind="client">Клиенты</button>
+    <button class="flt" data-kind="order">Заказы</button>
+    <button class="flt" data-kind="finance">Деньги</button>
+    <button class="flt" data-kind="document">Документы</button>
+    <button class="flt" data-kind="knowledge">Знания</button>
+    <button class="flt" data-kind="profile">Профиль</button>
+    <button class="flt" data-kind="plan">Тариф</button>
+    <button class="flt" data-kind="note">Свои записи</button>
+  </div>
+
+  <div id="feed"><div class="empty">Загружаю историю…</div></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+let kind = '';
+const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+function dayTitle(iso){
+  const d = new Date((iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return 'Раньше';
+  const today = new Date(), y = new Date(today.getTime() - 864e5);
+  const same = (a,b)=> a.toDateString() === b.toDateString();
+  if (same(d, today)) return 'Сегодня';
+  if (same(d, y)) return 'Вчера';
+  return d.getDate() + ' ' + MONTHS[d.getMonth()] + (d.getFullYear() !== today.getFullYear() ? ' ' + d.getFullYear() : '');
+}
+function timeOf(iso){
+  const d = new Date((iso || '').replace(' ', 'T') + 'Z');
+  return isNaN(d) ? '' : d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
+}
+
+async function load(){
+  const feed = document.getElementById('feed');
+  let events;
+  try{
+    const r = await fetch('/api/timeline' + (kind ? '?kind=' + kind : ''));
+    events = (await r.json()).events || [];
+  }catch{ feed.innerHTML = '<div class="empty">Не удалось загрузить историю.</div>'; return; }
+
+  if (!events.length){
+    feed.innerHTML = '<div class="empty">' + (kind
+      ? 'В этой категории событий пока нет.'
+      : 'История пуста. Как только появится клиент, заказ или документ — событие запишется само.') + '</div>';
+    return;
+  }
+
+  let html = '', lastDay = null, i = 0;
+  for (const e of events){
+    const d = dayTitle(e.created_at);
+    if (d !== lastDay){ html += '<div class="day">' + esc(d) + '</div>'; lastDay = d; }
+    html += `<div class="ev ${esc(e.kind)}" style="animation-delay:${Math.min(i, 12) * 45}ms">
+        <span class="pin"></span>
+        <div class="t"><span class="ttl">${esc(e.title)}</span><span class="time">${timeOf(e.created_at)}</span></div>
+        ${e.detail ? '<div class="det">' + esc(e.detail) + '</div>' : ''}
+        <button class="del" data-id="${e.id}" title="Убрать из истории" aria-label="Убрать из истории">×</button>
+      </div>`;
+    i++;
+  }
+  feed.innerHTML = html;
+}
+
+document.getElementById('filters').addEventListener('click', e => {
+  const b = e.target.closest('.flt'); if (!b) return;
+  document.querySelectorAll('.flt').forEach(f=>f.classList.remove('sel'));
+  b.classList.add('sel'); kind = b.dataset.kind; load();
+});
+
+document.getElementById('evAdd').addEventListener('click', async () => {
+  const title = document.getElementById('evTitle').value.trim();
+  const detail = document.getElementById('evDetail').value.trim();
+  if (!title){ toast('Напишите, что произошло'); return; }
+  try{
+    const r = await fetch('/api/timeline', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ title, detail, kind:'note' }) });
+    if (!r.ok) throw 0;
+    document.getElementById('evTitle').value = '';
+    document.getElementById('evDetail').value = '';
+    toast('Записано в историю');
+    load();
+  }catch{ toast('Не удалось записать'); }
+});
+
+document.getElementById('feed').addEventListener('click', async e => {
+  const b = e.target.closest('.del'); if (!b) return;
+  if (!confirm('Убрать это событие из истории?')) return;
+  await fetch('/api/timeline/' + b.dataset.id + '/delete', { method:'POST' });
+  load();
+});
+
+load();
+</script>
+</body>
+</html>

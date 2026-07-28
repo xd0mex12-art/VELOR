@@ -1,0 +1,23 @@
+# Зависимости проекта VELOR. Ставятся командой:  pip install -r requirements.txt
+# Версии закреплены под проверенный рабочий набор (воспроизводимая сборка).
+
+# --- Веб-сервер и API ---
+fastapi==0.115.0           # веб-сервер и API
+uvicorn==0.51.0            # запуск ASGI-приложения
+python-multipart==0.0.32   # приём загружаемых файлов (UploadFile)
+
+# --- Telegram-бот ---
+python-telegram-bot==21.6
+
+# --- ИИ ---
+anthropic==0.116.0         # Claude
+requests==2.34.2           # обращения к GigaChat и внешним сервисам
+
+# --- Работа с документами ---
+pypdf==6.14.2              # чтение PDF
+python-docx==1.2.0         # чтение DOCX
+reportlab==5.0.0           # экспорт в PDF (кириллица через DejaVu)
+openpyxl==3.1.5            # экспорт в Excel
+
+# --- Прочее ---
+python-dotenv==1.0.0       # чтение секретов из .env

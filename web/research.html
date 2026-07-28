@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Конкуренты</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
+
+  main{ position:relative; z-index:1; max-width:900px; margin:0 auto; padding:140px 24px 100px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:16px 0 12px; }
+  .lead{ color:var(--silver); font-weight:200; margin-bottom:44px; max-width:600px; }
+
+  .panel{ background:rgba(255,255,255,.03); border:1px solid var(--hairline); border-radius:22px; padding:24px; }
+  .fld{ font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin:0 0 10px; }
+  input, textarea{ width:100%; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:14px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; transition:.3s; }
+  textarea{ min-height:120px; resize:vertical; }
+  input:focus, textarea:focus{ border-color:var(--iris); box-shadow:0 0 16px rgba(128,82,255,.28); outline:none; }
+  .or{ text-align:center; color:var(--ash); font-size:13px; letter-spacing:.1em; text-transform:uppercase; margin:16px 0; }
+
+  .btn{ min-height:48px; padding:12px 34px; border-radius:26px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:14px; letter-spacing:.12em; text-transform:uppercase; transition:filter .2s; margin-top:18px; }
+  .btn:hover{ filter:brightness(1.2) drop-shadow(0 0 16px rgba(128,82,255,.5)); }
+  .btn:disabled{ opacity:.5; }
+
+  .out{ margin-top:28px; color:var(--silver); font-weight:200; font-size:16px; line-height:1.7;
+    white-space:pre-line; min-height:24px; }
+  .out.filled{ color:var(--bone); }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none; transition:.3s; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+
+
+<main>
+  <span class="label">// VELOR Research · Конкуренты</span>
+  <h1>Анализ конкурентов.</h1>
+  <p class="lead">Дайте ссылку на сайт конкурента — VELOR откроет его сам, сравнит с вашим бизнесом и покажет, где вы сильнее, а где стоит подтянуться.</p>
+
+  <div class="panel">
+    <div class="fld">Ссылка на конкурента</div>
+    <input id="rUrl" placeholder="например, konkurent.ru или https://instagram.com/...">
+    <div class="or">— или вставьте описание / текст вручную —</div>
+    <textarea id="rText" placeholder="Услуги, цены, предложения конкурента — если ссылку открыть не получается."></textarea>
+    <button class="btn" id="rBtn">Проанализировать</button>
+    <div class="out" id="rOut"></div>
+  </div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+document.getElementById('rBtn').addEventListener('click', async e => {
+  const url = document.getElementById('rUrl').value.trim();
+  const text = document.getElementById('rText').value.trim();
+  if(!url && !text){ toast('Дайте ссылку или вставьте текст'); return; }
+  const out = document.getElementById('rOut');
+  out.textContent = 'VELOR изучает конкурента…'; out.classList.remove('filled');
+  e.currentTarget.disabled = true;
+  try{
+    const d = await (await fetch('/api/research', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({url, text})
+    })).json();
+    if(d.ok && d.answer){ out.textContent = d.answer; out.classList.add('filled'); }
+    else out.textContent = d.error || 'ИИ сейчас недоступен — попробуйте позже.';
+  }catch{ out.textContent = 'Ошибка — проверьте сервер.'; }
+  e.currentTarget.disabled = false;
+});
+</script>
+</body>
+</html>

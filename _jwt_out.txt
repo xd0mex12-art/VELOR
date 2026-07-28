@@ -1,0 +1,17 @@
+register выдал access=True refresh=True expires_in=1800
+access — это JWT (3 части): True
+в payload role=business bid=26
+clients с access: 200
+clients без токена: 401
+clients с мусором: 401
+clients с истёкшим: 401
+refresh: 200, новый access=True
+clients с обновлённым access: 200
+refresh в базе хешем, не открыто: True
+изоляция: запрос business_id=1 отдал свои данные (total как у своего): True
+logout: 200
+refresh после logout отклонён: 401 (ждём 401)
+owner login: 200, refresh=True
+owner видит админ-эндпоинт: 200
+бизнес НЕ видит админ-эндпоинт: 401 (ждём 401)
+cleanup ok

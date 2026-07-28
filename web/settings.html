@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Настройки</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --magenta:#ff4fd8;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; }
+  .tone-row{ display:flex; gap:10px; flex-wrap:wrap; }
+  .tone{ padding:12px 20px; border-radius:16px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    color:var(--silver); font-weight:500; font-size:14px; transition:border-color .2s, background .2s, color .2s; }
+  .tone:hover{ color:#fff; }
+  .tone.sel{ border-color:var(--iris); background:rgba(128,82,255,.12); color:#fff; }
+
+  main{ position:relative; z-index:1; max-width:720px; margin:0 auto; padding:150px 24px 90px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,72px); line-height:1.1; letter-spacing:-0.04em; margin:18px 0 20px; }
+  .lead{ color:var(--silver); font-weight:200; margin-bottom:56px; max-width:560px; }
+
+  .f{ margin-bottom:32px; }
+  .f label{ display:block; font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:10px; }
+  .f .hint{ display:block; font-weight:200; font-size:13px; color:var(--ash); margin-bottom:12px; text-transform:none; letter-spacing:0; }
+  .f input, .f textarea{ width:100%; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:16px; padding:14px 18px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; transition:border-color .3s, box-shadow .3s; }
+  .f textarea{ resize:vertical; min-height:100px; }
+  .f input:focus, .f textarea:focus{ border-color:var(--iris); box-shadow:0 0 18px rgba(128,82,255,.3); outline:none; }
+
+  .save{ min-height:52px; padding:14px 40px; border-radius:28px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:14px; letter-spacing:.15em; text-transform:uppercase; transition:filter .2s; }
+  .save:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+  .save:disabled{ opacity:.4; }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none;
+    transition:opacity .3s, transform .3s; text-shadow:0 0 12px rgba(128,82,255,.5); }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+
+<canvas id="ambientCanvas"></canvas>
+
+
+<main>
+  <span class="label">// Подключение бизнеса</span>
+  <h1>Настройки.</h1>
+  <p class="lead">Заполни три поля — и VELOR AI заговорит от лица твоего бизнеса. Никакого кода: сохранил здесь — бот и ядро сразу подстроились.</p>
+
+  <div class="f">
+    <label>Название бизнеса</label>
+    <span class="hint">Как называется твоё дело. Например: «Кофейня Utro», «Барбершоп BRODA».</span>
+    <input id="name" maxlength="120" placeholder="Название">
+  </div>
+
+  <div class="f">
+    <label>Чем занимается</label>
+    <span class="hint">Коротко, для ИИ — чтобы он понимал контекст. Например: «кофейня с доставкой» или «барбершоп: стрижки и бороды, запись по времени».</span>
+    <input id="about" maxlength="200" placeholder="Вид бизнеса и что вы делаете">
+  </div>
+
+  <div class="f">
+    <label>Приветствие в боте</label>
+    <span class="hint">Первое, что видит клиент после /start. Например: «Здравствуйте! Напишите, что хотите — приму заявку и всё оформлю.»</span>
+    <textarea id="greeting" maxlength="500" placeholder="Приветствие клиенту"></textarea>
+  </div>
+
+  <div class="f">
+    <label>Стиль общения</label>
+    <span class="hint">Как AI-сотрудник разговаривает с клиентами. Влияет на тон всех ответов.</span>
+    <div class="tone-row" id="toneRow">
+      <button type="button" class="tone" data-tone="professional">Профессиональный</button>
+      <button type="button" class="tone" data-tone="friendly">Дружелюбный</button>
+      <button type="button" class="tone" data-tone="strict">Строгий</button>
+    </div>
+  </div>
+
+  <div class="f">
+    <label>База знаний</label>
+    <span class="hint">Всё, что ядро должно знать о бизнесе, чтобы отвечать по фактам: прайс, услуги, часы работы, доставка, частые вопросы и ответы. Пиши свободно, простым текстом — чем подробнее, тем умнее ядро. Например: «Букет из 15 роз — 2500₽. Доставка по городу 300₽, бесплатно от 5000₽. Работаем 9:00–21:00.»</span>
+    <textarea id="knowledge" maxlength="4000" placeholder="Прайс, услуги, условия, ответы на частые вопросы…" style="min-height:180px"></textarea>
+  </div>
+
+  <div class="f">
+    <label>Токен Telegram-бота</label>
+    <span class="hint">Строка от @BotFather — через неё работает бот. Не знаете, где взять? <a href="guide.html" style="color:var(--iris)">Пошаговая инструкция →</a></span>
+    <input id="tg_bot_token" placeholder="8521842437:AAF8K8zwVmmHPpg..." autocomplete="off">
+  </div>
+
+  <button class="save" id="saveBtn">Сохранить</button>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+let selectedTone = '';
+document.getElementById('toneRow').addEventListener('click', e => {
+  const b = e.target.closest('.tone'); if(!b) return;
+  selectedTone = b.dataset.tone;
+  document.querySelectorAll('.tone').forEach(t => t.classList.toggle('sel', t===b));
+});
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+async function load(){
+  try{
+    const b = await (await fetch('/api/business')).json();
+    document.getElementById('name').value = b.name || '';
+    document.getElementById('about').value = b.about || '';
+    document.getElementById('greeting').value = b.greeting || '';
+    document.getElementById('knowledge').value = b.knowledge || '';
+    document.getElementById('tg_bot_token').value = b.tg_bot_token || '';
+    selectedTone = b.tone || '';
+    document.querySelectorAll('.tone').forEach(t => t.classList.toggle('sel', t.dataset.tone===selectedTone));
+  }catch{ toast('Сервер не отвечает — запусти python server.py'); }
+}
+
+document.getElementById('saveBtn').addEventListener('click', async e => {
+  const btn = e.currentTarget; btn.disabled = true;
+  const data = {
+    name: document.getElementById('name').value.trim(),
+    about: document.getElementById('about').value.trim(),
+    greeting: document.getElementById('greeting').value.trim(),
+    knowledge: document.getElementById('knowledge').value.trim(),
+    tone: selectedTone,
+    tg_bot_token: document.getElementById('tg_bot_token').value.trim(),
+  };
+  if (!data.name){ toast('Впиши хотя бы название'); btn.disabled = false; return; }
+  try{
+    await fetch('/api/business', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
+    });
+    if (window.ARINA_CORE_PULSE) ARINA_CORE_PULSE();
+    toast('Сохранено — VELOR AI подстроился ✨');
+  }catch{ toast('Не сохранилось — проверь сервер'); }
+  btn.disabled = false;
+});
+
+load();
+</script>
+</body>
+</html>

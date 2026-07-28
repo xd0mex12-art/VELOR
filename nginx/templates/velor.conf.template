@@ -1,0 +1,60 @@
+# Сервер VELOR. ${DOMAIN} подставляется из окружения при старте nginx.
+upstream velor_app { server web:8000; }
+
+# ---------- HTTP: ACME-проверка + редирект на HTTPS ----------
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    # проверка Let's Encrypt
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # всё остальное — принудительно на HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---------- HTTPS: основной сайт и API ----------
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name ${DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # безопасные заголовки на весь сервер
+    include /etc/nginx/snippets/security-headers.conf;
+
+    # кеш статики: картинки и шрифты (html/css/js приложение помечает no-cache само)
+    location ~* \.(?:png|jpe?g|gif|ico|svg|webp|woff2?|ttf|eot)$ {
+        proxy_pass http://velor_app;
+        proxy_cache static_cache;
+        proxy_cache_valid 200 302 7d;
+        proxy_ignore_headers Cache-Control Expires;
+        add_header Cache-Control "public, max-age=604800";
+        add_header X-Cache-Status $upstream_cache_status;
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+
+    # приложение (сайт + API)
+    location / {
+        proxy_pass http://velor_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;   # ИИ-ответы бывают долгими
+    }
+}

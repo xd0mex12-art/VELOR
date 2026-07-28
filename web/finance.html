@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Финансы</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --coral:#ff6b6b;
+    --hairline:rgba(255,255,255,.08);
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .ghost:hover{ color:var(--bone); }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
+  .nav-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
+
+  main{ position:relative; z-index:1; max-width:960px; margin:0 auto; padding:140px 24px 100px; }
+  h1{ font-weight:400; font-size:clamp(38px,5.5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:16px 0 12px; }
+  .lead{ color:var(--silver); font-weight:200; margin-bottom:48px; max-width:560px; }
+
+  /* Метрики */
+  .cards{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:48px; }
+  .card{ background:rgba(255,255,255,.04); border:1px solid var(--hairline); border-radius:22px; padding:26px 24px; }
+  .card .k{ font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); }
+  .card .v{ font-weight:400; font-size:clamp(26px,3.2vw,38px); letter-spacing:-.02em; margin-top:12px; }
+  .card.income .v{ color:var(--verdant); }
+  .card.expense .v{ color:var(--coral); }
+  .card.profit .v{ color:var(--bone); }
+
+  section{ margin-bottom:44px; }
+  .sec-h{ font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:18px; }
+
+  /* Форма */
+  .form{ background:rgba(255,255,255,.03); border:1px solid var(--hairline); border-radius:22px; padding:24px; }
+  .kind-row{ display:flex; gap:10px; margin-bottom:18px; }
+  .kind{ padding:11px 22px; border-radius:14px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    color:var(--silver); font-weight:500; font-size:14px; transition:.2s; }
+  .kind:hover{ color:#fff; }
+  .kind.sel[data-kind="income"]{ border-color:var(--verdant); background:rgba(47,212,178,.14); color:#fff; }
+  .kind.sel[data-kind="expense"]{ border-color:var(--coral); background:rgba(255,107,107,.14); color:#fff; }
+  .row{ display:grid; grid-template-columns:1.4fr 1fr; gap:12px; margin-bottom:12px; }
+  input{ width:100%; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:12px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; transition:.3s; }
+  input:focus{ border-color:var(--iris); box-shadow:0 0 16px rgba(128,82,255,.28); outline:none; }
+  .add{ min-height:50px; padding:12px 34px; border-radius:26px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:14px; letter-spacing:.12em; text-transform:uppercase; transition:filter .2s; margin-top:6px; }
+  .add:hover{ filter:brightness(1.2) drop-shadow(0 0 16px rgba(128,82,255,.5)); }
+
+  /* Список */
+  .entry{ display:flex; align-items:center; gap:14px; padding:14px 4px; border-bottom:1px solid var(--hairline); }
+  .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .dot.income{ background:var(--verdant); } .dot.expense{ background:var(--coral); }
+  .entry .cat{ font-weight:400; font-size:16px; }
+  .entry .note{ font-size:13px; color:var(--ash); }
+  .entry .amt{ margin-left:auto; font-weight:400; font-size:17px; }
+  .entry .amt.income{ color:var(--verdant); } .entry .amt.expense{ color:var(--coral); }
+  .entry .del{ background:none; border:none; color:var(--ash); font-size:20px; line-height:1; padding:4px 8px; transition:color .2s; }
+  .entry .del:hover{ color:var(--coral); }
+  .empty{ color:var(--ash); font-size:15px; padding:18px 0; }
+
+  /* AI-инсайты */
+  .ai{ background:linear-gradient(160deg,rgba(128,82,255,.10),rgba(255,255,255,.02));
+    border:1px solid rgba(128,82,255,.25); border-radius:22px; padding:26px 24px; }
+  .ai .top{ display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:8px; }
+  .ai h3{ font-weight:400; font-size:20px; letter-spacing:-.01em; }
+  .ai-btn{ padding:10px 22px; border-radius:22px; background:rgba(128,82,255,.16); border:1px solid rgba(128,82,255,.4);
+    color:#fff; font-weight:500; font-size:13px; letter-spacing:.06em; transition:.2s; }
+  .ai-btn:hover{ background:rgba(128,82,255,.28); }
+  .ai .out{ margin-top:14px; color:var(--silver); font-weight:200; font-size:16px; white-space:pre-line; min-height:24px; }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
+    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none; transition:.3s; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media (max-width:720px){ .cards{ grid-template-columns:1fr; } .row{ grid-template-columns:1fr; } }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+
+<main>
+  <span class="label">// Finance · Деньги бизнеса</span>
+  <h1>Финансы.</h1>
+  <p class="lead">Вносите доходы и расходы — VELOR считает прибыль и подсказывает, где вы теряете деньги, а где точка роста.</p>
+
+  <a class="import-cta" href="import.html">
+    <span class="ic-t">Загрузить выписку из банка</span>
+    <span class="ic-s">CSV, XLSX или PDF — сотрудник сам разберёт операции и разложит расходы по категориям</span>
+    <span class="ic-go">→</span>
+  </a>
+  <style>
+    .import-cta{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px 18px;
+      border:1px solid rgba(128,82,255,.3); background:rgba(128,82,255,.07); border-radius:18px;
+      padding:20px 24px; margin:26px 0 34px; transition:background .25s, border-color .25s; }
+    .import-cta:hover{ background:rgba(128,82,255,.13); border-color:#a99cff; }
+    .import-cta .ic-t{ font-size:17px; font-weight:500; }
+    .import-cta .ic-s{ grid-column:1; font-size:13.5px; color:#9a9a9a; }
+    .import-cta .ic-go{ grid-row:1/3; grid-column:2; font-size:22px; color:#a99cff; }
+    @media(max-width:620px){ .import-cta{ grid-template-columns:1fr; }
+      .import-cta .ic-go{ display:none; } }
+  </style>
+
+  <div class="cards">
+    <div class="card income"><div class="k">Выручка</div><div class="v num" id="mIncome">0 ₽</div></div>
+    <div class="card expense"><div class="k">Расходы</div><div class="v num" id="mExpense">0 ₽</div></div>
+    <div class="card profit"><div class="k">Прибыль</div><div class="v num" id="mProfit">0 ₽</div></div>
+  </div>
+
+  <section>
+    <div class="sec-h">Добавить запись</div>
+    <div class="form">
+      <div class="kind-row" id="kindRow">
+        <button type="button" class="kind sel" data-kind="income">Доход</button>
+        <button type="button" class="kind" data-kind="expense">Расход</button>
+      </div>
+      <div class="row">
+        <input id="fCategory" maxlength="80" placeholder="Категория — напр. «продажи», «аренда», «реклама»">
+        <input id="fAmount" type="number" min="0" inputmode="numeric" placeholder="Сумма, ₽">
+      </div>
+      <input id="fNote" maxlength="160" placeholder="Заметка (необязательно)">
+      <button class="add" id="addBtn">Добавить</button>
+    </div>
+  </section>
+
+  <section class="ai">
+    <div class="top">
+      <h3>AI-инсайты по деньгам</h3>
+      <button class="ai-btn" id="insBtn">Проанализировать</button>
+    </div>
+    <div class="out" id="insOut">Нажмите «Проанализировать» — VELOR разберёт ваши цифры.</div>
+  </section>
+
+  <section>
+    <div class="sec-h">Последние записи</div>
+    <div id="list"></div>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT, selectedKind = 'income';
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3000);
+}
+function money(n){ return (n||0).toLocaleString('ru-RU') + ' ₽'; }
+
+document.getElementById('kindRow').addEventListener('click', e => {
+  const b = e.target.closest('.kind'); if(!b) return;
+  selectedKind = b.dataset.kind;
+  document.querySelectorAll('.kind').forEach(k => k.classList.toggle('sel', k===b));
+});
+
+async function load(){
+  try{
+    const d = await (await fetch('/api/finance')).json();
+    const s = d.summary || {};
+    document.getElementById('mIncome').textContent  = money(s.income);
+    document.getElementById('mExpense').textContent = money(s.expense);
+    document.getElementById('mProfit').textContent  = money(s.profit);
+    const list = document.getElementById('list');
+    const rows = d.entries || [];
+    if(!rows.length){ list.innerHTML = '<div class="empty">Пока пусто. Добавьте первый доход или расход выше.</div>'; return; }
+    list.innerHTML = rows.map(r => `
+      <div class="entry">
+        <span class="dot ${r.kind}"></span>
+        <div>
+          <div class="cat">${(r.category||'Без категории')}</div>
+          ${r.note ? `<div class="note">${r.note}</div>` : ''}
+        </div>
+        <div class="amt ${r.kind} num">${r.kind==='expense'?'−':'+'}${money(r.amount)}</div>
+        <button class="del" data-id="${r.id}" title="Удалить">×</button>
+      </div>`).join('');
+  }catch{ toast('Сервер не отвечает — запусти server.py'); }
+}
+
+document.getElementById('addBtn').addEventListener('click', async e => {
+  const amount = parseInt(document.getElementById('fAmount').value, 10);
+  if(!amount || amount <= 0){ toast('Впиши сумму'); return; }
+  e.currentTarget.disabled = true;
+  try{
+    await fetch('/api/finance', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        kind: selectedKind,
+        category: document.getElementById('fCategory').value.trim(),
+        amount, note: document.getElementById('fNote').value.trim()
+      })
+    });
+    document.getElementById('fCategory').value = '';
+    document.getElementById('fAmount').value = '';
+    document.getElementById('fNote').value = '';
+    toast('Записано ✓'); await load();
+  }catch{ toast('Не сохранилось — проверь сервер'); }
+  e.currentTarget.disabled = false;
+});
+
+document.getElementById('list').addEventListener('click', async e => {
+  const b = e.target.closest('.del'); if(!b) return;
+  try{ await fetch(`/api/finance/${b.dataset.id}/delete`, {method:'POST'}); await load(); }
+  catch{ toast('Не удалилось'); }
+});
+
+document.getElementById('insBtn').addEventListener('click', async e => {
+  const out = document.getElementById('insOut');
+  e.currentTarget.disabled = true; out.textContent = 'VELOR анализирует цифры…';
+  try{
+    const d = await (await fetch('/api/finance/insights')).json();
+    out.textContent = d.ok && d.answer ? d.answer : 'ИИ сейчас недоступен — попробуйте позже.';
+  }catch{ out.textContent = 'Не удалось получить инсайты — проверьте сервер.'; }
+  e.currentTarget.disabled = false;
+});
+
+load();
+</script>
+</body>
+</html>

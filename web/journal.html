@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Дневник</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+
+  .head-row{ display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  .refresh{ min-height:44px; padding:11px 24px; border-radius:24px; background:rgba(128,82,255,.16);
+    border:1px solid rgba(128,82,255,.4); color:#fff; font-weight:500; font-size:13px;
+    letter-spacing:.06em; transition:background .2s; margin-bottom:42px; }
+  .refresh:hover{ background:rgba(128,82,255,.3); }
+  .refresh:disabled{ opacity:.5; }
+
+  /* карточка дня */
+  .entry{ border:1px solid var(--hairline); border-radius:24px; padding:0; margin-bottom:18px;
+    background:linear-gradient(170deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+    overflow:hidden; opacity:0; transform:translateY(12px);
+    animation:jIn .55s cubic-bezier(.22,1,.36,1) forwards; }
+  @keyframes jIn{ to{ opacity:1; transform:none } }
+  .entry.quiet{ background:rgba(255,255,255,.02); }
+
+  .e-top{ display:flex; align-items:baseline; gap:12px; padding:22px 26px 0; }
+  .e-day{ font-weight:400; font-size:21px; letter-spacing:-.02em; }
+  .e-dow{ font-size:13px; color:var(--ash); }
+  .e-tag{ margin-left:auto; font-weight:600; font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+    padding:5px 11px; border-radius:20px; background:rgba(128,82,255,.16); color:#c9bfff; }
+  .entry.quiet .e-tag{ background:rgba(255,255,255,.06); color:var(--ash); }
+
+  .e-text{ padding:12px 26px 0; color:var(--silver); font-weight:200; font-size:16px; line-height:1.6; }
+
+  .e-nums{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px; margin:20px 0 0;
+    background:var(--hairline); border-top:1px solid var(--hairline); }
+  .n{ background:#050506; padding:16px 20px; }
+  .n .k{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); }
+  .n .v{ font-weight:400; font-size:22px; letter-spacing:-.02em; margin-top:5px; font-variant-numeric:tabular-nums; }
+  .n.inc .v{ color:var(--verdant); }
+  .n.exp .v{ color:var(--coral); }
+  .n .v.zero{ color:#4a4a4a; }
+
+  .e-advice{ display:flex; gap:13px; padding:20px 26px 24px; border-top:1px solid var(--hairline);
+    background:linear-gradient(180deg,rgba(128,82,255,.07),transparent); }
+  .e-advice .ic{ width:26px; height:26px; border-radius:9px; flex:none; margin-top:1px;
+    background:linear-gradient(150deg,#8052ff,#5b6cff); display:flex; align-items:center;
+    justify-content:center; font-size:13px; font-weight:600; color:#fff; }
+  .e-advice .body{ min-width:0; }
+  .e-advice .t{ font-weight:600; font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+    color:#a99cff; margin-bottom:5px; }
+  .e-advice .p{ color:var(--bone); font-weight:200; font-size:15.5px; line-height:1.6; }
+
+  .empty{ color:var(--ash); font-size:15px; padding:30px 0; }
+
+  @media(max-width:640px){ .e-nums{ grid-template-columns:repeat(2,1fr); } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+
+<main>
+  <div class="head-row">
+    <div>
+      <span class="label">// AI Journal · Дневник бизнеса</span>
+      <h1>Дневник.</h1>
+    </div>
+  </div>
+  <p class="lead">Каждый день VELOR сам записывает, что произошло: клиенты, документы, деньги — и одну главную рекомендацию на завтра.</p>
+  <button class="refresh" id="refresh">Обновить за сегодня</button>
+
+  <div id="feed"><div class="empty">Собираю записи…</div></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const DOW = ['воскресенье','понедельник','вторник','среда','четверг','пятница','суббота'];
+function dayLabel(iso){
+  const d = new Date(iso + 'T00:00:00');
+  const today = new Date(); today.setHours(0,0,0,0);
+  const diff = Math.round((today - d) / 864e5);
+  if (diff === 0) return ['Сегодня', DOW[d.getDay()]];
+  if (diff === 1) return ['Вчера', DOW[d.getDay()]];
+  return [d.getDate() + ' ' + MONTHS[d.getMonth()], DOW[d.getDay()]];
+}
+const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+
+function card(e, i){
+  const [day, dow] = dayLabel(e.day);
+  const quiet = !e.clients_new && !e.docs_new && !e.income && !e.expense && !e.advice;
+  const num = (k, v, cls) =>
+    `<div class="n ${cls || ''}"><div class="k">${k}</div><div class="v ${v ? '' : 'zero'}">${
+      cls === 'inc' || cls === 'exp' ? money(v) : (v || 0)}</div></div>`;
+  return `<article class="entry ${quiet ? 'quiet' : ''}" style="animation-delay:${Math.min(i,10)*60}ms">
+      <div class="e-top">
+        <span class="e-day">${esc(day)}</span><span class="e-dow">${esc(dow)}</span>
+        <span class="e-tag">${quiet ? 'тихий день' : 'отчёт'}</span>
+      </div>
+      <div class="e-text">${esc(e.happened || '—')}</div>
+      <div class="e-nums">
+        ${num('Новые клиенты', e.clients_new)}
+        ${num('Документы', e.docs_new)}
+        ${num('Доход', e.income, 'inc')}
+        ${num('Расход', e.expense, 'exp')}
+      </div>
+      ${e.advice ? `<div class="e-advice"><span class="ic">V</span><div class="body">
+        <div class="t">Самое важное</div><div class="p">${esc(e.advice)}</div></div></div>` : ''}
+    </article>`;
+}
+
+async function load(){
+  const feed = document.getElementById('feed');
+  try{
+    const { entries } = await (await fetch('/api/journal')).json();
+    feed.innerHTML = entries && entries.length
+      ? entries.map(card).join('')
+      : '<div class="empty">Записей пока нет — первая появится, как только за день что-то произойдёт.</div>';
+  }catch{
+    feed.innerHTML = '<div class="empty">Не удалось загрузить дневник.</div>';
+  }
+}
+
+document.getElementById('refresh').addEventListener('click', async e => {
+  const b = e.currentTarget; b.disabled = true; b.textContent = 'Собираю…';
+  try{
+    await fetch('/api/journal/refresh', { method:'POST' });
+    await load();
+    toast('Отчёт за сегодня пересобран');
+  }catch{ toast('Не получилось обновить'); }
+  b.disabled = false; b.textContent = 'Обновить за сегодня';
+});
+
+load();
+</script>
+</body>
+</html>

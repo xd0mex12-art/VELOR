@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Обзор недели</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:#a99cff;
+    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .date{ font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--ash); }
+  .title{ font-weight:400; font-size:clamp(30px,4vw,46px); letter-spacing:-.03em;
+    line-height:1.15; margin:10px 0 34px; }
+
+  .cap{ font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--lilac); margin-bottom:9px; }
+
+  .two{ display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:26px; }
+  .card2{ border:1px solid var(--hairline); border-radius:18px; padding:22px 24px; }
+  .card2.win{ border-color:rgba(47,212,178,.30); background:rgba(47,212,178,.05); }
+  .card2.miss{ border-color:rgba(255,107,107,.28); background:rgba(255,107,107,.04); }
+  .card2 .txt{ font-size:15.5px; color:var(--silver); line-height:1.5; }
+  .card2.win .cap{ color:var(--verdant); } .card2.miss .cap{ color:var(--coral); }
+
+  .fin{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-bottom:16px; }
+  .f{ border:1px solid var(--hairline); border-radius:16px; padding:18px 20px; }
+  .f .k{ font-size:12px; color:var(--ash); }
+  .f .v{ font-size:23px; font-weight:400; letter-spacing:-.02em; margin-top:5px; }
+  .f .s{ font-size:12px; color:var(--ash); margin-top:3px; }
+  .f .v.plus{ color:var(--verdant); } .f .v.minus{ color:var(--coral); }
+
+  .sect{ margin-bottom:26px; }
+  .note{ border:1px solid var(--hairline); border-radius:16px; padding:16px 20px;
+    font-size:15.5px; color:var(--silver); line-height:1.5; }
+  .note.iris{ border-color:rgba(128,82,255,.28); background:rgba(128,82,255,.07); }
+
+  .stat-row{ display:flex; gap:26px; flex-wrap:wrap; margin-bottom:12px; }
+  .stat .v{ font-size:26px; font-weight:400; letter-spacing:-.02em; }
+  .stat .k{ font-size:12px; color:var(--ash); margin-top:3px; }
+
+  .goals li{ list-style:none; display:flex; align-items:center; gap:14px; padding:12px 0;
+    border-bottom:1px solid var(--hairline); }
+  .goals li:last-child{ border-bottom:none; }
+  .goals .gt{ flex:1; font-size:15px; }
+  .goals .bar{ width:120px; height:6px; border-radius:6px; background:rgba(255,255,255,.09); overflow:hidden; }
+  .goals .bar i{ display:block; height:100%; background:var(--iris); }
+  .goals .pc{ font-size:14px; color:var(--silver); width:44px; text-align:right; }
+  .goals .pace{ font-size:11px; letter-spacing:.1em; text-transform:uppercase; }
+  .goals .pace.behind{ color:var(--coral); } .goals .pace.ahead{ color:var(--verdant); }
+
+  .plan{ border:1px solid rgba(128,82,255,.28); background:rgba(128,82,255,.08);
+    border-radius:20px; padding:24px 28px; }
+  .plan .txt{ font-size:16.5px; color:var(--bone); line-height:1.5; }
+
+  .foot{ display:flex; gap:18px; align-items:center; margin-top:30px; font-size:14px; color:var(--ash); }
+  .foot button{ background:none; border:none; color:var(--lilac); font-size:14px; }
+  .foot button:hover{ color:#fff; }
+  .foot button:disabled{ opacity:.4; }
+
+  .arch{ margin-top:36px; }
+  .arch .cap{ margin-bottom:14px; }
+  .arch a{ display:block; padding:12px 0; border-top:1px solid var(--hairline); font-size:15px; color:var(--silver); }
+  .arch a:hover{ color:#fff; }
+
+  @media(max-width:820px){ .fin{ grid-template-columns:1fr; } .two{ grid-template-columns:1fr; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <div id="report">Собираю обзор недели…</div>
+  <div class="arch" id="arch"></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+
+function weekLabel(iso){
+  const s = new Date(iso + 'T00:00:00');
+  const e = new Date(s); e.setDate(e.getDate() + 6);
+  const opt = { day:'numeric', month:'long' };
+  return s.toLocaleDateString('ru-RU', opt) + ' — ' + e.toLocaleDateString('ru-RU', opt);
+}
+function sign(n){ return n > 0 ? 'plus' : (n < 0 ? 'minus' : ''); }
+function delta(pct){
+  if (pct === null || pct === undefined) return '';
+  if (pct === 0) return 'как на прошлой неделе';
+  return (pct > 0 ? '+' : '') + pct + '% к прошлой неделе';
+}
+
+function render(p){
+  const fin = p.finance || {}, cl = p.clients || {}, ord = p.orders || {},
+        cont = p.content || {}, goals = p.goals || [];
+  const top = (fin.expense_top || []).map(c => `${esc(c.category)} ${money(c.total)}`).join(' · ');
+
+  return `
+    <div class="date">${esc(weekLabel(p.week_start))} · обзор недели</div>
+    <div class="title">Как прошла неделя.</div>
+
+    <div class="two">
+      <div class="card2 win"><div class="cap">Главные достижения</div>
+        <div class="txt">${p.achievements ? esc(p.achievements) : 'Пока нечего выделить — неделя была спокойной.'}</div></div>
+      <div class="card2 miss"><div class="cap">Главные ошибки</div>
+        <div class="txt">${p.mistakes ? esc(p.mistakes) : 'Серьёзных потерь за неделю не видно.'}</div></div>
+    </div>
+
+    <div class="sect"><div class="cap">Финансы</div>
+      <div class="fin">
+        <div class="f"><div class="k">Доход</div><div class="v num">${money(fin.income)}</div>
+          <div class="s">${esc(delta(fin.income_change))}</div></div>
+        <div class="f"><div class="k">Расход</div><div class="v num">${money(fin.expense)}</div>
+          <div class="s">${top ? 'больше всего: ' + top : ''}</div></div>
+        <div class="f"><div class="k">Прибыль</div>
+          <div class="v num ${sign(fin.profit)}">${money(fin.profit)}</div>
+          <div class="s">${esc(delta(fin.profit_change))}</div></div>
+      </div>
+      ${p.finance_note ? `<div class="note">${esc(p.finance_note)}</div>` : ''}
+    </div>
+
+    <div class="sect"><div class="cap">Контент</div>
+      <div class="stat-row">
+        <div class="stat"><div class="v num">${cont.count || 0}</div>
+          <div class="k">материалов за неделю${cont.prev_count != null ? ' · было ' + cont.prev_count : ''}</div></div>
+      </div>
+      ${p.content_note ? `<div class="note">${esc(p.content_note)}</div>`
+        : '<div class="note">За неделю контента не готовили. Загляните в «Продвижение» — сотрудник соберёт пост или контент-план.</div>'}
+    </div>
+
+    <div class="sect"><div class="cap">Клиенты</div>
+      <div class="stat-row">
+        <div class="stat"><div class="v num">${cl.new || 0}</div><div class="k">новых клиентов</div></div>
+        <div class="stat"><div class="v num">${ord.new || 0}</div><div class="k">заказов · выполнено ${ord.done || 0}</div></div>
+        <div class="stat"><div class="v num">${cl.messages || 0}</div><div class="k">сообщений от клиентов</div></div>
+      </div>
+      ${p.clients_note ? `<div class="note">${esc(p.clients_note)}</div>` : ''}
+    </div>
+
+    <div class="sect"><div class="cap">Прогресс целей</div>
+      ${goals.length ? `<ul class="goals">${goals.map(g => `
+        <li><span class="gt">${esc(g.title)}</span>
+          <span class="bar"><i style="width:${g.percent || 0}%"></i></span>
+          <span class="pc num">${g.percent || 0}%</span>
+          <span class="pace ${g.pace || ''}">${g.pace === 'behind' ? 'отстаёт' : (g.pace === 'ahead' ? 'в графике' : '')}</span></li>`).join('')}</ul>`
+        : '<div class="note">Целей пока не поставлено. Задайте их на странице «Цели» — обзор начнёт отслеживать прогресс.</div>'}
+      ${p.goals_note ? `<div class="note" style="margin-top:12px">${esc(p.goals_note)}</div>` : ''}
+    </div>
+
+    <div class="plan"><div class="cap">План на следующую неделю</div>
+      <div class="txt">${p.next_week ? esc(p.next_week) : 'Соберётся, когда накопится больше данных за неделю.'}</div></div>
+
+    <div class="foot">
+      <button type="button" id="again">Пересобрать</button>
+    </div>`;
+}
+
+async function loadArchive(current){
+  try{
+    const d = await (await fetch('/api/weekly/list')).json();
+    const rest = (d.reviews || []).filter(r => r.week_start !== current);
+    if (!rest.length){ document.getElementById('arch').innerHTML = ''; return; }
+    document.getElementById('arch').innerHTML =
+      '<div class="cap">История обзоров</div>' +
+      rest.map(r => `<a href="weekly.html?week=${r.week_start}">${esc(weekLabel(r.week_start))}</a>`).join('');
+  }catch{}
+}
+
+async function load(force){
+  const box = document.getElementById('report');
+  if (force) box.textContent = 'Пересобираю…';
+  const params = new URLSearchParams(location.search);
+  const week = params.get('week');
+  const qs = week ? '?week=' + encodeURIComponent(week) : '';
+  try{
+    const d = force
+      ? await (await fetch('/api/weekly/refresh' + qs, { method:'POST' })).json()
+      : await (await fetch('/api/weekly' + qs)).json();
+    const p = d.payload || {};
+    p.week_start = p.week_start || d.week_start;
+    box.innerHTML = render(p);
+    document.getElementById('again').addEventListener('click', () => load(true));
+    loadArchive(d.week_start);
+  }catch{ box.textContent = 'Не получилось собрать обзор — нет связи с сервером.'; }
+}
+load(false);
+</script>
+</body>
+</html>

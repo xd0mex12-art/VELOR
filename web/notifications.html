@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Уведомления</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:#a99cff;
+    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .bar{ display:flex; gap:10px; align-items:center; margin-bottom:18px; flex-wrap:wrap; }
+  .bar input{ flex:1; min-width:200px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:14px; padding:11px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:15px; }
+  .bar input:focus{ border-color:var(--iris); outline:none; }
+  .bar button{ border:1px solid var(--hairline); background:rgba(255,255,255,.05); color:var(--silver);
+    border-radius:14px; padding:11px 16px; font-size:13.5px; transition:color .2s, border-color .2s; }
+  .bar button:hover{ color:#fff; border-color:var(--lilac); }
+  .bar button.on{ background:var(--iris); color:#fff; border-color:transparent; }
+
+  .chips{ display:flex; gap:7px; flex-wrap:wrap; margin-bottom:26px; }
+  .chip{ padding:7px 14px; border-radius:18px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-size:12.5px; font-weight:500;
+    transition:background .2s, color .2s, border-color .2s; }
+  .chip:hover{ color:#fff; }
+  .chip.on{ background:var(--iris); color:#fff; border-color:transparent; }
+  .chip b{ font-weight:600; color:var(--lilac); margin-left:5px; }
+  .chip.on b{ color:#fff; }
+
+  .day{ font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ash); margin:26px 0 10px; }
+  .day:first-of-type{ margin-top:0; }
+
+  .n{ display:flex; gap:14px; align-items:flex-start; padding:15px 18px; border-radius:16px;
+    border:1px solid var(--hairline); margin-bottom:9px; transition:background .2s, border-color .2s; }
+  .n.unread{ background:rgba(128,82,255,.06); border-color:rgba(128,82,255,.22); }
+  .n.important{ border-color:rgba(255,184,41,.3); }
+  .n .pin{ width:9px; height:9px; border-radius:50%; margin-top:8px; flex:none; background:var(--ash); }
+  .n .body{ flex:1; min-width:0; }
+  .n .t{ font-size:15.5px; font-weight:400; }
+  .n .d{ font-size:13.5px; color:var(--ash); margin-top:3px; }
+  .n .meta{ display:flex; gap:10px; align-items:center; margin-top:6px; font-size:12px; color:var(--ash); }
+  .n .kd{ color:var(--lilac); }
+  .n .ok{ background:none; border:none; color:var(--ash); font-size:12.5px; padding:2px 6px; flex:none; }
+  .n .ok:hover{ color:var(--verdant); }
+  .n.read .ok{ visibility:hidden; }
+
+  .empty{ color:var(--ash); padding:28px 0; }
+  @media(max-width:620px){ .n{ padding:14px; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <span class="label">Core · Уведомления</span>
+  <h1>Что произошло<span id="hCount"></span></h1>
+  <p class="sub">Всё важное в одном месте: клиенты, заказы, ответы сотрудника, документы,
+    находки по рискам и возможностям, лимит тарифа.</p>
+
+  <div class="bar">
+    <input id="q" placeholder="Поиск по уведомлениям…" autocomplete="off">
+    <button type="button" id="unreadBtn">Только новые</button>
+    <button type="button" id="readAll">Прочитать всё</button>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div id="list"><div class="empty">Загружаю…</div></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const COLORS = { client:'#2fd4b2', order:'#8052ff', reply:'#5b9cff', document:'#a99cff',
+  finance:'#ffb829', risk:'#ff6b6b', opportunity:'#2fd4b2', plan:'#ffb829', goal:'#a99cff' };
+
+let KINDS = {}, active = new Set(), unreadOnly = false, query = '';
+
+function when(iso){
+  const d = new Date((iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
+}
+function dayLabel(iso){
+  const s = (iso || '').slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const yday = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  if (s === today) return 'Сегодня';
+  if (s === yday) return 'Вчера';
+  const d = new Date(s + 'T00:00:00');
+  return isNaN(d) ? s : d.toLocaleDateString('ru-RU', { day:'numeric', month:'long' });
+}
+
+function row(n){
+  const unread = !n.read_at;
+  return `<div class="n ${unread ? 'unread' : 'read'} ${n.level === 'important' ? 'important' : ''}" data-id="${n.id}">
+    <span class="pin" style="background:${COLORS[n.kind] || '#7a7a7a'}"></span>
+    <div class="body">
+      <div class="t">${esc(n.title)}</div>
+      ${n.detail ? `<div class="d">${esc(n.detail)}</div>` : ''}
+      <div class="meta"><span class="kd">${esc(KINDS[n.kind] || n.kind)}</span>
+        <span>${when(n.created_at)}</span></div>
+    </div>
+    <button class="ok" type="button">прочитано</button>
+  </div>`;
+}
+
+function renderChips(byKind){
+  document.getElementById('chips').innerHTML = Object.entries(KINDS).map(([k, name]) => {
+    const n = byKind[k] || 0;
+    return `<button class="chip ${active.has(k) ? 'on' : ''}" data-kind="${k}">
+      ${esc(name)}${n ? `<b>${n}</b>` : ''}</button>`;
+  }).join('');
+}
+
+async function load(){
+  const params = new URLSearchParams();
+  if (active.size) params.set('kind', [...active].join(','));
+  if (unreadOnly) params.set('unread', '1');
+  if (query) params.set('q', query);
+
+  let d;
+  try{ d = await (await fetch('/api/notifications?' + params)).json(); }
+  catch{ document.getElementById('list').innerHTML = '<div class="empty">Нет связи с сервером.</div>'; return; }
+
+  KINDS = d.kinds || KINDS;
+  renderChips(d.by_kind || {});
+  const n10 = d.unread % 10, n100 = d.unread % 100;
+  const word = (n10 === 1 && n100 !== 11) ? 'новое'
+    : (n10 >= 2 && n10 <= 4 && !(n100 >= 12 && n100 <= 14)) ? 'новых' : 'новых';
+  document.getElementById('hCount').textContent = d.unread ? ` · ${d.unread} ${word}` : '.';
+  if (window.VELOR_setUnread) window.VELOR_setUnread(d.unread);   // держим колокольчик в курсе
+
+  const items = d.notifications || [];
+  if (!items.length){
+    document.getElementById('list').innerHTML = `<div class="empty">${
+      query || unreadOnly || active.size
+        ? 'Под этот фильтр ничего не подходит.'
+        : 'Событий пока нет — они появятся, как только начнётся работа.'}</div>`;
+    return;
+  }
+  let html = '', lastDay = null;
+  items.forEach(n => {
+    const day = (n.created_at || '').slice(0, 10);
+    if (day !== lastDay){ html += `<div class="day">${dayLabel(n.created_at)}</div>`; lastDay = day; }
+    html += row(n);
+  });
+  document.getElementById('list').innerHTML = html;
+}
+
+document.getElementById('chips').addEventListener('click', e => {
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  const k = chip.dataset.kind;
+  active.has(k) ? active.delete(k) : active.add(k);
+  load();
+});
+
+let typing;
+document.getElementById('q').addEventListener('input', e => {
+  query = e.target.value.trim();
+  clearTimeout(typing);
+  typing = setTimeout(load, 300);          // не дёргаем сервер на каждую букву
+});
+
+document.getElementById('unreadBtn').addEventListener('click', e => {
+  unreadOnly = !unreadOnly;
+  e.currentTarget.classList.toggle('on', unreadOnly);
+  load();
+});
+
+document.getElementById('readAll').addEventListener('click', async () => {
+  const params = new URLSearchParams();
+  if (active.size) params.set('kind', [...active].join(','));
+  const d = await (await fetch('/api/notifications/read-all?' + params, { method:'POST' })).json();
+  toast(d.marked ? `Прочитано: ${d.marked}` : 'Новых не было');
+  load();
+});
+
+document.getElementById('list').addEventListener('click', async e => {
+  const btn = e.target.closest('.ok');
+  const box = e.target.closest('.n');
+  if (!btn || !box) return;
+  await fetch('/api/notifications/' + box.dataset.id + '/read', { method:'POST' });
+  load();
+});
+
+// Открыл уведомления — значит, увидел их: гасим цифру на колокольчике и помечаем
+// прочитанными на сервере, чтобы число не копилось к следующему заходу. Сам список
+// при этом остаётся на экране — пропадает только счётчик нового.
+async function markSeenOnOpen(){
+  try{ await fetch('/api/notifications/read-all', { method:'POST' }); }catch{}
+  if (window.VELOR_setUnread) window.VELOR_setUnread(0);
+  document.getElementById('hCount').textContent = '.';
+}
+
+load().then(() => {
+  // гасим только при обычном открытии, без активного фильтра/поиска
+  if (!unreadOnly && !active.size && !query) markSeenOnOpen();
+});
+</script>
+</body>
+</html>

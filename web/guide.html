@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Как подключить бота</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff;
+    --saffron:#ffb829; --verdant:#2fd4b2; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:18px; line-height:1.55; overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  nav{ position:fixed; top:0; left:0; right:0; z-index:50; display:flex; align-items:center; justify-content:space-between;
+    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
+  .logo{ display:flex; align-items:center; gap:10px; font-weight:400; font-size:18px; letter-spacing:.14em; }
+  .nav-links{ display:flex; gap:24px; align-items:center; }
+  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); background:none; border:none; transition:color .3s; }
+  .ghost:hover{ color:var(--bone); }
+
+  main{ position:relative; z-index:1; max-width:760px; margin:0 auto; padding:140px 24px 90px; }
+  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  h1{ font-weight:400; font-size:clamp(34px,5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:16px 0 14px; }
+  .lead{ color:var(--silver); margin-bottom:56px; max-width:600px; }
+
+  .step{ display:grid; grid-template-columns:52px 1fr; gap:22px; padding:26px 0; border-top:1px solid var(--hairline); }
+  .num{ width:52px; height:52px; border-radius:50%; border:1px solid var(--iris); color:var(--iris);
+    display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:400; }
+  .step h3{ font-weight:400; font-size:22px; letter-spacing:-0.02em; margin-bottom:8px; }
+  .step p{ color:var(--silver); font-weight:200; font-size:16px; margin-bottom:8px; }
+  .step .mini{ color:var(--ash); font-size:14px; }
+  code{ background:rgba(128,82,255,.14); color:#cbb8ff; padding:2px 9px; border-radius:8px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14px; }
+  .bot-link{ display:inline-block; margin-top:6px; color:var(--iris); border-bottom:1px solid rgba(128,82,255,.4); }
+
+  .connect{ margin-top:56px; padding:34px; border:1px solid var(--hairline); border-radius:24px;
+    background:linear-gradient(180deg,rgba(128,82,255,.06),transparent); }
+  .connect h2{ font-weight:400; font-size:24px; letter-spacing:-0.02em; margin-bottom:6px; }
+  .connect p{ color:var(--silver); font-size:15px; margin-bottom:20px; }
+  .connect input{ width:100%; min-height:52px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:16px; padding:14px 18px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px;
+    transition:border-color .3s, box-shadow .3s; }
+  .connect input:focus{ border-color:var(--iris); box-shadow:0 0 18px rgba(128,82,255,.3); outline:none; }
+  .connect textarea{ width:100%; min-height:170px; resize:vertical; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:16px; padding:14px 18px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; line-height:1.5;
+    transition:border-color .3s, box-shadow .3s; }
+  .connect textarea:focus{ border-color:var(--iris); box-shadow:0 0 18px rgba(128,82,255,.3); outline:none; }
+  .kb-example{ margin:16px 0 4px; }
+  .kb-example summary{ cursor:pointer; color:var(--iris); font-size:15px; list-style:none; }
+  .kb-example summary::-webkit-details-marker{ display:none; }
+  .kb-example pre{ margin-top:12px; padding:18px; border-radius:14px; background:rgba(255,255,255,.04);
+    border:1px solid var(--hairline); color:var(--silver); font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:13px; line-height:1.6; white-space:pre-wrap; }
+  .save{ min-height:52px; margin-top:16px; padding:14px 40px; border-radius:28px; background:var(--iris); border:none; color:#fff;
+    font-weight:600; font-size:14px; letter-spacing:.15em; text-transform:uppercase; transition:filter .2s; }
+  .save:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+  .save:disabled{ opacity:.4; }
+  .status{ margin-top:16px; font-size:15px; min-height:22px; }
+  .status.ok{ color:var(--verdant); } .status.err{ color:#ff4fd8; }
+
+  .done{ margin-top:44px; text-align:center; }
+  .done a{ display:inline-block; padding:14px 40px; border-radius:28px; background:rgba(255,255,255,.06);
+    color:var(--bone); font-weight:600; font-size:14px; letter-spacing:.15em; text-transform:uppercase; }
+
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+
+<main>
+  <span class="label">// Подключение</span>
+  <h1>Свой бот за 3 минуты</h1>
+  <p class="lead">VELOR AI работает через вашего Telegram-бота: клиенты пишут ему, ИИ принимает заявки, а вы видите их в панели. Бот создаётся бесплатно прямо в Telegram — по шагам ниже.</p>
+
+  <div class="step">
+    <div class="num">1</div>
+    <div>
+      <h3>Откройте BotFather в Telegram</h3>
+      <p>Это официальный бот Telegram, который создаёт других ботов. Найдите его в поиске — у него синяя галочка.</p>
+      <a class="bot-link" href="https://t.me/BotFather" target="_blank" rel="noopener">Открыть @BotFather →</a>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">2</div>
+    <div>
+      <h3>Создайте нового бота</h3>
+      <p>Отправьте команду <code>/newbot</code>. BotFather спросит:</p>
+      <p class="mini">• <b>Имя</b> — как будет подписан бот (можно с пробелами, напр. «Барбершоп BRODA»).<br>
+      • <b>Username</b> — адрес бота, должен заканчиваться на <code>bot</code> (напр. <code>broda_barber_bot</code>). Если занят — добавьте цифры.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">3</div>
+    <div>
+      <h3>Скопируйте токен</h3>
+      <p>В ответ BotFather пришлёт сообщение с длинной строкой — это <b>токен</b>. Выглядит так:</p>
+      <p><code>8521842437:AAF8K8zwVmmHPpg...</code></p>
+      <p class="mini">Нажмите на него, чтобы скопировать. Никому не показывайте — это ключ от вашего бота.</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="num">4</div>
+    <div>
+      <h3>Вставьте токен сюда</h3>
+      <p>Вставьте скопированный токен в поле ниже и нажмите «Подключить». Всё — бот оживёт.</p>
+    </div>
+  </div>
+
+  <div class="connect">
+    <h2>Токен вашего бота</h2>
+    <p>Вставьте строку от BotFather — VELOR AI сразу свяжет её с вашим бизнесом.</p>
+    <input id="token" placeholder="8521842437:AAF8K8zwVmmHPpg..." autocomplete="off">
+    <br>
+    <button class="save" id="saveBtn">Подключить бота</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="step" style="margin-top:56px">
+    <div class="num">5</div>
+    <div>
+      <h3>Расскажите ядру о бизнесе</h3>
+      <p>Чтобы ядро отвечало клиентам по фактам, а не общими словами — впишите главное: цены, услуги, часы работы, доставку, ответы на частые вопросы. Простым текстом, как рассказали бы новому сотруднику. Чем подробнее — тем умнее ядро.</p>
+    </div>
+  </div>
+
+  <div class="connect">
+    <h2>База знаний бизнеса</h2>
+    <p>Пишите свободно. Пример хорошей базы — в подсказке ниже, можно взять за образец.</p>
+    <textarea id="knowledge" maxlength="4000" placeholder="Например: Букет из 15 роз — 2500₽. Доставка по городу 300₽, бесплатно от 5000₽. Работаем 9:00–21:00 без выходных. Оплата картой и наличными."></textarea>
+    <details class="kb-example">
+      <summary>Показать пример хорошей базы знаний →</summary>
+      <pre>Услуги и цены:
+— Мужская стрижка — 1200₽
+— Стрижка + борода — 1800₽
+— Детская стрижка (до 10 лет) — 900₽
+
+Часы работы: ежедневно 10:00–21:00.
+Запись: по времени, можно на сегодня, если есть окно.
+Адрес: ул. Ленина 5, 2 этаж. Есть парковка.
+Оплата: карта, наличные, СБП.
+Отмена записи — бесплатно за 2 часа.</pre>
+    </details>
+    <button class="save" id="kbBtn">Сохранить базу знаний</button>
+    <div class="status" id="kbStatus"></div>
+  </div>
+
+  <div class="done">
+    <a href="home.html">Перейти в кабинет →</a>
+  </div>
+</main>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+// выход теперь живёт в общей шапке (nav.js + panel-auth.js)
+
+// подставим уже сохранённые токен и базу знаний, если есть
+(async () => {
+  try{ const b = await (await fetch('/api/business')).json();
+    if (b.tg_bot_token) document.getElementById('token').value = b.tg_bot_token;
+    if (b.knowledge) document.getElementById('knowledge').value = b.knowledge;
+  }catch{}
+})();
+
+document.getElementById('kbBtn').addEventListener('click', async e => {
+  const btn = e.currentTarget, st = document.getElementById('kbStatus');
+  const knowledge = document.getElementById('knowledge').value.trim();
+  st.className = 'status';
+  if (knowledge.length < 10){
+    st.className = 'status err'; st.textContent = 'Впишите хотя бы пару фактов — цены, услуги или часы работы.';
+    return;
+  }
+  btn.disabled = true; st.textContent = 'Сохраняю…';
+  try{
+    await fetch('/api/business', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ knowledge })
+    });
+    if (window.ARINA_CORE_PULSE) ARINA_CORE_PULSE();
+    st.className = 'status ok';
+    st.textContent = 'Готово! Теперь ядро отвечает клиентам по этим фактам.';
+  }catch{ st.className = 'status err'; st.textContent = 'Не сохранилось — проверьте связь.'; }
+  btn.disabled = false;
+});
+
+document.getElementById('saveBtn').addEventListener('click', async e => {
+  const btn = e.currentTarget, st = document.getElementById('status');
+  const token = document.getElementById('token').value.trim();
+  st.className = 'status';
+  if (!/^\d{6,}:[A-Za-z0-9_-]{30,}$/.test(token)){
+    st.className = 'status err'; st.textContent = 'Это не похоже на токен. Скопируйте строку целиком от BotFather.';
+    return;
+  }
+  btn.disabled = true; st.textContent = 'Подключаю…';
+  try{
+    await fetch('/api/business', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tg_bot_token: token })
+    });
+    if (window.ARINA_CORE_PULSE) ARINA_CORE_PULSE();
+    st.className = 'status ok';
+    st.textContent = 'Готово! Бот подключён. Осталось перезапустить VELOR AI — и он начнёт принимать заявки.';
+  }catch{ st.className = 'status err'; st.textContent = 'Не сохранилось — проверьте связь.'; }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Создание AI-сотрудника</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<style>
+  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd;
+    --iris:#8052ff; --verdant:#2fd4b2; --hairline:rgba(255,255,255,.08); }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:17px; line-height:1.55; min-height:100dvh; }
+  a{ color:inherit; text-decoration:none; }
+  button{ font-family:inherit; cursor:pointer; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:6px; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  .wrap{ position:relative; z-index:1; max-width:680px; margin:0 auto; padding:54px 24px 70px; }
+  .topbar{ display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:30px; }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
+  /* выход из мастера: раньше уйти в кабинет можно было только с последнего шага */
+  .skip{ font-size:13px; color:var(--ash); white-space:nowrap; transition:color .25s; }
+  .skip:hover{ color:var(--bone); }
+  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); border-left:1px solid var(--hairline); padding-left:9px; }
+
+  .steps{ display:flex; gap:8px; margin-bottom:12px; }
+  .sdot{ flex:1; height:4px; border-radius:3px; background:rgba(255,255,255,.1); transition:background .4s; }
+  .sdot.on{ background:var(--iris); }
+  .stepno{ font-weight:600; font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:#a99cff; margin-bottom:28px; }
+
+  .panel{ display:none; }
+  .panel.on{ display:block; animation:fade .4s ease; }
+  @keyframes fade{ from{ opacity:0; transform:translateY(10px) } to{ opacity:1; transform:none } }
+  h2{ font-weight:500; font-size:clamp(26px,4vw,38px); letter-spacing:-0.03em; margin-bottom:10px; }
+  .lead{ color:var(--silver); margin-bottom:28px; }
+
+  label{ display:block; font-weight:600; font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); margin:18px 0 9px; }
+  input, textarea{ width:100%; min-height:52px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:15px; padding:14px 18px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; line-height:1.5;
+    transition:border-color .3s, box-shadow .3s; }
+  textarea{ resize:vertical; min-height:130px; }
+  input:focus, textarea:focus{ border-color:var(--iris); box-shadow:0 0 16px rgba(128,82,255,.28); outline:none; }
+
+  /* выбор стиля */
+  .choices{ display:grid; gap:12px; }
+  .choice{ text-align:left; border:1px solid var(--hairline); border-radius:16px; padding:18px 20px; background:rgba(255,255,255,.03);
+    color:var(--bone); transition:border-color .2s, background .2s; }
+  .choice:hover{ border-color:rgba(128,82,255,.4); }
+  .choice.sel{ border-color:var(--iris); background:rgba(128,82,255,.1); }
+  .choice .ct{ font-weight:500; font-size:17px; }
+  .choice .cd{ font-weight:200; font-size:14px; color:var(--ash); margin-top:3px; }
+
+  /* создание персонажа */
+  .avatars{ display:flex; gap:10px; flex-wrap:wrap; }
+  .av{ width:56px; height:56px; border-radius:17px; background:rgba(255,255,255,.04); border:1px solid var(--hairline);
+    color:var(--bone); font-size:24px; display:flex; align-items:center; justify-content:center; transition:border-color .2s, background .2s, transform .2s; }
+  .av:hover{ border-color:rgba(128,82,255,.45); transform:translateY(-2px); }
+  .av.sel{ border-color:var(--iris); background:rgba(128,82,255,.14); box-shadow:0 0 18px rgba(128,82,255,.3); }
+  .chips{ display:flex; gap:9px; flex-wrap:wrap; }
+  .chip{ padding:10px 16px; border-radius:22px; background:rgba(255,255,255,.04); border:1px solid var(--hairline);
+    color:var(--silver); font-size:14px; transition:border-color .2s, background .2s, color .2s; }
+  .chip:hover{ color:#fff; }
+  .chip.sel{ border-color:var(--iris); background:rgba(128,82,255,.14); color:#fff; }
+  .hintline{ font-size:13px; color:var(--ash); margin-top:9px; }
+
+  .file{ margin-top:14px; }
+  .file-btn{ display:inline-flex; align-items:center; gap:8px; padding:11px 18px; border-radius:14px;
+    background:rgba(255,255,255,.05); border:1px solid var(--hairline); color:var(--silver); font-size:14px; }
+  .file-btn:hover{ color:#fff; border-color:rgba(128,82,255,.4); }
+  .file-note{ margin-top:8px; font-size:13px; color:var(--ash); }
+
+  .nav-btns{ display:flex; gap:12px; align-items:center; margin-top:34px; }
+  .btn{ min-height:52px; padding:14px 30px; border-radius:26px; font-weight:600; font-size:14px; letter-spacing:.06em; border:none; }
+  .btn.primary{ background:var(--iris); color:#fff; }
+  .btn.primary:hover{ filter:brightness(1.15); }
+  .btn.ghost{ background:rgba(255,255,255,.05); color:var(--silver); border:1px solid var(--hairline); }
+  .btn.ghost:hover{ color:#fff; }
+  .err{ color:#ff4fd8; font-size:14px; min-height:18px; margin-top:12px; }
+
+  /* финал */
+  .ready{ text-align:center; padding:20px 0; }
+  .badge{ width:82px; height:82px; margin:0 auto 24px; border-radius:24px; background:linear-gradient(150deg,#8052ff,#5b6cff);
+    display:flex; align-items:center; justify-content:center; font-weight:600; font-size:38px; color:#fff;
+    box-shadow:0 20px 60px rgba(128,82,255,.35); }
+  .ready h2{ margin-bottom:12px; }
+  .profile{ text-align:left; margin:22px 0 26px; padding:22px; border-radius:16px; background:rgba(255,255,255,.03); border:1px solid var(--hairline);
+    white-space:pre-wrap; font-weight:200; font-size:14.5px; line-height:1.6; color:var(--silver); max-height:34vh; overflow:auto; }
+  .cta{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .status{ margin-top:14px; font-size:14px; color:var(--verdant); min-height:20px; }
+
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<canvas id="ambientCanvas"></canvas>
+
+<div class="wrap">
+  <div class="topbar">
+    <a class="logo" href="home.html"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 1 L17 16 L1 16 Z" fill="#8052ff"/></svg>VELOR<span class="logo-sub">AI Employee</span></a>
+    <a class="skip" href="home.html">Пропустить · в кабинет →</a>
+  </div>
+
+  <div class="steps" id="steps"></div>
+  <div class="stepno" id="stepno">Шаг 1 из 5</div>
+
+  <form id="form" autocomplete="off">
+    <!-- Шаг 1 -->
+    <div class="panel on" data-step="0">
+      <h2>Название и сфера</h2>
+      <p class="lead">С этого начинается ваш AI-сотрудник. Как называется бизнес и чем он занимается?</p>
+      <label>Название бизнеса</label>
+      <input id="f-name" maxlength="120" placeholder="Напр. Барбершоп BRODA">
+      <label>Сфера</label>
+      <input id="f-sphere" maxlength="160" placeholder="Напр. барбершоп: стрижки и уход за бородой">
+    </div>
+
+    <!-- Шаг 2 -->
+    <div class="panel" data-step="1">
+      <h2>Описание компании</h2>
+      <p class="lead">Расскажите про услуги, товары, цены и клиентов — это ядро знаний вашего сотрудника.</p>
+      <label>Услуги, товары и цены</label>
+      <textarea id="f-services" maxlength="1500" placeholder="Напр. Мужская стрижка — 1200₽, стрижка + борода — 1800₽, детская — 900₽"></textarea>
+      <label>Кто ваши клиенты</label>
+      <input id="f-clients" maxlength="200" placeholder="Напр. мужчины 20–45, район центра">
+    </div>
+
+    <!-- Шаг 3 -->
+    <div class="panel" data-step="2">
+      <h2>Стиль общения</h2>
+      <p class="lead">Как ваш сотрудник должен разговаривать с клиентами?</p>
+      <div class="choices" id="tones">
+        <button type="button" class="choice" data-tone="professional"><div class="ct">Профессиональный</div><div class="cd">Деловой, по существу, на «вы».</div></button>
+        <button type="button" class="choice" data-tone="friendly"><div class="ct">Дружелюбный</div><div class="cd">Тёплый и живой, но вежливый.</div></button>
+        <button type="button" class="choice" data-tone="strict"><div class="ct">Строгий</div><div class="cd">Чётко и кратко, без лишних слов.</div></button>
+      </div>
+    </div>
+
+    <!-- Шаг 4 -->
+    <div class="panel" data-step="3">
+      <h2>Характер вашего AI</h2>
+      <p class="lead">Дайте сотруднику имя и характер — он будет говорить именно так.</p>
+      <label>Аватар</label>
+      <div class="avatars" id="avatars">
+        <button type="button" class="av sel" data-av="V">V</button>
+        <button type="button" class="av" data-av="◆">◆</button>
+        <button type="button" class="av" data-av="✦">✦</button>
+        <button type="button" class="av" data-av="◐">◐</button>
+        <button type="button" class="av" data-av="✱">✱</button>
+        <button type="button" class="av" data-av="▲">▲</button>
+      </div>
+      <label>Имя сотрудника</label>
+      <input id="f-ai-name" maxlength="40" placeholder="Напр. Мира, Лев, Нова">
+      <label>Черты характера — до трёх</label>
+      <div class="chips" id="traits">
+        <button type="button" class="chip" data-trait="внимательный">Внимательный</button>
+        <button type="button" class="chip" data-trait="энергичный">Энергичный</button>
+        <button type="button" class="chip" data-trait="спокойный">Спокойный</button>
+        <button type="button" class="chip" data-trait="с юмором">С юмором</button>
+        <button type="button" class="chip" data-trait="дотошный">Дотошный</button>
+        <button type="button" class="chip" data-trait="настойчивый в продаже">Настойчивый в продаже</button>
+        <button type="button" class="chip" data-trait="заботливый">Заботливый</button>
+        <button type="button" class="chip" data-trait="прямолинейный">Прямолинейный</button>
+      </div>
+      <div class="hintline">Черты влияют на манеру речи, а не на факты о компании.</div>
+      <label>Пара слов о характере (необязательно)</label>
+      <textarea id="f-ai-desc" maxlength="500" style="min-height:90px" placeholder="Напр. всегда здоровается по имени, не давит, но мягко доводит до заказа"></textarea>
+    </div>
+
+    <!-- Шаг 5 -->
+    <div class="panel" data-step="4">
+      <h2>Загрузка знаний</h2>
+      <p class="lead">Добавьте всё, что должен знать сотрудник: прайс, инструкции, условия, частые вопросы и ответы (FAQ). Можно вставить текстом или загрузить файл.</p>
+      <label>Знания компании</label>
+      <textarea id="f-knowledge" maxlength="4000" placeholder="Часы работы, доставка, оплата, запись, частые вопросы и ответы…"></textarea>
+      <div class="file">
+        <label for="f-file" class="file-btn">📎 Загрузить файл (.txt)</label>
+        <input type="file" id="f-file" accept=".txt,.md,text/plain" style="display:none">
+        <div class="file-note">Текстовый файл добавится к знаниям. PDF и документы — можно скопировать текст вручную (поддержка загрузки PDF — скоро).</div>
+      </div>
+    </div>
+
+    <!-- Шаг 6 -->
+    <div class="panel" data-step="5">
+      <h2>Создание AI-сотрудника</h2>
+      <p class="lead">Проверьте профиль — и я соберу вашего сотрудника. Он сразу начнёт работать по этим данным.</p>
+      <div class="profile" id="preview"></div>
+    </div>
+
+    <div class="nav-btns" id="navbtns">
+      <button type="button" class="btn ghost" id="back" style="display:none">Назад</button>
+      <button type="button" class="btn primary" id="next">Далее</button>
+      <button type="button" class="btn primary" id="create" style="display:none">Создать AI-сотрудника</button>
+    </div>
+    <div class="err" id="err"></div>
+  </form>
+
+  <!-- готово -->
+  <div class="ready panel" data-step="done" style="display:none">
+    <div class="badge">V</div>
+    <h2>Ваш AI-сотрудник готов.</h2>
+    <p class="lead">Он изучил компанию и запомнил всё, что вы рассказали. Теперь может отвечать клиентам и помогать вам.</p>
+    <div class="profile" id="finalProfile"></div>
+    <div class="status" id="status"></div>
+    <div class="cta">
+      <a class="btn primary" href="guide.html">Подключить бота клиентам →</a>
+      <a class="btn ghost" href="home.html">В кабинет</a>
+    </div>
+  </div>
+</div>
+
+<script src="panel-auth.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+const TOTAL = 6;
+let step = 0, tone = '', avatar = 'V';
+const traits = new Set();
+const data = {};
+
+// прогресс
+const stepsEl = document.getElementById('steps');
+for (let i=0;i<TOTAL;i++){ const d=document.createElement('div'); d.className='sdot'; stepsEl.appendChild(d); }
+function paint(){
+  [...stepsEl.children].forEach((d,i)=> d.classList.toggle('on', i<=step));
+  document.getElementById('stepno').textContent = 'Шаг ' + (step+1) + ' из ' + TOTAL;
+  document.querySelectorAll('.panel[data-step]').forEach(p=>{
+    if (p.dataset.step==='done') return;
+    p.classList.toggle('on', +p.dataset.step===step);
+  });
+  document.getElementById('back').style.display = step>0 ? '' : 'none';
+  document.getElementById('next').style.display = step<TOTAL-1 ? '' : 'none';
+  document.getElementById('create').style.display = step===TOTAL-1 ? '' : 'none';
+  if (step===TOTAL-1) renderPreview();
+}
+
+// префилл имени из регистрации
+document.getElementById('f-name').value = localStorage.getItem('coreon_biz_name') || '';
+
+// выбор стиля
+document.getElementById('tones').addEventListener('click', e=>{
+  const b = e.target.closest('.choice'); if(!b) return;
+  document.querySelectorAll('.choice').forEach(c=>c.classList.remove('sel'));
+  b.classList.add('sel'); tone = b.dataset.tone;
+});
+
+// выбор аватара
+document.getElementById('avatars').addEventListener('click', e=>{
+  const b = e.target.closest('.av'); if(!b) return;
+  document.querySelectorAll('.av').forEach(a=>a.classList.remove('sel'));
+  b.classList.add('sel'); avatar = b.dataset.av;
+});
+
+// черты характера — максимум три
+document.getElementById('traits').addEventListener('click', e=>{
+  const b = e.target.closest('.chip'); if(!b) return;
+  const t = b.dataset.trait;
+  if (traits.has(t)){ traits.delete(t); b.classList.remove('sel'); }
+  else if (traits.size < 3){ traits.add(t); b.classList.add('sel'); }
+  else { document.getElementById('err').textContent = 'Достаточно трёх черт — так характер получается цельным.'; }
+});
+
+// загрузка .txt
+document.getElementById('f-file').addEventListener('change', e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const ta = document.getElementById('f-knowledge');
+    ta.value = (ta.value ? ta.value + '\n\n' : '') + '[' + file.name + ']\n' + r.result.slice(0, 3500);
+  };
+  r.readAsText(file);
+});
+
+function collect(){
+  data.name = document.getElementById('f-name').value.trim();
+  data.sphere = document.getElementById('f-sphere').value.trim();
+  data.services = document.getElementById('f-services').value.trim();
+  data.clients = document.getElementById('f-clients').value.trim();
+  data.knowledge = document.getElementById('f-knowledge').value.trim();
+  data.aiName = document.getElementById('f-ai-name').value.trim();
+  data.aiDesc = document.getElementById('f-ai-desc').value.trim();
+}
+
+function validate(){
+  const err = document.getElementById('err'); err.textContent='';
+  collect();
+  if (step===0 && (!data.name || !data.sphere)){ err.textContent='Впишите название и сферу.'; return false; }
+  if (step===1 && !data.services){ err.textContent='Опишите услуги/товары и цены.'; return false; }
+  if (step===2 && !tone){ err.textContent='Выберите стиль общения.'; return false; }
+  if (step===3 && !data.aiName){ err.textContent='Дайте сотруднику имя — с него начинается характер.'; return false; }
+  return true;
+}
+
+function buildProfile(){
+  const lines = [];
+  if (data.sphere)   lines.push('Чем занимается: ' + data.sphere);
+  if (data.services) lines.push('Услуги, товары и цены: ' + data.services);
+  if (data.clients)  lines.push('Клиенты: ' + data.clients);
+  const TONE={professional:'профессиональный',friendly:'дружелюбный',strict:'строгий'};
+  if (tone) lines.push('Стиль общения: ' + TONE[tone]);
+  if (data.aiName) lines.push('Имя сотрудника: ' + data.aiName);
+  if (traits.size) lines.push('Характер: ' + [...traits].join(', '));
+  if (data.aiDesc) lines.push('О характере: ' + data.aiDesc);
+  if (data.knowledge) lines.push('\n' + data.knowledge);
+  return lines.join('\n');
+}
+
+function renderPreview(){ document.getElementById('preview').textContent = buildProfile(); }
+
+document.getElementById('next').addEventListener('click', ()=>{ if(!validate()) return; step++; paint(); });
+document.getElementById('back').addEventListener('click', ()=>{ step--; paint(); document.getElementById('err').textContent=''; });
+
+document.getElementById('create').addEventListener('click', async e=>{
+  collect();
+  const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Собираю…';
+  const body = {
+    name: data.name,
+    about: data.sphere,
+    tone: tone || undefined,
+    knowledge: buildProfile(),
+    ai_name: data.aiName || undefined,
+    ai_avatar: avatar,
+    ai_traits: traits.size ? [...traits].join(', ') : undefined,
+    ai_desc: data.aiDesc || undefined,
+    greeting: 'Здравствуйте! Напишите, что вам нужно — приму заявку и всё оформлю.',
+  };
+  try{
+    await fetch('/api/business', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    if (data.name) localStorage.setItem('coreon_biz_name', data.name);
+    if (window.ARINA_CORE_PULSE) ARINA_CORE_PULSE();
+    // экран «готово»
+    document.getElementById('form').style.display='none';
+    document.getElementById('steps').style.display='none';
+    document.getElementById('stepno').style.display='none';
+    const done = document.querySelector('.panel[data-step="done"]');
+    document.querySelector('.badge').textContent = avatar;
+    if (data.aiName) done.querySelector('h2').textContent = data.aiName + ' готов к работе.';
+    document.getElementById('finalProfile').textContent = buildProfile();
+    document.getElementById('status').textContent = 'Профиль компании сохранён ✓';
+    done.style.display='block';
+  }catch{
+    btn.disabled=false; btn.textContent='Создать AI-сотрудника';
+    document.getElementById('err').textContent='Не удалось сохранить — проверьте связь.';
+  }
+});
+
+paint();
+</script>
+</body>
+</html>

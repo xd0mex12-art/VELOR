@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Экспорт данных</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+
+  .rows{ display:grid; gap:14px; max-width:760px; }
+  .row{ display:flex; align-items:center; gap:20px; flex-wrap:wrap;
+    border:1px solid var(--hairline); border-radius:20px; padding:22px 26px;
+    background:linear-gradient(165deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+    transition:border-color .25s; }
+  .row:hover{ border-color:rgba(128,82,255,.3); }
+  .row .name{ flex:1; min-width:150px; }
+  .row .name .t{ font-weight:400; font-size:20px; letter-spacing:-.01em; }
+  .row .name .s{ font-size:13px; color:var(--ash); margin-top:3px; }
+
+  .fmts{ display:flex; gap:9px; flex-wrap:wrap; }
+  .fmt{ min-height:44px; padding:11px 20px; border-radius:22px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-weight:600; font-size:12.5px;
+    letter-spacing:.06em; transition:.2s; display:inline-flex; align-items:center; gap:7px; }
+  .fmt:hover{ color:#fff; border-color:var(--iris); background:rgba(128,82,255,.12); }
+  .fmt:disabled{ opacity:.5; cursor:progress; }
+  .fmt svg{ width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2; }
+
+  .empty{ color:var(--ash); font-size:15px; padding:28px 0; }
+  @media(max-width:560px){ .row{ padding:20px; } .row .fmts{ width:100%; } .fmt{ flex:1; justify-content:center; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <span class="label">// Export · Ваши данные</span>
+  <h1>Экспорт.</h1>
+  <p class="lead">Выгрузите любые данные бизнеса одной кнопкой — для бухгалтера, налоговой, своего анализа или просто чтобы держать копию. Выберите, что и в каком формате скачать.</p>
+
+  <div class="rows" id="rows"><div class="empty">Загружаю…</div></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3200);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const HINTS = {
+  clients:   'имена, телефоны, заказы, суммы покупок',
+  finance:   'все доходы и расходы по датам и категориям',
+  documents: 'список загруженных документов',
+  reports:   'еженедельные обзоры бизнеса',
+  analytics: 'сводные показатели и итоги',
+  goals:     'цели и прогресс по ним',
+};
+const FMT_LABEL = { csv:'CSV', xlsx:'Excel', pdf:'PDF' };
+const ICON = `<svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>`;
+
+async function download(key, fmt, btn){
+  btn.disabled = true;
+  try{
+    const r = await fetch(`/api/export/${key}.${fmt}`);
+    if (!r.ok) throw 0;
+    const blob = await r.blob();
+    const cd = r.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="?([^"]+)"?/);
+    const name = m ? m[1] : `velor-${key}.${fmt}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+    toast('Файл готов: ' + name);
+  }catch{ toast('Не удалось выгрузить — попробуйте ещё раз'); }
+  btn.disabled = false;
+}
+
+async function load(){
+  const box = document.getElementById('rows');
+  try{
+    const d = await (await fetch('/api/export')).json();
+    box.innerHTML = (d.datasets || []).map(ds => `
+      <div class="row">
+        <div class="name">
+          <div class="t">${esc(ds.title)}</div>
+          <div class="s">${esc(HINTS[ds.key] || '')}</div>
+        </div>
+        <div class="fmts">
+          ${(d.formats || []).map(f => `<button class="fmt" data-key="${ds.key}" data-fmt="${f}">${ICON}${FMT_LABEL[f] || f.toUpperCase()}</button>`).join('')}
+        </div>
+      </div>`).join('');
+    box.addEventListener('click', e => {
+      const b = e.target.closest('.fmt'); if (!b) return;
+      download(b.dataset.key, b.dataset.fmt, b);
+    });
+  }catch{ box.innerHTML = '<div class="empty">Не удалось загрузить.</div>'; }
+}
+load();
+</script>
+</body>
+</html>

@@ -1,0 +1,219 @@
+/* ===== VELOR AI — общая основа кабинета =====
+   Раньше каждая страница задавала свои ширину, отступы и размер заголовка:
+   от 720 до 1280 по ширине и от 118 до 150 сверху — из-за этого вкладки
+   выглядели как разные продукты. Здесь единая «рамка» страницы.
+   Подключается ПОСЛЕ собственного <style> страницы, чтобы перебивать
+   старые значения; частные стили компонентов страниц не трогаются. */
+
+:root{
+  /* Тёмная схема на уровне браузера. Без неё «холст» между страницами (тот кадр,
+     что браузер рисует в момент перехода с документа на документ) и полосы прокрутки
+     по умолчанию БЕЛЫЕ — отсюда вспышка на чёрном сайте. С color-scheme:dark этот
+     кадр тоже тёмный, и вспышки между разделами не остаётся. */
+  color-scheme: dark;
+
+  /* ============================================================
+     ДИЗАЙН-ТОКЕНЫ VELOR — единственный источник правды.
+     velor.css подключается ПОСЛЕ инлайновых стилей страниц, поэтому эти
+     значения перебивают локальные :root на каждой вкладке: цвет, радиус,
+     тень, отступ и шрифт везде берутся отсюда. Дорогое ощущение — от
+     единой мелкой шкалы и аккуратных деталей, а не от эффектов.
+     ============================================================ */
+
+  /* — цвет — */
+  --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+  --iris:#8052ff; --lilac:#a99cff; --saffron:#ffb829; --verdant:#2fd4b2;
+  --coral:#ff6b6b; --magenta:#ff4fd8;
+  --iris-1:#8052ff; --iris-2:#5b6cff;           /* градиент бренда */
+
+  /* поверхности и линии — одна лестница прозрачностей на весь кабинет */
+  --surface:rgba(255,255,255,.022);             /* фон карточки */
+  --surface-2:rgba(255,255,255,.05);            /* фон поля / вторичной кнопки */
+  --surface-3:rgba(255,255,255,.09);            /* ховер */
+  --tint-iris:rgba(128,82,255,.10);             /* лёгкая ирисовая подложка */
+  --hairline:rgba(255,255,255,.08);             /* тонкая линия / рамка */
+  --hairline-2:rgba(255,255,255,.14);           /* заметная рамка */
+  --ring:rgba(128,82,255,.55);                  /* фокус */
+
+  /* — радиусы (единая шкала) — */
+  --r-xs:10px;            /* значки, мелкие чипы */
+  --r-sm:14px;           /* поля ввода, малые кнопки */
+  --r-md:18px;           /* чипы, теги, некрупные блоки */
+  --r-lg:20px;           /* карточки, панели — базовый радиус */
+  --r-xl:26px;           /* крупные «геройские» поверхности, модалки */
+  --r-pill:999px;        /* кнопки-таблетки, статусы */
+  --radius:var(--r-lg);  /* обратная совместимость со старым --radius */
+
+  /* — тени (сдержанная лестница, без «резины») — */
+  --shadow-1:0 1px 2px rgba(0,0,0,.35);
+  --shadow-2:0 18px 50px -22px rgba(0,0,0,.7);
+  --shadow-pop:0 24px 60px rgba(0,0,0,.6);
+  --glow-iris:0 0 24px rgba(128,82,255,.35);
+
+  /* — отступы (шаг 4pt) — */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px;
+  --sp-6:24px; --sp-8:32px; --sp-10:40px; --sp-12:48px; --sp-16:64px;
+
+  /* — типографика — */
+  --fs-caption:12px; --fs-sm:13px; --fs-body:15px; --fs-base:17px;
+  --fs-lead:19px; --fs-h3:22px; --fs-h2:28px;
+  --lh-tight:1.15; --lh:1.55;
+  --fw-thin:200; --fw-reg:400; --fw-med:500; --fw-semi:600;
+
+  /* — движение (один ритм на весь продукт) — */
+  --ease:cubic-bezier(.22,1,.36,1);
+  --dur:.25s; --dur-fast:.15s;
+
+  /* — раскладка — */
+  --page:1120px;          /* одна ширина контента на все вкладки */
+  --top:132px;            /* отступ под общей шапкой */
+}
+
+body{
+  background:var(--void); color:var(--bone);
+  font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+  font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden;
+}
+
+/* рамка страницы */
+main{
+  position:relative; z-index:1;
+  max-width:var(--page); margin:0 auto;
+  padding:var(--top) 24px 96px;
+}
+@media(max-width:760px){ main{ padding:112px 18px 72px; } }
+
+/* Страницы делятся на два типа, но рамка у них одна: заголовок, отступы и левый
+   край везде совпадают. Разница только в ширине колонки контента —
+   таблицы и сетки используют всю ширину, текст и формы — читаемые 780px. */
+body.narrow main > *{ max-width:780px; }
+
+/* заголовок вкладки */
+.label{
+  display:inline-block;
+  font-weight:600; font-size:12.5px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--lilac); margin-bottom:10px;
+}
+h1, .hi{
+  font-weight:400; font-size:clamp(32px,4.4vw,56px); line-height:1.1;
+  letter-spacing:-0.035em; margin:0 0 12px;
+}
+.hi b{ font-weight:500; color:#c9bfff; }
+.lead, .sub{
+  color:var(--silver); font-weight:200; font-size:17px;
+  max-width:640px; margin:0 0 42px;
+}
+.caption{ font-weight:200; font-size:12px; color:var(--ash); }
+.num{ font-variant-numeric:tabular-nums; }
+
+/* заголовок секции внутри страницы */
+.sec-h{
+  font-weight:600; font-size:11.5px; letter-spacing:.2em; text-transform:uppercase;
+  color:var(--ash); margin-bottom:16px;
+}
+section{ margin-bottom:40px; }
+
+/* всплывающее уведомление — одинаковое везде */
+#toast{
+  position:fixed; bottom:var(--sp-8); left:50%; transform:translate(-50%,20px); z-index:120;
+  background:rgba(0,0,0,.78); backdrop-filter:blur(10px); color:var(--bone);
+  font-weight:var(--fw-reg); font-size:var(--fs-body); padding:14px 28px; border-radius:var(--r-pill);
+  opacity:0; pointer-events:none; transition:opacity var(--dur), transform var(--dur);
+}
+#toast.show{ opacity:1; transform:translate(-50%,0); }
+
+/* ============================================================
+   СЛОЙ НОРМАЛИЗАЦИИ КОМПОНЕНТОВ
+   Каждая вкладка исторически задавала свой радиус/рамку/тень — из-за этого
+   кабинет выглядел как разные продукты. Здесь мы приводим повторяющиеся
+   классы к единой шкале. Трогаем ТОЛЬКО «облик» (радиус, рамка, фокус,
+   переход) и не задаём размеры/паддинги/фон карточек, чтобы не сломать
+   раскладку конкретных экранов. Область — контент страниц (main), шапку
+   (.vn) не трогаем: у неё своя система.
+   ============================================================ */
+
+/* — радиусы карточек и панелей: единый базовый --r-lg — */
+main .card, main .panel, main .tcard, main .b, main .n, main .rec,
+main .box, main .tile, main .kpi, main .hrow, main .row-card, main .item-card,
+main .form{ border-radius:var(--r-lg); }
+
+/* крупные «геройские» поверхности и модалки — на ступень мягче */
+main .hero, main .feature, main .modal .box, main .brief,
+.modal .box{ border-radius:var(--r-xl); }
+
+/* — кнопки-таблетки и первичные действия — */
+main .pill, main .btn, main .cta, main .act, main .ok, main .no,
+main .rb, main .m-btns button, main .bar button{ border-radius:var(--r-pill); }
+
+/* — чипы, теги, статусы, роли — единый «пилюльный» радиус — */
+main .chip, main .tag, main .status, main .role, main .pill-tag,
+main .kd, main .prio{ border-radius:var(--r-pill); }
+
+/* — поля ввода: единый радиус, высота, фокус — */
+input, textarea, select, main .field, main .input{
+  font-family:inherit; font-weight:var(--fw-thin);
+  border-radius:var(--r-sm); min-height:48px;
+}
+textarea{ min-height:120px; }
+input:focus, textarea:focus, select:focus,
+main .field:focus, main .input:focus{
+  border-color:var(--iris); box-shadow:0 0 0 3px var(--tint-iris); outline:none;
+}
+:focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:var(--r-xs); }
+
+/* — состояния загрузки: единый шиммер на весь кабинет — */
+main .sk, main .skeleton, main .shimmer{
+  border-radius:var(--r-md);
+  background:linear-gradient(90deg,var(--surface),var(--surface-3),var(--surface));
+  background-size:200% 100%; animation:velorShimmer 1.4s linear infinite;
+}
+@keyframes velorShimmer{ from{ background-position:200% 0 } to{ background-position:-200% 0 } }
+
+/* — пустые состояния: одна интонация — */
+main .empty, main .empty-state, main .none{
+  color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-body);
+  padding:var(--sp-8) 0; text-align:left;
+}
+
+/* — ошибки: один цвет и вес — */
+main .error, main .err, main .fail, main .danger-text{
+  color:var(--coral); font-weight:var(--fw-reg); font-size:var(--fs-body);
+}
+
+/* — таблицы: единые линии, выравнивание, числа — */
+main table{ width:100%; border-collapse:collapse; font-size:var(--fs-body); }
+main th{
+  text-align:left; font-weight:var(--fw-semi); font-size:11.5px;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--ash);
+  padding:12px 14px; border-bottom:1px solid var(--hairline-2);
+}
+main td{
+  padding:14px; border-bottom:1px solid var(--hairline);
+  font-weight:var(--fw-thin); font-variant-numeric:tabular-nums;
+}
+main tbody tr{ transition:background var(--dur-fast); }
+main tbody tr:hover{ background:var(--tint-iris); }
+
+/* — выпадающие меню страниц (не путать с .vn-pop навигации) — */
+main .dropdown, main .menu, main .pop, main .popover{
+  border-radius:var(--r-lg); border:1px solid var(--hairline-2);
+  background:rgba(10,10,12,.96); backdrop-filter:blur(18px);
+  box-shadow:var(--shadow-pop);
+}
+
+/* — единый ритм переходов на интерактиве (без навязывания свойств) — */
+main .card, main .pill, main .btn, main .act, main .chip, main .role,
+main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
+  color var(--dur), box-shadow var(--dur), transform var(--dur-fast); }
+
+@media(prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+
+/* ===== переходы между разделами =====
+   Раньше здесь был кросс-документный кроссфейд (@view-transition: navigation:auto).
+   Но именно он давал белую вспышку между верхними разделами: пока новый документ
+   не отрисован (внешние шрифты — блокирующие), кроссфейд успевал показать пустой
+   кадр. Убрали кроссфейд — навигация теперь мгновенная: браузер держит предыдущий
+   кадр, пока следующий не отрисуется на чёрном. Вместе с color-scheme:dark и чёрным
+   фоном html/body это полностью убирает вспышку.
+   Плавность при желании можно вернуть JS-фейдом контента (без смены документа). */
+html{ background:var(--void); }

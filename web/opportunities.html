@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Возможности</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;600;700&display=swap" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+
+  .scan{ min-height:48px; padding:13px 30px; border-radius:26px; background:var(--iris); border:none;
+    color:#fff; font-weight:600; font-size:13.5px; letter-spacing:.1em; text-transform:uppercase;
+    transition:filter .2s; margin-bottom:14px; }
+  .scan:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+  .scan:disabled{ opacity:.5; }
+  .hint{ font-size:13.5px; color:var(--ash); margin-bottom:38px; }
+
+  /* сигналы, на которых строятся выводы */
+  .sig{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:34px; }
+  .sig span{ padding:8px 14px; border-radius:18px; background:rgba(255,255,255,.04);
+    border:1px solid var(--hairline); font-size:13px; color:var(--silver); }
+  .sig b{ font-weight:500; color:var(--bone); font-variant-numeric:tabular-nums; }
+
+  .cards{ display:grid; gap:16px; }
+  .opp{ position:relative; border:1px solid var(--hairline); border-radius:22px; padding:24px 26px;
+    background:linear-gradient(165deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+    opacity:0; transform:translateY(12px); animation:oIn .5s cubic-bezier(.22,1,.36,1) forwards;
+    transition:border-color .25s; }
+  .opp:hover{ border-color:rgba(128,82,255,.35); }
+  @keyframes oIn{ to{ opacity:1; transform:none } }
+  .opp::before{ content:''; position:absolute; left:0; top:22px; bottom:22px; width:3px;
+    border-radius:0 3px 3px 0; background:var(--iris); }
+  .opp.p1::before{ background:var(--coral); }
+  .opp.p2::before{ background:var(--saffron); }
+  .opp.p3::before{ background:var(--iris); }
+  .opp.done{ opacity:.45; }
+  .opp.done .o-title{ text-decoration:line-through; }
+
+  .o-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .pr{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+    padding:5px 11px; border-radius:16px; }
+  .p1 .pr{ background:rgba(255,107,107,.16); color:#ff9b9b; }
+  .p2 .pr{ background:rgba(255,184,41,.14); color:#ffd48a; }
+  .p3 .pr{ background:rgba(128,82,255,.16); color:#c9bfff; }
+  .cat{ font-size:12px; color:var(--ash); letter-spacing:.04em; }
+  .o-title{ font-weight:400; font-size:20px; letter-spacing:-.02em; line-height:1.3; margin-bottom:12px; }
+  .o-why{ color:var(--silver); font-weight:200; font-size:15px; line-height:1.6; }
+  .o-act{ margin-top:14px; padding:14px 16px; border-radius:14px; background:rgba(128,82,255,.08);
+    border:1px solid rgba(128,82,255,.2); }
+  .o-act .t{ font-weight:600; font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:#a99cff; margin-bottom:5px; }
+  .o-act .p{ font-weight:200; font-size:15px; line-height:1.55; }
+
+  .o-btns{ display:flex; gap:9px; margin-top:16px; }
+  .ob{ padding:9px 17px; border-radius:20px; background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-size:13px; transition:.2s; }
+  .ob:hover{ color:#fff; border-color:rgba(255,255,255,.22); }
+  .ob.ok:hover{ border-color:var(--verdant); color:var(--verdant); }
+
+  .empty{ color:var(--ash); font-size:15px; padding:28px 0; line-height:1.6; }
+
+  @media(min-width:900px){ .cards{ grid-template-columns:1fr 1fr; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <span class="label">// Opportunities · Точки роста</span>
+  <h1>Возможности.</h1>
+  <p class="lead">VELOR сам разбирает ваши цифры и ищет, где бизнес недорабатывает: лишние расходы, спящие клиенты, повод поднять цену или запустить акцию.</p>
+
+  <button class="scan" id="scan">Найти возможности</button>
+  <div class="hint" id="hint">Разбор занимает несколько секунд.</div>
+
+  <div class="sig" id="sig"></div>
+  <div class="cards" id="cards"><div class="empty">Загружаю…</div></div>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3200);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+const PR = { 1:'сделать первым', 2:'важно', 3:'когда дойдут руки' };
+const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+
+function signals(s){
+  if (!s) return '';
+  const out = [];
+  const add = (k, v) => out.push(`<span>${k} <b>${v}</b></span>`);
+  add('Прибыль', money(s.profit) + (s.margin !== null ? ` · маржа ${s.margin}%` : ''));
+  add('Клиентов', s.clients);
+  if (s.sleeping) add('Спят больше 30 дней', s.sleeping);
+  if (s.orders_open) add('Не разобрано заявок', s.orders_open);
+  if (s.top_expense && s.top_expense.length) add('Главный расход', esc(s.top_expense[0].category));
+  return out.join('');
+}
+
+function card(o, i){
+  return `<article class="opp p${o.priority} ${o.status === 'done' ? 'done' : ''}"
+      style="animation-delay:${Math.min(i,8)*70}ms" data-id="${o.id}">
+    <div class="o-head">
+      <span class="pr">${PR[o.priority] || 'важно'}</span>
+      <span class="cat">${esc(o.category || '')}</span>
+    </div>
+    <div class="o-title">${esc(o.title)}</div>
+    ${o.why ? `<div class="o-why">${esc(o.why)}</div>` : ''}
+    ${o.action ? `<div class="o-act"><div class="t">Что сделать</div><div class="p">${esc(o.action)}</div></div>` : ''}
+    <div class="o-btns">
+      <button class="ob ok" data-st="${o.status === 'done' ? 'new' : 'done'}">
+        ${o.status === 'done' ? 'Вернуть в работу' : 'Сделано'}</button>
+      <button class="ob" data-st="hidden">Не актуально</button>
+    </div>
+  </article>`;
+}
+
+async function load(){
+  const box = document.getElementById('cards');
+  try{
+    const d = await (await fetch('/api/opportunities')).json();
+    document.getElementById('sig').innerHTML = signals(d.signals);
+    box.innerHTML = d.items && d.items.length
+      ? d.items.map(card).join('')
+      : `<div class="empty">Возможностей пока нет.<br>Нажмите «Найти возможности» — VELOR разберёт ваши цифры и предложит, за что взяться.</div>`;
+  }catch{ box.innerHTML = '<div class="empty">Не удалось загрузить.</div>'; }
+}
+
+document.getElementById('scan').addEventListener('click', async e => {
+  const b = e.currentTarget; b.disabled = true; b.textContent = 'Разбираю бизнес…';
+  document.getElementById('hint').textContent = 'VELOR смотрит доходы, расходы, клиентов и заявки…';
+  try{
+    const d = await (await fetch('/api/opportunities/scan', { method:'POST' })).json();
+    if (d.ok){ await load(); toast('Нашёл ' + d.items.filter(i=>i.status==='new').length + ' возможностей'); }
+    else toast(d.error || 'Не получилось');
+  }catch{ toast('Ошибка связи с сервером'); }
+  b.disabled = false; b.textContent = 'Найти возможности';
+  document.getElementById('hint').textContent = 'Разбор занимает несколько секунд.';
+});
+
+document.getElementById('cards').addEventListener('click', async e => {
+  const btn = e.target.closest('.ob'); if (!btn) return;
+  const id = btn.closest('.opp').dataset.id, status = btn.dataset.st;
+  try{
+    await fetch('/api/opportunities/' + id + '/status', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+    await load();
+    if (status === 'done') toast('Отмечено как сделанное');
+    if (status === 'hidden') toast('Убрал из списка');
+  }catch{ toast('Не удалось сохранить'); }
+});
+
+load();
+</script>
+</body>
+</html>
