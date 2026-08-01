@@ -472,6 +472,27 @@ def init_db():
                )"""
         )
 
+        # ---- Индексы под горячие пути (мультитенантные выборки идут по business_id) ----
+        # Без них каждый запрос — полное сканирование таблицы; на росте данных это
+        # заметно тормозит. Работает и в SQLite, и в Postgres (IF NOT EXISTS).
+        # Все колонки заведомо существуют (таблицы созданы выше), поэтому безопасно.
+        for idx, table, cols in [
+            ("idx_messages_biz_client",  "messages",        "business_id, client_id"),
+            ("idx_messages_biz_created", "messages",        "business_id, created_at"),
+            ("idx_orders_biz",           "orders",          "business_id"),
+            ("idx_orders_biz_client",    "orders",          "business_id, client_id"),
+            ("idx_clients_biz",          "clients",         "business_id"),
+            ("idx_timeline_biz_created", "timeline",        "business_id, created_at"),
+            ("idx_finance_biz_created",  "finance_entries", "business_id, created_at"),
+            ("idx_documents_biz",        "documents",       "business_id"),
+            ("idx_doc_chunks_biz",       "doc_chunks",      "business_id"),
+            ("idx_risks_biz",            "risks",           "business_id"),
+            ("idx_opps_biz",             "opportunities",   "business_id"),
+            ("idx_ideas_biz",            "ideas",           "business_id"),
+            ("idx_board_biz",            "board_recs",      "business_id"),
+        ]:
+            conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
+
 
 # ---------- БИЗНЕСЫ (тенанты) ----------
 
