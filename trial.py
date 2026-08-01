@@ -17,6 +17,7 @@ device fingerprint. Поля email/telegram в реестре заложены �
 import datetime
 
 import database
+import identity
 
 TRIAL_DAYS = 14
 
@@ -61,7 +62,10 @@ def register_state(bid):
 
 def launch(bid, telegram_id=None):
     """Кнопка «Запустить VELOR»: с этого момента идёт отсчёт 14 дней.
-    Telegram-id фиксируем в вечном реестре (защита «один Telegram — один триал»)."""
+
+    Триал привязывается к ЛИЧНОСТИ ВЛАДЕЛЬЦА (owner_identity), а не к боту:
+    фиксируем факт выдачи на личности (переживёт удаление/пересоздание бота).
+    Legacy-реестр trial_registry тоже пополняем (обратная совместимость)."""
     now = _now()
     database.update_business(
         bid,
@@ -70,6 +74,12 @@ def launch(bid, telegram_id=None):
         subscription_status="trial",
         trial_used=1,
     )
+    # Главное: помечаем триал выданным на личности владельца.
+    try:
+        identity.mark_trial_used(bid)
+    except Exception:
+        pass
+    # Legacy-реестр (совместимость со старой защитой по признаку).
     if telegram_id:
         database.record_trial_usage(bid, telegram=telegram_id)
 
@@ -229,8 +239,28 @@ def assess_risk(fingerprint=None, email=None, telegram=None):
 
 
 def telegram_used(telegram_id):
-    """Жёсткая проверка для запуска: этот Telegram уже использовал триал?"""
+    """Legacy: проверка по id БОТА (оставлена для совместимости, слабая защита —
+    бота легко пересоздать). Реальная защита — owner_used() по личности владельца."""
     return already_used(telegram=telegram_id) if telegram_id else False
+
+
+# ---------- ЗАЩИТА ПО ЛИЧНОСТИ ВЛАДЕЛЬЦА (главная) ----------
+def owner_used(bid):
+    """Использовал ли этот ВЛАДЕЛЕЦ триал ранее. Возвращает (used, reason).
+    Делегирует IdentityService (алгоритм: telegram_user_id | phone | email |
+    email+fingerprint). Именно это блокирует «новый бот → новый триал»."""
+    try:
+        return identity.trial_used(bid)
+    except Exception:
+        return False, None
+
+
+def owner_verified(bid):
+    """Есть ли у владельца сильный признак личности, чтобы запускать триал."""
+    try:
+        return identity.has_strong_signal(bid)
+    except Exception:
+        return False
 
 
 # ---------- СТАТИСТИКА ДЛЯ ЭКРАНА ОКОНЧАНИЯ ----------

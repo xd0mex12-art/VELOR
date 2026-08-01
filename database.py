@@ -246,6 +246,8 @@ def _migrate_columns(conn):
         ("businesses", "subscription_started", "TEXT"),
         ("businesses", "subscription_expires", "TEXT"),
         ("businesses", "risk_score", "INTEGER DEFAULT 0"),   # сигнал абьюза (не блокировка)
+        ("businesses", "tg_verify_code", "TEXT"),            # одноразовый код привязки владельца
+        ("businesses", "owner_verified", "INTEGER DEFAULT 0"),  # личность владельца подтверждена
     ]
     for tbl, col, typ in migrations:
         try:
@@ -499,6 +501,29 @@ def init_db():
                )"""
         )
 
+        # Личность владельца бизнеса (Owner Identity) — сущность, к которой
+        # ПРИВЯЗЫВАЕТСЯ триал (а НЕ к Telegram-боту: бота легко пересоздать).
+        # Универсальна под несколько способов идентификации (telegram/phone/email/
+        # google/apple). Как и trial_registry — НЕ удаляется вместе с компанией:
+        # факт «этот владелец уже брал триал» должен пережить удаление аккаунта.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS owner_identity (
+                   id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id       INTEGER,
+                   method            TEXT,          -- telegram|phone|email|google|apple
+                   telegram_user_id  TEXT,          -- ЛИЧНЫЙ id владельца (не бота!)
+                   telegram_username TEXT,
+                   first_name        TEXT,
+                   last_name         TEXT,
+                   phone             TEXT,
+                   email             TEXT,
+                   fingerprint       TEXT,
+                   risk_score        INTEGER DEFAULT 0,
+                   trial_used_at     TEXT,          -- заполнен → владелец уже брал триал
+                   created_at        TEXT DEFAULT (datetime('now'))
+               )"""
+        )
+
         # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
         _migrate_columns(conn)
 
@@ -520,6 +545,9 @@ def init_db():
             ("idx_opps_biz",             "opportunities",   "business_id"),
             ("idx_ideas_biz",            "ideas",           "business_id"),
             ("idx_board_biz",            "board_recs",      "business_id"),
+            ("idx_owner_tg",             "owner_identity",  "telegram_user_id"),
+            ("idx_owner_email",          "owner_identity",  "email"),
+            ("idx_owner_phone",          "owner_identity",  "phone"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -937,6 +965,95 @@ def record_trial_usage(business_id, fingerprint=None, email=None, telegram=None,
             "VALUES (?, ?, ?, ?, ?)",
             (business_id, fingerprint or None, (email or None),
              (str(telegram) if telegram else None), ip))
+
+
+# ---------- OWNER IDENTITY (личность владельца — к ней привязан триал) ----------
+
+_OWNER_FIELDS = ("method", "telegram_user_id", "telegram_username", "first_name",
+                 "last_name", "phone", "email", "fingerprint", "risk_score",
+                 "trial_used_at")
+
+
+def owner_identity_get(business_id):
+    """Текущая (самая свежая) личность владельца для бизнеса, либо None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM owner_identity WHERE business_id = ? ORDER BY id DESC LIMIT 1",
+            (business_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def owner_identity_upsert(business_id, **fields):
+    """Создать личность владельца для бизнеса или дополнить её новыми признаками
+    (объединение способов входа). Пустые значения не затирают уже известные."""
+    clean = {k: v for k, v in fields.items() if k in _OWNER_FIELDS and v not in (None, "")}
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM owner_identity WHERE business_id = ? ORDER BY id DESC LIMIT 1",
+            (business_id,)).fetchone()
+        if row:
+            if clean:
+                sets = ", ".join(f"{k} = ?" for k in clean)
+                conn.execute(f"UPDATE owner_identity SET {sets} WHERE id = ?",
+                             tuple(clean.values()) + (row["id"],))
+            return row["id"]
+        cols = ["business_id"] + list(clean.keys())
+        ph = ", ".join(["?"] * len(cols))
+        cur = conn.execute(
+            f"INSERT INTO owner_identity ({', '.join(cols)}) VALUES ({ph})",
+            (business_id, *clean.values()))
+        return cur.lastrowid
+
+
+def owner_trial_used(telegram_user_id=None, phone=None, email=None, exclude_business=None):
+    """Брал ли ЭТОТ владелец триал ранее — по СИЛЬНЫМ признакам личности
+    (личный Telegram id ИЛИ телефон ИЛИ email). Fingerprint здесь НЕ учитывается
+    (он только повышает risk_score). Ищем среди записей, где триал уже выдан."""
+    conds, params = [], []
+    if telegram_user_id:
+        conds.append("telegram_user_id = ?"); params.append(str(telegram_user_id))
+    if phone:
+        conds.append("phone = ?"); params.append(str(phone))
+    if email:
+        conds.append("LOWER(email) = ?"); params.append(email.lower())
+    if not conds:
+        return False
+    where = "trial_used_at IS NOT NULL AND (" + " OR ".join(conds) + ")"
+    if exclude_business is not None:
+        where += " AND business_id <> ?"; params.append(exclude_business)
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT 1 FROM owner_identity WHERE {where} LIMIT 1", tuple(params)).fetchone()
+    return bool(row)
+
+
+def owner_weak_match(email=None, fingerprint=None, exclude_business=None):
+    """Слабый комбинированный признак: email + fingerprint совпали одновременно
+    с уже выданным триалом (когда сильного email-совпадения ещё недостаточно)."""
+    if not (email and fingerprint):
+        return False
+    params = [email.lower(), str(fingerprint)]
+    where = "trial_used_at IS NOT NULL AND LOWER(email) = ? AND fingerprint = ?"
+    if exclude_business is not None:
+        where += " AND business_id <> ?"; params.append(exclude_business)
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT 1 FROM owner_identity WHERE {where} LIMIT 1", tuple(params)).fetchone()
+    return bool(row)
+
+
+def owner_fingerprint_seen(fingerprint, exclude_business=None):
+    """Встречался ли уже такой fingerprint у владельца, взявшего триал — СИГНАЛ риска."""
+    if not fingerprint:
+        return False
+    params = [str(fingerprint)]
+    where = "trial_used_at IS NOT NULL AND fingerprint = ?"
+    if exclude_business is not None:
+        where += " AND business_id <> ?"; params.append(exclude_business)
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT 1 FROM owner_identity WHERE {where} LIMIT 1", tuple(params)).fetchone()
+    return bool(row)
 
 
 def trial_stats(business_id):

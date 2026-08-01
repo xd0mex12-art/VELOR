@@ -534,6 +534,25 @@ setInterval(()=>{ _polls++; load(); }, 30000);
       }).then(function(res){
         if (res.ok){ msg.style.color = 'var(--verdant)'; msg.textContent = 'Готово! Пробный период на 14 дней запущен.';
           setTimeout(function(){ location.reload(); }, 900); }
+        else if (res.d && res.d.needs_verify){
+          btn.style.display = 'none';
+          var bot = res.d.bot ? ('@' + res.d.bot) : 'вашего бота';
+          msg.style.color = '';
+          msg.innerHTML =
+            '<div style="text-align:left;line-height:1.6">' +
+            '<b style="color:#fff">Подтвердите, что вы владелец</b><br>' +
+            'Триал привязывается к вам лично, а не к боту — поэтому создать новый бот ' +
+            'ради нового триала не выйдет.<br><br>' +
+            '1. Откройте своего бота <b style="color:#fff">' + bot + '</b> в Telegram.<br>' +
+            '2. Отправьте ему код:<br>' +
+            '<span style="display:inline-block;margin:8px 0;font-size:26px;letter-spacing:6px;' +
+            'font-weight:700;color:var(--lilac)">' + (res.d.code||'') + '</span><br>' +
+            '3. Вернитесь сюда и нажмите кнопку ниже.' +
+            '<div style="margin-top:12px"><button class="tz-go" id="tzConfirm">Я подтвердил — запустить →</button></div>' +
+            '</div>';
+          document.getElementById('tzConfirm').onclick = function(){ btn.onclick.call(btn); };
+          btn.disabled = false;
+        }
         else {
           btn.disabled = false;
           if (res.d.detail && res.d.detail.indexOf('Telegram-бота') >= 0)

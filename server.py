@@ -9,6 +9,7 @@
 """
 import datetime
 import hashlib
+import secrets
 import json
 import logging
 import re
@@ -31,6 +32,7 @@ import errorlog
 import config
 import botcore
 import trial
+import identity
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
 
@@ -188,8 +190,24 @@ def api_register(body: RegisterIn, request: Request):
     #    но НЕ блокируем (жёсткий блок — по Telegram при запуске). ──
     fp = (body.fingerprint or "").strip() or None
     trial.register_state(bid)
-    risk, reasons = trial.assess_risk(fingerprint=fp)
+    # Заводим личность владельца (Owner Identity) — к ней будет привязан триал.
+    # Fingerprint здесь — вспомогательный признак (для risk_score и слабой связки
+    # email+fingerprint), НЕ причина отказа.
+    try:
+        identity.ensure(bid, method="email", fingerprint=fp)
+    except Exception:
+        pass
+    # risk_score — сигнал абьюза (НЕ блокировка). Берём максимум из оценки по
+    # личности владельца (owner_identity) и legacy-оценки (trial_registry).
+    risk_o, reasons_o = identity.assess_risk(bid, fingerprint=fp)
+    risk_l, reasons_l = trial.assess_risk(fingerprint=fp)
+    risk = max(risk_o, risk_l)
+    reasons = reasons_o or reasons_l
     database.update_business(bid, risk_score=risk)
+    try:
+        identity.ensure(bid, risk_score=risk)
+    except Exception:
+        pass
     trial.record_usage(bid, fingerprint=fp, ip=_client_ip(request))
     if risk >= 40:
         try:
@@ -231,12 +249,24 @@ def api_trial(business_id: int = 0, x_auth: str = Header(default="")):
     return st
 
 
+def _owner_verify_code(bid):
+    """Выдать/переиспользовать одноразовый код привязки личного Telegram владельца."""
+    b = database.get_business(bid) or {}
+    code = (b.get("tg_verify_code") or "").strip()
+    if not code:
+        code = "".join(secrets.choice("0123456789") for _ in range(6))
+        database.update_business(bid, tg_verify_code=code)
+    return code
+
+
 @app.post("/api/trial/start")
 def api_trial_start(x_auth: str = Header(default="")):
     """Кнопка «Запустить VELOR»: с этого момента идёт отсчёт 14 дней.
 
-    Условия: подключён Telegram-бот; этот Telegram ещё НЕ использовал триал.
-    Telegram — обязательная часть триала и жёсткий барьер против повтора.
+    Триал привязан к ЛИЧНОСТИ ВЛАДЕЛЬЦА, а не к боту. Поэтому запуск требует
+    подтверждения владельца: он отправляет одноразовый код своему боту, мы
+    фиксируем его личный Telegram id. Создание нового бота НЕ даёт новый триал —
+    личность та же. Архитектура готова заменить/дополнить это телефоном (identity).
     """
     bid = _resolve_bid(x_auth, 0)
     b = database.get_business(bid) or {}
@@ -248,15 +278,36 @@ def api_trial_start(x_auth: str = Header(default="")):
     if not token:
         raise HTTPException(status_code=400,
                             detail="Подключите Telegram-бота, чтобы запустить VELOR.")
-    # уникальный id Telegram-бота (архитектура позволит заменить на телефон)
-    tg_id = None
+
+    # Шаг 1. Личность владельца ещё не подтверждена → просим отправить код боту.
+    if not trial.owner_verified(bid):
+        code = _owner_verify_code(bid)
+        bot_username = None
+        me = _tg_api(token, "getMe")
+        if me and me.get("ok") and me.get("result"):
+            bot_username = me["result"].get("username")
+        return {
+            "ok": False,
+            "needs_verify": True,
+            "code": code,
+            "bot": bot_username,
+            "detail": "Подтвердите, что вы владелец: откройте своего бота"
+                      + (f" @{bot_username}" if bot_username else "")
+                      + f" и отправьте ему код {code}.",
+        }
+
+    # Шаг 2. Владелец подтверждён — проверяем, не брал ли он триал ранее.
+    used, reason = trial.owner_used(bid)
+    if used:
+        raise HTTPException(status_code=409,
+                            detail="Пробный период для данного владельца бизнеса уже был использован.")
+
+    # Legacy-признак (id бота) — пишем для совместимости, но защита уже на личности.
+    tg_bot_id = None
     me = _tg_api(token, "getMe")
     if me and me.get("ok") and me.get("result"):
-        tg_id = "tg:" + str(me["result"].get("id"))
-    if tg_id and trial.telegram_used(tg_id):
-        raise HTTPException(status_code=409,
-                            detail="Для данного Telegram пробный период уже был использован.")
-    trial.launch(bid, telegram_id=tg_id)
+        tg_bot_id = "tg:" + str(me["result"].get("id"))
+    trial.launch(bid, telegram_id=tg_bot_id)
     return {"ok": True, **trial.access(database.get_business(bid))}
 
 
@@ -2452,6 +2503,21 @@ async def api_tg_webhook(token: str, request: Request):
         return {"ok": True}                       # не текст (фото/стикер) — тихо пропускаем
     full_name = " ".join(x for x in (frm.get("first_name"), frm.get("last_name")) if x) \
         or frm.get("username") or "клиент"
+
+    # Привязка личности владельца: если пришёл ожидаемый код — этот отправитель и
+    # есть владелец. Фиксируем его ЛИЧНЫЙ Telegram id (устойчив к смене бота).
+    pending = (biz.get("tg_verify_code") or "").strip()
+    if pending and text.strip() == pending:
+        try:
+            identity.link_telegram(bid, frm)
+            database.update_business(bid, owner_verified=1, tg_verify_code=None)
+        except Exception:
+            logging.exception("Не удалось привязать владельца (biz %s)", bid)
+        _tg_api(token, "sendMessage", chat_id=chat_id,
+                text="✓ Готово! Вы подтверждены как владелец. Вернитесь в кабинет и "
+                     "нажмите «Запустить VELOR».")
+        return {"ok": True}
+
     try:
         reply = (botcore.greeting_text(bid) if text.strip() == "/start"
                  else botcore.handle_message(bid, frm.get("id"), full_name, text))
