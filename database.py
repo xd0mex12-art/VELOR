@@ -245,6 +245,7 @@ def _migrate_columns(conn):
         ("businesses", "subscription_plan", "TEXT"),
         ("businesses", "subscription_started", "TEXT"),
         ("businesses", "subscription_expires", "TEXT"),
+        ("businesses", "risk_score", "INTEGER DEFAULT 0"),   # сигнал абьюза (не блокировка)
     ]
     for tbl, col, typ in migrations:
         try:
@@ -841,7 +842,7 @@ def update_business(business_id, **fields):
     allowed = {"name", "about", "greeting", "plan", "fee", "tg_bot_token", "login", "password", "knowledge", "tone",
                "ai_name", "ai_avatar", "ai_traits", "ai_desc",
                "trial_start", "trial_end", "trial_used", "subscription_status",
-               "subscription_plan", "subscription_started", "subscription_expires", "board_day"}
+               "subscription_plan", "subscription_started", "subscription_expires", "board_day", "risk_score"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return
@@ -948,6 +949,23 @@ def trial_stats(business_id):
         recs = conn.execute("SELECT COUNT(*) AS n FROM board_recs WHERE business_id = ?", (business_id,)).fetchone()["n"]
     return {"messages": msgs, "orders": orders, "clients": clients,
             "recommendations": recs, "hours_saved": round(msgs * 2 / 60, 1)}
+
+
+def trial_funnel():
+    """Воронка конверсии: регистрация → запуск → Telegram → документы → 1-я заявка → подписка."""
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT
+                 COUNT(*) AS registered,
+                 SUM(CASE WHEN trial_start IS NOT NULL THEN 1 ELSE 0 END) AS launched,
+                 SUM(CASE WHEN COALESCE(tg_bot_token, '') <> '' THEN 1 ELSE 0 END) AS telegram,
+                 SUM(CASE WHEN (SELECT COUNT(*) FROM documents d WHERE d.business_id = b.id) > 0 THEN 1 ELSE 0 END) AS documents,
+                 SUM(CASE WHEN (SELECT COUNT(*) FROM orders o WHERE o.business_id = b.id) > 0 THEN 1 ELSE 0 END) AS first_order,
+                 SUM(CASE WHEN subscription_status = 'active' THEN 1 ELSE 0 END) AS subscribed
+               FROM businesses b"""
+        ).fetchone()
+    keys = ("registered", "launched", "telegram", "documents", "first_order", "subscribed")
+    return {k: (row[k] or 0) for k in keys}
 
 
 # ---------- ВОЗМОЖНОСТИ РОСТА ----------

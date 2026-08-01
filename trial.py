@@ -20,6 +20,19 @@ import database
 
 TRIAL_DAYS = 14
 
+# Каталог подписок (архитектура под будущий Stripe/ЮKassa). Активация сейчас —
+# вручную владельцем через activate_subscription(); платёжка позже вызовет ту же
+# функцию, ничего не переписывая.
+PLANS = {
+    "starter":    {"name": "Starter",    "price": 2990,  "note": "1 AI-сотрудник, база знаний, CRM"},
+    "business":   {"name": "Business",   "price": 9990,  "note": "до 5 сотрудников, аналитика, финансы, контент"},
+    "enterprise": {"name": "Enterprise", "price": 24990, "note": "расширенные лимиты, интеграции, приоритет"},
+}
+
+
+def plan_name(key):
+    return (PLANS.get((key or "").lower()) or {}).get("name") or (key or "—")
+
 
 # ---------- время (храним текстом 'YYYY-MM-DD HH:MM:SS' UTC, как вся база) ----------
 def _now():
@@ -40,8 +53,15 @@ def _parse(s):
 
 
 # ---------- ЖИЗНЕННЫЙ ЦИКЛ ----------
-def start(bid):
-    """Запустить 14-дневный триал новому бизнесу."""
+def register_state(bid):
+    """Сразу после регистрации: аккаунт в онбординге, отсчёт триала ЕЩЁ НЕ ИДЁТ.
+    14 дней стартуют только по кнопке «Запустить VELOR» (см. launch)."""
+    database.update_business(bid, subscription_status="onboarding")
+
+
+def launch(bid, telegram_id=None):
+    """Кнопка «Запустить VELOR»: с этого момента идёт отсчёт 14 дней.
+    Telegram-id фиксируем в вечном реестре (защита «один Telegram — один триал»)."""
     now = _now()
     database.update_business(
         bid,
@@ -50,6 +70,14 @@ def start(bid):
         subscription_status="trial",
         trial_used=1,
     )
+    if telegram_id:
+        database.record_trial_usage(bid, telegram=telegram_id)
+
+
+# Совместимость: старое имя start() = немедленный запуск (не используется в
+# регистрации, оставлено, чтобы не ломать возможные вызовы).
+def start(bid):
+    launch(bid)
 
 
 def activate_subscription(bid, plan="business", months=1):
@@ -97,6 +125,11 @@ def access(business):
     status = (business.get("subscription_status") or "trial").strip().lower()
     now = _now()
 
+    # онбординг: зарегистрирован, но триал ещё НЕ запущен (кнопкой). Полный доступ
+    # к настройке; отсчёт 14 дней не идёт. needs_launch=True.
+    if status == "onboarding":
+        return _state("onboarding", True, business, now)
+
     if status == "active":
         exp = _parse(business.get("subscription_expires"))
         if exp is None or now < exp:
@@ -123,6 +156,8 @@ def _state(phase, active, business, now):
         "phase": phase,
         "active": active,
         "read_only": not active,
+        "launched": phase in ("trial", "subscribed", "legacy"),
+        "needs_launch": phase == "onboarding",
         "status": business.get("subscription_status") or "trial",
         "plan": business.get("subscription_plan") or None,
         "trial_end": business.get("trial_end"),
@@ -130,6 +165,7 @@ def _state(phase, active, business, now):
         "trial_days": TRIAL_DAYS,
         "days_left": days_left,
         "hours_left": hours_left,
+        "risk_score": business.get("risk_score") or 0,
         "notice": _notice(phase, hours_left),
     }
 
@@ -168,6 +204,33 @@ def record_usage(bid, fingerprint=None, email=None, telegram=None, ip=None):
                                     telegram=telegram, ip=ip)
     except Exception:
         pass
+
+
+def assess_risk(fingerprint=None, email=None, telegram=None):
+    """
+    Оценка риска повторного триала — СИГНАЛ, а не блокировка. Fingerprint даёт лишь
+    подозрение (общие устройства); жёстко режем только по Telegram (см. launch).
+    Возвращает (risk_score 0..100, список причин).
+    """
+    score, reasons = 0, []
+    try:
+        if fingerprint and database.trial_used_before(fingerprint=fingerprint):
+            score += 40
+            reasons.append("совпал отпечаток устройства")
+        if telegram and database.trial_used_before(telegram=telegram):
+            score += 60
+            reasons.append("этот Telegram уже брал триал")
+        if email and database.trial_used_before(email=email):
+            score += 50
+            reasons.append("этот email уже брал триал")
+    except Exception:
+        pass
+    return min(100, score), reasons
+
+
+def telegram_used(telegram_id):
+    """Жёсткая проверка для запуска: этот Telegram уже использовал триал?"""
+    return already_used(telegram=telegram_id) if telegram_id else False
 
 
 # ---------- СТАТИСТИКА ДЛЯ ЭКРАНА ОКОНЧАНИЯ ----------

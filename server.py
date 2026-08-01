@@ -182,19 +182,23 @@ def api_register(body: RegisterIn, request: Request):
     )
     database.update_business(bid, login=login, password=password)
 
-    # ── Trial: 14 дней полного доступа. Защита от повторного триала — по вечному
-    #    реестру (fingerprint; email/telegram — на будущее). Fingerprint ненадёжен
-    #    (общие устройства), поэтому это МЯГКИЙ сигнал: если повтор — стартуем сразу
-    #    в locked (нужна подписка), но аккаунт создаём. Жёсткая блокировка включится
-    #    с подтверждением email/telegram. ──
+    # ── Регистрация НЕ запускает триал: аккаунт в онбординге, отсчёт 14 дней
+    #    стартует по кнопке «Запустить VELOR» (/api/trial/start). Fingerprint —
+    #    только МЯГКИЙ сигнал: считаем risk_score, при высоком сообщаем владельцу,
+    #    но НЕ блокируем (жёсткий блок — по Telegram при запуске). ──
     fp = (body.fingerprint or "").strip() or None
-    reused = trial.already_used(fingerprint=fp) if fp else False
-    if reused:
-        database.update_business(bid, subscription_status="expired",
-                                 trial_start=None, trial_end=None, trial_used=1)
-    else:
-        trial.start(bid)
+    trial.register_state(bid)
+    risk, reasons = trial.assess_risk(fingerprint=fp)
+    database.update_business(bid, risk_score=risk)
     trial.record_usage(bid, fingerprint=fp, ip=_client_ip(request))
+    if risk >= 40:
+        try:
+            database.log_event(bid, "security", "Подозрительная регистрация",
+                               "Возможен повторный триал: " + "; ".join(reasons)
+                               + f". risk_score {risk}.",
+                               level="important", once_key="risk")
+        except Exception:
+            pass
 
     # Фиксируем факт согласия (152-ФЗ): что принято и когда — для доказуемости.
     try:
@@ -203,7 +207,7 @@ def api_register(body: RegisterIn, request: Request):
                            "IP " + _client_ip(request), level="info", once_key="consent")
     except Exception:
         pass
-    return {"ok": True, "business_id": bid, "name": name, "trial_reused": reused,
+    return {"ok": True, "business_id": bid, "name": name, "onboarding": True,
             **_issue_tokens("business", bid)}
 
 
@@ -225,6 +229,35 @@ def api_trial(business_id: int = 0, x_auth: str = Header(default="")):
     st = trial.access(database.get_business(bid))
     st["stats"] = trial.stats(bid)
     return st
+
+
+@app.post("/api/trial/start")
+def api_trial_start(x_auth: str = Header(default="")):
+    """Кнопка «Запустить VELOR»: с этого момента идёт отсчёт 14 дней.
+
+    Условия: подключён Telegram-бот; этот Telegram ещё НЕ использовал триал.
+    Telegram — обязательная часть триала и жёсткий барьер против повтора.
+    """
+    bid = _resolve_bid(x_auth, 0)
+    b = database.get_business(bid) or {}
+    st = trial.access(b)
+    if st["phase"] in ("trial", "subscribed", "legacy"):
+        return {"ok": True, **st}   # уже запущен — идемпотентно
+
+    token = (b.get("tg_bot_token") or "").strip()
+    if not token:
+        raise HTTPException(status_code=400,
+                            detail="Подключите Telegram-бота, чтобы запустить VELOR.")
+    # уникальный id Telegram-бота (архитектура позволит заменить на телефон)
+    tg_id = None
+    me = _tg_api(token, "getMe")
+    if me and me.get("ok") and me.get("result"):
+        tg_id = "tg:" + str(me["result"].get("id"))
+    if tg_id and trial.telegram_used(tg_id):
+        raise HTTPException(status_code=409,
+                            detail="Для данного Telegram пробный период уже был использован.")
+    trial.launch(bid, telegram_id=tg_id)
+    return {"ok": True, **trial.access(database.get_business(bid))}
 
 
 class TrialAdminIn(BaseModel):
@@ -269,15 +302,26 @@ def api_admin_subscription(bid: int, body: TrialAdminIn, x_auth: str = Header(de
 
 @app.get("/api/admin/trial-overview")
 def api_admin_trial_overview(x_auth: str = Header(default="")):
-    """Владелец VELOR: сводка по триалам/подпискам всех бизнесов."""
+    """Владелец VELOR: сводка по триалам/подпискам + воронка конверсии."""
     require_owner(x_auth)
-    out = []
-    for b in database.list_businesses_with_stats():
+    rows = database.list_businesses_with_stats()
+    counts = {"total": len(rows), "onboarding": 0, "trial": 0,
+              "subscribed": 0, "locked": 0, "suspicious": 0}
+    items = []
+    for b in rows:
         st = trial.access(b)
-        out.append({"id": b["id"], "name": b.get("name"), "phase": st["phase"],
-                    "days_left": st["days_left"], "plan": st["plan"],
-                    "trial_end": st["trial_end"]})
-    return {"businesses": out}
+        ph = st["phase"]
+        key = "subscribed" if ph in ("subscribed", "legacy") else ph
+        counts[key] = counts.get(key, 0) + 1
+        risky = (b.get("risk_score") or 0) >= 40
+        if risky:
+            counts["suspicious"] += 1
+        items.append({"id": b["id"], "name": b.get("name"), "phase": ph,
+                      "days_left": st["days_left"], "plan": st["plan"],
+                      "trial_end": st["trial_end"], "risk_score": b.get("risk_score") or 0,
+                      "suspicious": risky})
+    return {"counts": counts, "funnel": database.trial_funnel(),
+            "plans": trial.PLANS, "businesses": items}
 
 
 @app.post("/api/business-login")

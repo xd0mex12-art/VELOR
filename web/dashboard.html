@@ -174,6 +174,8 @@
     <div class="pulse"><span class="dot"></span><span id="pulse">сотрудник на связи</span></div>
   </div>
 
+  <div id="trialZone"></div>
+
   <!-- ядро + герой-рекомендация -->
   <section class="prime">
     <div class="core-wrap"><div class="core-square"><canvas id="coreCanvas"></canvas></div></div>
@@ -470,6 +472,112 @@ let _polls = 0, _board = {items:[]}, _lastAiId = null;
 load();
 // спокойный ритм: тихо сверяемся раз в 30 секунд, но трогаем DOM только при изменениях
 setInterval(()=>{ _polls++; load(); }, 30000);
+</script>
+
+<style>
+  /* ── Trial: запуск / режим ожидания / ценность ── */
+  #trialZone:empty{ display:none; }
+  #trialZone{ margin:0 0 18px; }
+  .tz-launch, .tz-locked{ border-radius:26px; padding:30px 34px;
+    border:1px solid rgba(128,82,255,.3); animation:cIn .5s cubic-bezier(.22,1,.36,1) both;
+    background:linear-gradient(150deg,rgba(128,82,255,.18),rgba(91,108,255,.05) 60%,rgba(255,255,255,.015)); }
+  .tz-launch h3, .tz-locked h3{ font-weight:500; font-size:clamp(22px,2.6vw,28px); letter-spacing:-.02em; }
+  .tz-launch p, .tz-locked p{ color:var(--silver); font-weight:200; font-size:15px; line-height:1.55; margin-top:8px; max-width:640px; }
+  .tz-steps{ display:flex; gap:16px; flex-wrap:wrap; margin:18px 0 6px; font-size:13.5px; color:var(--ash); }
+  .tz-steps span{ display:inline-flex; align-items:center; gap:7px; }
+  .tz-steps span.ok{ color:var(--verdant); }
+  .tz-go{ display:inline-flex; align-items:center; gap:9px; margin-top:20px; min-height:48px;
+    padding:14px 28px; border-radius:16px; border:none; background:var(--iris); color:#fff;
+    font-family:inherit; font-weight:600; font-size:15px; cursor:pointer; transition:filter .2s; }
+  .tz-go:hover{ filter:brightness(1.16) drop-shadow(0 0 18px rgba(128,82,255,.55)); }
+  .tz-go:disabled{ opacity:.5; cursor:default; filter:none; }
+  .tz-msg{ margin-top:12px; font-size:14px; color:var(--saffron); }
+  .tz-msg a{ color:var(--lilac); }
+  .tz-locked{ border-color:rgba(255,255,255,.12); background:linear-gradient(150deg,rgba(128,82,255,.14),rgba(255,255,255,.02)); }
+  .tz-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin:20px 0; }
+  .tz-stats div{ border:1px solid var(--hairline); border-radius:16px; padding:14px 16px; }
+  .tz-stats .n{ font-weight:400; font-size:24px; letter-spacing:-.02em; color:#c9bfff; }
+  .tz-stats .k{ font-size:12px; color:var(--ash); margin-top:3px; }
+  .tz-strip{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:12px 18px;
+    border-radius:16px; border:1px solid var(--hairline); background:rgba(255,255,255,.02);
+    font-size:13.5px; color:var(--silver); }
+  .tz-strip b{ color:#c9bfff; font-weight:500; } .tz-strip .d{ margin-left:auto; color:var(--ash); }
+</style>
+<script>
+(function(){
+  if (!localStorage.getItem('coreon_biz_token')) return;
+  var z = document.getElementById('trialZone');
+  fetch('/api/trial').then(function(r){ return r.ok ? r.json() : null; }).then(function(t){
+    if (!t || !z) return;
+    if (t.needs_launch) return renderLaunch(t);
+    if (t.read_only)    return renderLocked(t);
+    if (t.phase === 'trial') return renderTrial(t);
+  }).catch(function(){});
+
+  function renderLaunch(t){
+    z.innerHTML =
+      '<div class="tz-launch">' +
+        '<h3>Запустите VELOR</h3>' +
+        '<p>После запуска у вас <b style="color:#fff">14 дней полного доступа</b> ко всем возможностям. ' +
+        'Сначала подключите Telegram и наполните базу знаний — так пробный период пройдёт с максимальной пользой.</p>' +
+        '<div class="tz-steps">' +
+          '<span>① Подключить Telegram</span><span>② Загрузить базу знаний</span><span>③ Запустить отсчёт</span>' +
+        '</div>' +
+        '<button class="tz-go" id="tzGo">Запустить VELOR →</button>' +
+        '<div class="tz-msg" id="tzMsg"></div>' +
+      '</div>';
+    document.getElementById('tzGo').onclick = function(){
+      var btn = this, msg = document.getElementById('tzMsg');
+      btn.disabled = true; msg.textContent = 'Запускаю…';
+      fetch('/api/trial/start', { method:'POST' }).then(function(r){
+        return r.json().then(function(d){ return { ok:r.ok, d:d }; });
+      }).then(function(res){
+        if (res.ok){ msg.style.color = 'var(--verdant)'; msg.textContent = 'Готово! Пробный период на 14 дней запущен.';
+          setTimeout(function(){ location.reload(); }, 900); }
+        else {
+          btn.disabled = false;
+          if (res.d.detail && res.d.detail.indexOf('Telegram-бота') >= 0)
+            msg.innerHTML = res.d.detail + ' <a href="guide.html">Подключить →</a>';
+          else msg.textContent = res.d.detail || 'Не удалось запустить.';
+        }
+      }).catch(function(){ btn.disabled = false; msg.textContent = 'Сервер не отвечает.'; });
+    };
+  }
+
+  function renderLocked(t){
+    var s = t.stats || {};
+    z.innerHTML =
+      '<div class="tz-locked">' +
+        '<h3>Ваш AI ждёт возвращения</h3>' +
+        '<p>Пробный период завершён. Все данные сохранены — вы в режиме просмотра. ' +
+        'Продолжите работу, выбрав подходящий тариф.</p>' +
+        '<div class="tz-stats">' +
+          stat(s.messages, 'сообщений обработал') +
+          stat(s.orders, 'заявок создал') +
+          stat(s.clients, 'клиентов в базе') +
+          stat(s.recommendations, 'рекомендаций') +
+          stat(s.hours_saved, 'часов сэкономил') +
+        '</div>' +
+        '<a class="tz-go" href="plans.html">Выбрать тариф →</a>' +
+      '</div>';
+  }
+
+  function renderTrial(t){
+    var s = t.stats || {}, dl = t.days_left;
+    var left = (dl === 0) ? 'менее суток' : (dl + ' ' + plural(dl, 'день','дня','дней'));
+    z.innerHTML =
+      '<div class="tz-strip">' +
+        '<span>Пробный период: <b>' + left + '</b> осталось</span>' +
+        '<span>VELOR уже: <b>' + (s.messages||0) + '</b> сообщений · <b>' + (s.orders||0) + '</b> заявок · <b>' + (s.clients||0) + '</b> клиентов</span>' +
+        '<a class="d" href="plans.html" style="color:var(--lilac)">Тарифы →</a>' +
+      '</div>';
+  }
+
+  function stat(n, k){ return '<div><div class="n num">' + (n||0) + '</div><div class="k">' + k + '</div></div>'; }
+  function plural(n, a, b, c){ var n10=n%10, n100=n%100;
+    if (n10===1 && n100!==11) return a;
+    if (n10>=2 && n10<=4 && !(n100>=12 && n100<=14)) return b; return c; }
+})();
 </script>
 </body>
 </html>

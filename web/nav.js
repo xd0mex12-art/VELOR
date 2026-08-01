@@ -300,8 +300,9 @@
 
     function vtLocked(t) {
       // Экран окончания показываем один раз за сессию; дальше — тонкая полоса.
+      // На дашборде модалку НЕ показываем — там своя карточка «AI ждёт возвращения».
       var s = t.stats || {};
-      if (sessionStorage.getItem('vt_locked_seen') !== '1') {
+      if (here !== 'dashboard.html' && sessionStorage.getItem('vt_locked_seen') !== '1') {
         sessionStorage.setItem('vt_locked_seen', '1');
         var ov = document.createElement('div'); ov.className = 'vt-ov';
         ov.innerHTML = '<div class="vt-modal">' +
