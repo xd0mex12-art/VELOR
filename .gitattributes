@@ -1,0 +1,10 @@
+# Бинарные ассеты — git не должен конвертировать окончания строк (иначе повредит).
+*.woff2 binary
+*.woff  binary
+*.ttf   binary
+*.otf   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+# Минифицированные библиотеки держим как есть (без CRLF-возни).
+*.min.js -text
