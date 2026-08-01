@@ -207,50 +207,54 @@ def _connect():
     return conn
 
 
+def _migrate_columns(conn):
+    """
+    Дополнить существующие таблицы новыми колонками (для старых баз) — идемпотентно.
+    Вызывать ТОЛЬКО после создания всех таблиц. На SQLite «duplicate column»/«no such
+    table» ловим; на Postgres перевод добавляет ADD COLUMN IF NOT EXISTS (без ошибок).
+    """
+    migrations = [("clients", c, "TEXT") for c in
+                  ("birthday", "notes", "favorite", "ai_summary", "ai_advice", "summary_day")]
+    migrations += [
+        ("businesses", "about", "TEXT"),
+        ("businesses", "fee", "INTEGER DEFAULT 0"),      # абонплата бизнеса VELOR AI'у (твой доход)
+        ("businesses", "plan", "TEXT DEFAULT 'Старт'"),  # тариф
+        ("businesses", "login", "TEXT"),                 # вход бизнеса в свою панель
+        ("businesses", "password", "TEXT"),
+        ("businesses", "knowledge", "TEXT"),             # база знаний бизнеса (прайс, услуги, условия)
+        ("businesses", "tone", "TEXT"),                  # стиль общения AI-сотрудника
+        ("businesses", "ai_name", "TEXT"),               # имя AI-сотрудника (личность)
+        ("businesses", "ai_avatar", "TEXT"),             # символ/эмодзи аватара
+        ("businesses", "ai_traits", "TEXT"),             # черты характера через запятую
+        ("businesses", "ai_desc", "TEXT"),               # описание характера своими словами
+        ("businesses", "board_day", "TEXT"),             # день последнего заседания «Совета директоров»
+        ("orders", "amount", "INTEGER DEFAULT 0"),       # сумма заказа (оборот бизнеса)
+        ("timeline", "read_at", "TEXT"),                 # центр уведомлений: прочитанность
+        ("timeline", "level", "TEXT DEFAULT 'info'"),    # info | important
+        ("finance_entries", "op_date", "TEXT"),          # дата операции по выписке
+        ("finance_entries", "counterparty", "TEXT"),
+        ("finance_entries", "external_id", "TEXT"),      # чтобы не задвоить при повторной загрузке
+        ("finance_entries", "source", "TEXT"),           # ручной ввод | csv | xlsx | pdf | банк
+        ("finance_entries", "confidence", "REAL DEFAULT 1"),
+        ("finance_entries", "import_id", "INTEGER"),
+    ]
+    for tbl, col, typ in migrations:
+        try:
+            conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
+        except sqlite3.OperationalError:
+            pass  # колонка уже есть (SQLite); на Postgres ADD COLUMN IF NOT EXISTS
+
+
 def init_db():
     """Создать таблицы из schema.sql, если их ещё нет."""
     with open("schema.sql", "r", encoding="utf-8") as f:
         sql = f.read()
     with _connect() as conn:
         conn.executescript(sql)
-        # Дополняем старую базу новыми колонками CRM (если их ещё нет).
-        for col, typ in [("birthday", "TEXT"), ("notes", "TEXT"), ("favorite", "TEXT"),
-                         ("ai_summary", "TEXT"), ("ai_advice", "TEXT"), ("summary_day", "TEXT")]:
-            try:
-                conn.execute(f"ALTER TABLE clients ADD COLUMN {col} {typ}")
-            except sqlite3.OperationalError:
-                pass  # колонка уже есть
-        # Описание бизнеса + поля для админки владельца.
-        for tbl, col, typ in [
-            ("businesses", "about", "TEXT"),
-            ("businesses", "fee", "INTEGER DEFAULT 0"),     # абонплата бизнеса VELOR AI'у (твой доход)
-            ("businesses", "plan", "TEXT DEFAULT 'Старт'"),  # тариф
-            ("businesses", "login", "TEXT"),                 # вход бизнеса в свою панель
-            ("businesses", "password", "TEXT"),
-            ("businesses", "knowledge", "TEXT"),             # база знаний бизнеса (прайс, услуги, условия)
-            ("businesses", "tone", "TEXT"),                   # стиль общения AI-сотрудника
-            ("businesses", "ai_name", "TEXT"),                # имя AI-сотрудника (личность)
-            ("businesses", "ai_avatar", "TEXT"),              # символ/эмодзи аватара
-            ("businesses", "ai_traits", "TEXT"),              # черты характера через запятую
-            ("businesses", "ai_desc", "TEXT"),                # описание характера своими словами
-            ("businesses", "board_day", "TEXT"),              # день последнего заседания «Совета директоров»
-            ("orders", "amount", "INTEGER DEFAULT 0"),       # сумма заказа (оборот бизнеса)
-            # центр уведомлений живёт на тех же событиях, что и история бизнеса:
-            # вторую копию не заводим, добавляем прочитанность и важность
-            ("timeline", "read_at", "TEXT"),
-            ("timeline", "level", "TEXT DEFAULT 'info'"),     # info | important
-            # операции из выписок: откуда пришли и насколько уверены в категории
-            ("finance_entries", "op_date", "TEXT"),           # дата операции по выписке
-            ("finance_entries", "counterparty", "TEXT"),
-            ("finance_entries", "external_id", "TEXT"),       # чтобы не задвоить при повторной загрузке
-            ("finance_entries", "source", "TEXT"),            # ручной ввод | csv | xlsx | pdf | банк
-            ("finance_entries", "confidence", "REAL DEFAULT 1"),
-            ("finance_entries", "import_id", "INTEGER"),
-        ]:
-            try:
-                conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
-            except sqlite3.OperationalError:
-                pass
+        # ВАЖНО: миграции колонок (_migrate_columns) вызываются НИЖЕ — уже ПОСЛЕ
+        # создания всех таблиц. Иначе ALTER для timeline/finance_entries шёл бы до
+        # их CREATE: на SQLite молча терялись колонки, на Postgres рушилась вся
+        # транзакция init_db.
         # Возможности роста: что предлагает AI-директор улучшить в бизнесе.
         conn.execute(
             """CREATE TABLE IF NOT EXISTS opportunities (
@@ -471,6 +475,9 @@ def init_db():
                    content     TEXT
                )"""
         )
+
+        # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
+        _migrate_columns(conn)
 
         # ---- Индексы под горячие пути (мультитенантные выборки идут по business_id) ----
         # Без них каждый запрос — полное сканирование таблицы; на росте данных это
