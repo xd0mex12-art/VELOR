@@ -253,6 +253,81 @@
     }).catch(function () {});
   }
 
+  // ── TRIAL: ненавязчивый отсчёт + экран окончания (данные из /api/trial) ──
+  // Логика целиком на бэке (TrialService). Здесь только показ состояния.
+  if (localStorage.getItem('coreon_biz_token')) {
+    var tcss = document.createElement('style');
+    tcss.textContent = [
+      '.vt-bar{ position:fixed; left:0; right:0; bottom:0; z-index:70; display:flex; align-items:center;',
+      '  justify-content:center; gap:14px; padding:11px 18px; font-size:13.5px; color:#e8e6ff;',
+      '  background:rgba(128,82,255,.16); backdrop-filter:blur(12px); border-top:1px solid rgba(128,82,255,.3); }',
+      '.vt-bar.urgent{ background:rgba(255,107,107,.16); border-top-color:rgba(255,107,107,.4); color:#ffd9d9; }',
+      '.vt-bar a{ color:#fff; font-weight:600; text-decoration:none; background:#8052ff; padding:7px 15px;',
+      '  border-radius:999px; white-space:nowrap; } .vt-bar a:hover{ filter:brightness(1.15); }',
+      '.vt-bar .vt-x{ background:none; border:none; color:inherit; opacity:.6; cursor:pointer; font-size:16px; }',
+      '.vt-ov{ position:fixed; inset:0; z-index:130; display:flex; align-items:center; justify-content:center;',
+      '  padding:22px; background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }',
+      '.vt-modal{ width:100%; max-width:440px; border-radius:26px; padding:34px; text-align:center;',
+      '  border:1px solid rgba(255,255,255,.1); background:linear-gradient(165deg,#141018,#0a0a0e); }',
+      '.vt-modal h2{ font-weight:500; font-size:24px; letter-spacing:-.02em; margin-bottom:8px; }',
+      '.vt-modal .sub{ color:#9a9a9a; font-size:14px; line-height:1.55; margin-bottom:20px; }',
+      '.vt-stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:18px 0 22px; text-align:left; }',
+      '.vt-stats div{ border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:12px 14px; }',
+      '.vt-stats .n{ font-weight:500; font-size:20px; color:#c9bfff; } .vt-stats .k{ font-size:11.5px; color:#9a9a9a; margin-top:2px; }',
+      '.vt-modal .go{ display:block; width:100%; padding:14px; border-radius:16px; background:#8052ff; color:#fff;',
+      '  font-weight:600; font-size:15px; text-decoration:none; } .vt-modal .go:hover{ filter:brightness(1.15); }',
+      '.vt-modal .look{ display:inline-block; margin-top:14px; color:#9a9a9a; font-size:13px; cursor:pointer; }',
+    ].join('');
+    document.head.appendChild(tcss);
+
+    fetch('/api/trial').then(function (r) { return r.ok ? r.json() : null; }).then(function (t) {
+      if (!t) return;
+      if (t.read_only) return vtLocked(t);
+      if (t.notice && sessionStorage.getItem('vt_dismiss') !== t.notice.text) vtBanner(t.notice);
+    }).catch(function () {});
+
+    function vtBanner(notice) {
+      var bar = document.createElement('div');
+      bar.className = 'vt-bar' + (notice.level === 'urgent' ? ' urgent' : '');
+      bar.innerHTML = '<span>' + notice.text + '</span>' +
+        '<a href="plans.html">Выбрать тариф</a>' +
+        '<button class="vt-x" aria-label="Скрыть">✕</button>';
+      document.body.appendChild(bar);
+      bar.querySelector('.vt-x').onclick = function () {
+        sessionStorage.setItem('vt_dismiss', notice.text); bar.remove();
+      };
+    }
+
+    function vtLocked(t) {
+      // Экран окончания показываем один раз за сессию; дальше — тонкая полоса.
+      var s = t.stats || {};
+      if (sessionStorage.getItem('vt_locked_seen') !== '1') {
+        sessionStorage.setItem('vt_locked_seen', '1');
+        var ov = document.createElement('div'); ov.className = 'vt-ov';
+        ov.innerHTML = '<div class="vt-modal">' +
+          '<h2>Ваш пробный период завершён</h2>' +
+          '<p class="sub">За это время VELOR поработал для вас. Все данные сохранены — ' +
+          'чтобы продолжить работу, выберите тариф.</p>' +
+          '<div class="vt-stats">' +
+            '<div><div class="n">' + (s.messages || 0) + '</div><div class="k">сообщений обработано</div></div>' +
+            '<div><div class="n">' + (s.orders || 0) + '</div><div class="k">заявок создано</div></div>' +
+            '<div><div class="n">' + (s.clients || 0) + '</div><div class="k">клиентов в базе</div></div>' +
+            '<div><div class="n">' + (s.recommendations || 0) + '</div><div class="k">рекомендаций</div></div>' +
+          '</div>' +
+          '<a class="go" href="plans.html">Продолжить работу</a>' +
+          '<span class="look">Пока посмотреть данные</span></div>';
+        document.body.appendChild(ov);
+        ov.querySelector('.look').onclick = function () { ov.remove(); };
+        ov.addEventListener('click', function (e) { if (e.target === ov) ov.remove(); });
+      }
+      var bar = document.createElement('div');
+      bar.className = 'vt-bar urgent';
+      bar.innerHTML = '<span>Пробный период завершён — режим просмотра. Данные сохранены.</span>' +
+        '<a href="plans.html">Оформить подписку</a>';
+      document.body.appendChild(bar);
+    }
+  }
+
   // Мгновенное открытие разделов: браузер заранее подгружает HTML-оболочку по
   // ховеру/касанию. Вместе с кроссфейдом — ощущение единого приложения.
   try {

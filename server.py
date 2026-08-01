@@ -30,6 +30,7 @@ import ratelimit
 import errorlog
 import config
 import botcore
+import trial
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
 
@@ -148,6 +149,7 @@ class RegisterIn(BaseModel):
     password: str
     about: str | None = None
     consent: bool = False   # согласие с условиями и обработкой ПД (152-ФЗ)
+    fingerprint: str | None = None   # отпечаток устройства (защита от повторного триала)
 
 
 @app.post("/api/register")
@@ -179,6 +181,21 @@ def api_register(body: RegisterIn, request: Request):
         greeting="Здравствуйте! Напишите, что вам нужно — я приму заявку и всё оформлю.",
     )
     database.update_business(bid, login=login, password=password)
+
+    # ── Trial: 14 дней полного доступа. Защита от повторного триала — по вечному
+    #    реестру (fingerprint; email/telegram — на будущее). Fingerprint ненадёжен
+    #    (общие устройства), поэтому это МЯГКИЙ сигнал: если повтор — стартуем сразу
+    #    в locked (нужна подписка), но аккаунт создаём. Жёсткая блокировка включится
+    #    с подтверждением email/telegram. ──
+    fp = (body.fingerprint or "").strip() or None
+    reused = trial.already_used(fingerprint=fp) if fp else False
+    if reused:
+        database.update_business(bid, subscription_status="expired",
+                                 trial_start=None, trial_end=None, trial_used=1)
+    else:
+        trial.start(bid)
+    trial.record_usage(bid, fingerprint=fp, ip=_client_ip(request))
+
     # Фиксируем факт согласия (152-ФЗ): что принято и когда — для доказуемости.
     try:
         database.log_event(bid, "consent", "Принято согласие на обработку данных",
@@ -186,7 +203,81 @@ def api_register(body: RegisterIn, request: Request):
                            "IP " + _client_ip(request), level="info", once_key="consent")
     except Exception:
         pass
-    return {"ok": True, "business_id": bid, "name": name, **_issue_tokens("business", bid)}
+    return {"ok": True, "business_id": bid, "name": name, "trial_reused": reused,
+            **_issue_tokens("business", bid)}
+
+
+# ---------- TRIAL / ПОДПИСКА ----------
+
+def require_active(bid):
+    """Гейт активных операций (ИИ, бот, создание). read-only → 402 с понятным текстом."""
+    st = trial.access(database.get_business(bid))
+    if st["read_only"]:
+        raise HTTPException(status_code=402,
+                            detail="Пробный период завершён. Оформите подписку, чтобы продолжить работу.")
+    return st
+
+
+@app.get("/api/trial")
+def api_trial(business_id: int = 0, x_auth: str = Header(default="")):
+    """Состояние триала/подписки для фронта: баннер-отсчёт и экран окончания."""
+    bid = _resolve_bid(x_auth, business_id)
+    st = trial.access(database.get_business(bid))
+    st["stats"] = trial.stats(bid)
+    return st
+
+
+class TrialAdminIn(BaseModel):
+    days: int | None = None
+    date: str | None = None       # 'YYYY-MM-DD [HH:MM:SS]'
+    plan: str | None = None       # starter | business | pro
+    months: int | None = None
+
+
+@app.post("/api/admin/businesses/{bid}/trial-extend")
+def api_admin_trial_extend(bid: int, body: TrialAdminIn, x_auth: str = Header(default="")):
+    """Владелец VELOR: продлить триал на N дней."""
+    require_owner(x_auth)
+    trial.extend_trial(bid, days=body.days or 7)
+    return {"ok": True, **trial.access(database.get_business(bid))}
+
+
+@app.post("/api/admin/businesses/{bid}/trial-end")
+def api_admin_trial_end(bid: int, body: TrialAdminIn, x_auth: str = Header(default="")):
+    """Владелец VELOR: задать точную дату окончания триала."""
+    require_owner(x_auth)
+    if body.date:
+        trial.set_trial_end(bid, body.date)
+    return {"ok": True, **trial.access(database.get_business(bid))}
+
+
+@app.post("/api/admin/businesses/{bid}/trial-disable")
+def api_admin_trial_disable(bid: int, x_auth: str = Header(default="")):
+    """Владелец VELOR: завершить триал сейчас (перевести в режим только чтение)."""
+    require_owner(x_auth)
+    trial.disable(bid)
+    return {"ok": True}
+
+
+@app.post("/api/admin/businesses/{bid}/subscription")
+def api_admin_subscription(bid: int, body: TrialAdminIn, x_auth: str = Header(default="")):
+    """Владелец VELOR: активировать платную подписку после оплаты."""
+    require_owner(x_auth)
+    trial.activate_subscription(bid, plan=(body.plan or "business"), months=(body.months or 1))
+    return {"ok": True, **trial.access(database.get_business(bid))}
+
+
+@app.get("/api/admin/trial-overview")
+def api_admin_trial_overview(x_auth: str = Header(default="")):
+    """Владелец VELOR: сводка по триалам/подпискам всех бизнесов."""
+    require_owner(x_auth)
+    out = []
+    for b in database.list_businesses_with_stats():
+        st = trial.access(b)
+        out.append({"id": b["id"], "name": b.get("name"), "phase": st["phase"],
+                    "days_left": st["days_left"], "plan": st["plan"],
+                    "trial_end": st["trial_end"]})
+    return {"businesses": out}
 
 
 @app.post("/api/business-login")
@@ -386,9 +477,13 @@ def api_orders(business_id: int = 0, x_auth: str = Header(default="")):
 @app.post("/api/orders")
 def api_add_order(order: OrderIn):
     """Принять новый заказ извне (розетка для приложения/сайта — вход открыт)."""
-    if not order.business_id or order.business_id <= 0 or not database.get_business(order.business_id):
+    biz = database.get_business(order.business_id) if order.business_id and order.business_id > 0 else None
+    if not biz:
         raise HTTPException(status_code=400,
                             detail="Не указана или неизвестна компания (business_id).")
+    if trial.access(biz)["read_only"]:
+        raise HTTPException(status_code=402,
+                            detail="Приём новых заявок приостановлен: у компании завершён пробный период.")
     order_id = database.add_order(
         business_id=order.business_id,
         text=order.text,
@@ -699,6 +794,7 @@ def api_risks_scan(business_id: int = 0, x_auth: str = Header(default="")):
     """Проверить бизнес на риски."""
     import ai
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     if not ai.ai_available():
         return {"ok": False, "error": "ИИ сейчас недоступен"}
     business = database.get_business(bid) or {"name": "VELOR AI"}
@@ -776,6 +872,7 @@ def api_opportunities_scan(business_id: int = 0, x_auth: str = Header(default=""
     """Пересмотреть бизнес и найти свежие возможности."""
     import ai
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     if not ai.ai_available():
         return {"ok": False, "error": "ИИ сейчас недоступен"}
     business = database.get_business(bid) or {"name": "VELOR AI"}
@@ -845,6 +942,7 @@ def api_ideas(business_id: int = 0, x_auth: str = Header(default="")):
 def api_ideas_more(business_id: int = 0, x_auth: str = Header(default="")):
     """Накидать ещё идей и добавить их к уже собранным."""
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     added, error = _generate_ideas(bid)
     if error:
         return {"ok": False, "error": error}
@@ -958,6 +1056,7 @@ def api_board(business_id: int = 0, x_auth: str = Header(default="")):
 def api_board_refresh(business_id: int = 0, x_auth: str = Header(default="")):
     """Пересобрать заседание принудительно (не повторяя уже решённое)."""
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     day = datetime.date.today().isoformat()
     added, error = _generate_board(bid, day)
     if error:
@@ -2053,6 +2152,7 @@ async def api_documents_upload(file: UploadFile = File(...),
                                x_auth: str = Header(default="")):
     """Загрузить PDF/DOCX/TXT: извлекаем текст, режем на чанки, кладём в знания."""
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     data = await file.read()
     if len(data) > 8 * 1024 * 1024:
         return {"ok": False, "error": "Файл больше 8 МБ"}
@@ -2099,6 +2199,7 @@ def api_finance(business_id: int = 0, x_auth: str = Header(default="")):
 def api_finance_add(body: FinanceIn, x_auth: str = Header(default="")):
     """Добавить доход или расход."""
     bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
     kind = body.kind if body.kind in ("income", "expense") else "expense"
     database.add_finance_entry(bid, kind, (body.category or "").strip() or None,
                                body.amount, (body.note or "").strip() or None)
@@ -2213,6 +2314,9 @@ def api_ask(body: AskIn, x_auth: str = Header(default="")):
 
     payload = _auth_payload(x_auth)
     bid = payload["bid"] if payload and payload.get("role") == "business" else None
+    if bid is not None and trial.access(database.get_business(bid))["read_only"]:
+        return {"ok": False, "answer": None, "locked": True,
+                "detail": "Пробный период завершён — оформите подписку, чтобы ИИ снова отвечал."}
     try:
         if bid is not None:                    # кабинет бизнеса — роль + данные
             business = database.get_business(bid) or {"name": "VELOR AI"}

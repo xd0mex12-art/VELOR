@@ -237,6 +237,14 @@ def _migrate_columns(conn):
         ("finance_entries", "source", "TEXT"),           # ручной ввод | csv | xlsx | pdf | банк
         ("finance_entries", "confidence", "REAL DEFAULT 1"),
         ("finance_entries", "import_id", "INTEGER"),
+        # ── Trial / подписка (централизованный TrialService) ──
+        ("businesses", "trial_start", "TEXT"),
+        ("businesses", "trial_end", "TEXT"),
+        ("businesses", "trial_used", "INTEGER DEFAULT 0"),
+        ("businesses", "subscription_status", "TEXT DEFAULT 'trial'"),   # trial|active|expired|canceled
+        ("businesses", "subscription_plan", "TEXT"),
+        ("businesses", "subscription_started", "TEXT"),
+        ("businesses", "subscription_expires", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -473,6 +481,20 @@ def init_db():
                    business_id INTEGER NOT NULL,
                    doc_id      INTEGER NOT NULL,
                    content     TEXT
+               )"""
+        )
+
+        # Вечный реестр использования триала — НЕ привязан к business и НЕ удаляется
+        # вместе с компанией (защита «триал один раз»). Заполняется на регистрации.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS trial_registry (
+                   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id INTEGER,
+                   fingerprint TEXT,
+                   email       TEXT,
+                   telegram    TEXT,
+                   ip          TEXT,
+                   created_at  TEXT DEFAULT (datetime('now'))
                )"""
         )
 
@@ -817,7 +839,9 @@ def list_bot_businesses():
 def update_business(business_id, **fields):
     """Обновить настройки бизнеса (название, описание, приветствие, тариф, абонплата, токен, вход)."""
     allowed = {"name", "about", "greeting", "plan", "fee", "tg_bot_token", "login", "password", "knowledge", "tone",
-               "ai_name", "ai_avatar", "ai_traits", "ai_desc"}
+               "ai_name", "ai_avatar", "ai_traits", "ai_desc",
+               "trial_start", "trial_end", "trial_used", "subscription_status",
+               "subscription_plan", "subscription_started", "subscription_expires", "board_day"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return
@@ -880,6 +904,50 @@ def delete_business(business_id):
         conn.execute("DELETE FROM orders   WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM clients  WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
+        # ВНИМАНИЕ: trial_registry НЕ трогаем — признак использования триала должен
+        # пережить удаление компании (иначе абьюз через «удалить и создать заново»).
+
+
+# ---------- TRIAL / ПОДПИСКА (данные для TrialService) ----------
+
+def trial_used_before(fingerprint=None, email=None, telegram=None):
+    """Выдавался ли уже триал на любой из признаков (вечный реестр)."""
+    conds, params = [], []
+    if fingerprint:
+        conds.append("fingerprint = ?"); params.append(fingerprint)
+    if email:
+        conds.append("LOWER(email) = ?"); params.append(email.lower())
+    if telegram:
+        conds.append("telegram = ?"); params.append(str(telegram))
+    if not conds:
+        return False
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM trial_registry WHERE " + " OR ".join(conds) + " LIMIT 1",
+            tuple(params)).fetchone()
+    return bool(row)
+
+
+def record_trial_usage(business_id, fingerprint=None, email=None, telegram=None, ip=None):
+    """Записать факт выдачи триала — навсегда."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO trial_registry (business_id, fingerprint, email, telegram, ip) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (business_id, fingerprint or None, (email or None),
+             (str(telegram) if telegram else None), ip))
+
+
+def trial_stats(business_id):
+    """Итоги для экрана окончания триала: что VELOR успел сделать."""
+    with _connect() as conn:
+        msgs = conn.execute("SELECT COUNT(*) AS n FROM messages WHERE business_id = ? AND role = 'user'",
+                            (business_id,)).fetchone()["n"]
+        orders = conn.execute("SELECT COUNT(*) AS n FROM orders WHERE business_id = ?", (business_id,)).fetchone()["n"]
+        clients = conn.execute("SELECT COUNT(*) AS n FROM clients WHERE business_id = ?", (business_id,)).fetchone()["n"]
+        recs = conn.execute("SELECT COUNT(*) AS n FROM board_recs WHERE business_id = ?", (business_id,)).fetchone()["n"]
+    return {"messages": msgs, "orders": orders, "clients": clients,
+            "recommendations": recs, "hours_saved": round(msgs * 2 / 60, 1)}
 
 
 # ---------- ВОЗМОЖНОСТИ РОСТА ----------

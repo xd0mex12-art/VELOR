@@ -9,6 +9,7 @@ import logging
 
 import ai
 import database
+import trial
 
 
 def greeting_text(bid):
@@ -27,6 +28,11 @@ def handle_message(bid, tg_user_id, full_name, text):
     ответ ИИ, оформление заказа, запись в ленту.
     """
     business = database.get_business(bid) or {"name": "бизнес"}
+
+    # Триал завершён → бот на паузе: не отвечаем ИИ, не создаём клиентов/заявки.
+    if trial.access(business)["read_only"]:
+        return "Спасибо за сообщение! Мы свяжемся с вами в ближайшее время."
+
     client = database.get_or_create_client(bid, tg_user_id=tg_user_id, name=full_name)
     database.save_message(bid, client["id"], "user", text)
 

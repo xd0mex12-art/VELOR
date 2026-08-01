@@ -55,6 +55,25 @@
 <script src="core-live.js?v=10"></script>
 <script>
 if (localStorage.getItem('coreon_biz_token')) location.replace('dashboard.html');
+
+// Отпечаток устройства — вспомогательный сигнал против повторного триала (не единственный).
+function velorFingerprint(){
+  try{
+    var parts = [navigator.userAgent, navigator.language, navigator.platform,
+                 screen.width + 'x' + screen.height, screen.colorDepth,
+                 new Date().getTimezoneOffset(), navigator.hardwareConcurrency || '',
+                 navigator.deviceMemory || ''];
+    try{
+      var cv = document.createElement('canvas'); var ctx = cv.getContext('2d');
+      ctx.textBaseline = 'top'; ctx.font = "14px 'Arial'"; ctx.fillStyle = '#f60';
+      ctx.fillRect(0,0,100,20); ctx.fillStyle = '#069'; ctx.fillText('velor', 2, 2);
+      parts.push(cv.toDataURL().slice(-64));
+    }catch(e){}
+    var str = parts.join('|'), h = 0;
+    for (var i=0;i<str.length;i++){ h = ((h<<5)-h + str.charCodeAt(i))|0; }
+    return 'fp_' + (h>>>0).toString(16) + '_' + str.length.toString(16);
+  }catch(e){ return null; }
+}
 document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault();
   const btn = document.getElementById('btn'), err = document.getElementById('err');
@@ -69,6 +88,7 @@ document.getElementById('f').addEventListener('submit', async e => {
     login: document.getElementById('login').value.trim(),
     password: document.getElementById('pass').value,
     consent: true,
+    fingerprint: velorFingerprint(),
   };
   try{
     const r = await fetch('/api/register', {
