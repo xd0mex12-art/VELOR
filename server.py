@@ -2430,6 +2430,12 @@ def api_ask(body: AskIn, x_auth: str = Header(default="")):
         return {"ok": False, "answer": None}   # сайт покажет заготовленную фразу
 
     payload = _auth_payload(x_auth)
+    # Токен передан, но не распознан (истёк/битый) → отдаём 401, чтобы panel-auth.js
+    # обновил access по refresh и повторил запрос. Иначе кабинетный вопрос молча уходил
+    # в лендинг-ветку без базы знаний, и ассистент отвечал «не знаю, чем занимаешься»
+    # после истечения access-токена (30 мин). Лендинг (без X-Auth) идёт как прежде.
+    if x_auth and not payload:
+        raise HTTPException(status_code=401, detail="Сессия истекла — обновите вход")
     bid = payload["bid"] if payload and payload.get("role") == "business" else None
     if bid is not None and trial.access(database.get_business(bid))["read_only"]:
         return {"ok": False, "answer": None, "locked": True,
