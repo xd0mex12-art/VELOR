@@ -22,7 +22,8 @@ import uuid
 import requests
 
 import prompt_engine
-from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, GIGACHAT_AUTH_KEY
+from config import (ANTHROPIC_API_KEY, CLAUDE_MODEL, GIGACHAT_AUTH_KEY,
+                    GEMINI_API_KEY, GEMINI_MODEL, GEMINI_BASE_URL)
 
 try:
     import anthropic
@@ -631,6 +632,31 @@ def _giga_chat(system: str, messages: list[dict], max_tokens=1024) -> str:
     return r.json()["choices"][0]["message"]["content"]
 
 
+# ============================================================
+#  Провайдер 3: Google Gemini (основной)
+# ============================================================
+# Через OpenAI-совместимый эндпоинт — тот же формат сообщений, что у GigaChat.
+# base URL настраивается (официальный Google или реселлер/прокси). Системный
+# промпт — ОБЩИЙ (его собирают Prompt Engine + Context Engine): любая модель
+# получает одинаково качественный контекст, поэтому отдельного промпта под
+# Gemini нет и не нужно.
+
+def _gemini_chat(system: str, messages: list[dict], max_tokens=1024) -> str:
+    r = requests.post(
+        f"{GEMINI_BASE_URL}/chat/completions",
+        headers={"Authorization": f"Bearer {GEMINI_API_KEY}",
+                 "Content-Type": "application/json"},
+        json={
+            "model": GEMINI_MODEL,
+            "messages": [{"role": "system", "content": system}] + messages,
+            "max_tokens": max_tokens,
+        },
+        timeout=60,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
+
+
 # отключаем предупреждение про verify=False, чтобы не пугало в логах
 try:
     import urllib3
@@ -643,20 +669,33 @@ except Exception:
 #  Общий вход: выбор провайдера + запасной вариант
 # ============================================================
 
-def _providers():
+# Приоритет провайдеров: Gemini — ОСНОВА, GigaChat — СТРАХОВКА, Claude — крайний
+# запасной (если кто-то задал ключ). Каждый включается только при своём ключе.
+def _all_providers():
     order = []
-    if _claude:
-        order.append(("claude", _claude_chat))
+    if GEMINI_API_KEY:
+        order.append(("gemini", _gemini_chat))
     if GIGACHAT_AUTH_KEY:
         order.append(("gigachat", _giga_chat))
-    # рабочий провайдер — вперёд
-    if _active:
-        order.sort(key=lambda p: p[0] != _active)
+    if _claude:
+        order.append(("claude", _claude_chat))
     return order
 
 
+# Кулдаун после сбоя: чтобы не долбить упавшего провайдера каждым запросом, но и
+# не «залипать» на страховке навсегда — по истечении окна основной снова первый.
+_FAIL_COOLDOWN = 60          # секунд
+_down: dict[str, float] = {}   # имя провайдера -> время, до которого он «в дауне»
+
+
+def _providers():
+    now = time.time()
+    live = [(n, f) for (n, f) in _all_providers() if _down.get(n, 0) <= now]
+    return live or _all_providers()   # все в кулдауне — не сдаёмся, пробуем всех
+
+
 def ai_available() -> bool:
-    return bool(_claude or GIGACHAT_AUTH_KEY)
+    return bool(GEMINI_API_KEY or _claude or GIGACHAT_AUTH_KEY)
 
 
 def ping() -> str | None:
@@ -673,16 +712,20 @@ def ping() -> str | None:
 
 
 def _ask(system: str, messages: list[dict], max_tokens=1024) -> str:
-    """Спросить первый работающий ИИ; при ошибке — попробовать следующий."""
+    """Спросить основной ИИ (Gemini); при ошибке — страховку (GigaChat) и т.д.
+    Упавший провайдер на короткое время отправляется в кулдаун, потом снова
+    пробуется первым — так основным остаётся Gemini, а откат лишь временный."""
     global _active
     last = None
     for name, fn in _providers():
         try:
             out = fn(system, messages, max_tokens=max_tokens)
             _active = name
+            _down.pop(name, None)          # ожил — снимаем кулдаун
             return out
         except Exception as e:
             last = e
+            _down[name] = time.time() + _FAIL_COOLDOWN
             if _active == name:
                 _active = None
     raise last or RuntimeError("Нет настроенных ИИ")

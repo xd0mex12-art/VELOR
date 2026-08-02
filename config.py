@@ -16,6 +16,16 @@ CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-8")
 # личного кабинета developers.sber.ru (есть бесплатный тариф).
 GIGACHAT_AUTH_KEY = os.getenv("GIGACHAT_AUTH_KEY")
 
+# Google Gemini — ОСНОВНОЙ провайдер, если задан ключ (GigaChat остаётся
+# страховкой/failover). Работаем через OpenAI-совместимый эндпоинт: подходит и
+# официальному Google, и российским реселлерам/прокси — достаточно указать их
+# base URL в GEMINI_BASE_URL. По умолчанию — официальный OpenAI-совместимый URL
+# Google. Ключ вставляется в .env / Render Environment (никогда в переписку).
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_BASE_URL = (os.getenv("GEMINI_BASE_URL",
+                   "https://generativelanguage.googleapis.com/v1beta/openai")).rstrip("/")
+
 # Путь к файлу базы данных. Локально — рядом с проектом; в production задаётся
 # в .env (например /app/data/assistant.db, чтобы лежал на постоянном томе).
 DB_PATH = os.getenv("DB_PATH", "assistant.db")

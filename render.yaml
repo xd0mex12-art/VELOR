@@ -34,8 +34,16 @@ services:
       # (иначе на бесплатном диске он бы обнулялся при рестарте и всех разлогинивало).
       - key: JWT_SECRET
         generateValue: true
-      # Ключ ИИ (GigaChat / Сбер). Вставляете вы сами в панели Render.
-      # Без него ассистент не отвечает — это главное, что нужно для демо.
+      # ОСНОВНОЙ провайдер ИИ — Google Gemini (если задан ключ). GigaChat ниже —
+      # страховка с автооткатом. Ключ вставляете сами в панели Render. Для
+      # реселлера/прокси задайте их OpenAI-совместимый URL в GEMINI_BASE_URL.
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_BASE_URL
+        sync: false
+      # Ключ ИИ (GigaChat / Сбер) — страховка/запасной. Вставляете сами в Render.
       - key: GIGACHAT_AUTH_KEY
         sync: false
       # ПОСТОЯННОЕ ХРАНИЛИЩЕ (обязательно для реальных клиентов). Пока DATABASE_URL
