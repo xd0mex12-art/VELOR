@@ -96,6 +96,13 @@ class _PGCursor:
         return iter(self._cur.fetchall())
 
     @property
+    def rowcount(self):
+        """Число затронутых строк — как у sqlite3.Cursor. Без этого свойства
+        mark_read() и другие UPDATE/DELETE, читающие .rowcount, падали на Postgres
+        с AttributeError → откат транзакции → изменения (напр. «прочитано») терялись."""
+        return self._cur.rowcount
+
+    @property
     def lastrowid(self):
         self._cur.execute("SELECT lastval()")
         return self._cur.fetchone()[0]
@@ -109,6 +116,13 @@ class _PGConn:
     def execute(self, sql, params=()):
         cur = self._raw.cursor()
         cur.execute(_translate(sql), tuple(params))
+        return _PGCursor(cur)
+
+    def executemany(self, sql, seq_of_params):
+        """Пакетная вставка/обновление — как в sqlite3.Connection. Без этого метода
+        add_document и AI-директор (возможности/идеи/риски) падали бы на Postgres."""
+        cur = self._raw.cursor()
+        cur.executemany(_translate(sql), [tuple(p) for p in seq_of_params])
         return _PGCursor(cur)
 
     def executescript(self, script):
@@ -524,6 +538,18 @@ def init_db():
                )"""
         )
 
+        # Обработанные апдейты Telegram — защита от повторной доставки (webhook).
+        # Telegram при таймауте/ошибке повторяет апдейт; по (business_id, update_id)
+        # отсекаем дубли, чтобы не создавать повторные заявки и не слать повторный ответ.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS tg_updates (
+                   business_id INTEGER NOT NULL,
+                   update_id   INTEGER NOT NULL,
+                   created_at  TEXT DEFAULT (datetime('now')),
+                   PRIMARY KEY (business_id, update_id)
+               )"""
+        )
+
         # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
         _migrate_columns(conn)
 
@@ -854,6 +880,29 @@ def find_business_by_token(tg_bot_token):
             "SELECT * FROM businesses WHERE tg_bot_token = ?", (tg_bot_token,)
         ).fetchone()
         return dict(row) if row else None
+
+
+def tg_update_seen(business_id, update_id):
+    """Уже обрабатывали этот апдейт Telegram? Защита от повторной доставки webhook.
+
+    Возвращает True, если апдейт уже был (обработку нужно пропустить), иначе False —
+    и одновременно ФИКСИРУЕТ его как обработанный. Помечаем ДО обработки, чтобы
+    повтор при таймауте не создал дубль заявки и не отправил повторный ответ.
+    """
+    if update_id is None:
+        return False
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM tg_updates WHERE business_id = ? AND update_id = ?",
+            (business_id, update_id),
+        ).fetchone()
+        if row:
+            return True
+        conn.execute(
+            "INSERT INTO tg_updates (business_id, update_id) VALUES (?, ?)",
+            (business_id, update_id),
+        )
+        return False
 
 
 def list_bot_businesses():

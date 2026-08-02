@@ -102,6 +102,22 @@ def activate_subscription(bid, plan="business", months=1):
     )
 
 
+def extend_subscription(bid, months=1):
+    """Продлить действующую подписку (после повторной оплаты). В отличие от
+    activate_subscription НЕ сбрасывает срок к «сейчас + месяц», а ДОБАВЛЯЕТ время
+    к текущей дате окончания (или к «сейчас», если подписка уже истекла).
+    Архитектурный хук под будущую платёжку: вызывается тем же местом, что и оплата."""
+    b = database.get_business(bid) or {}
+    base = _parse(b.get("subscription_expires")) or _now()
+    if base < _now():
+        base = _now()
+    database.update_business(
+        bid,
+        subscription_status="active",
+        subscription_expires=_fmt(base + datetime.timedelta(days=30 * max(1, int(months)))),
+    )
+
+
 def extend_trial(bid, days=7):
     """Продлить триал (админка)."""
     b = database.get_business(bid) or {}

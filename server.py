@@ -345,9 +345,19 @@ def api_admin_trial_disable(bid: int, x_auth: str = Header(default="")):
 
 @app.post("/api/admin/businesses/{bid}/subscription")
 def api_admin_subscription(bid: int, body: TrialAdminIn, x_auth: str = Header(default="")):
-    """Владелец VELOR: активировать платную подписку после оплаты."""
+    """Владелец VELOR: активировать платную подписку или сменить тариф после оплаты.
+    Смена тарифа — тот же вызов с другим plan. Архитектурный хук для будущей платёжки."""
     require_owner(x_auth)
     trial.activate_subscription(bid, plan=(body.plan or "business"), months=(body.months or 1))
+    return {"ok": True, **trial.access(database.get_business(bid))}
+
+
+@app.post("/api/admin/businesses/{bid}/subscription-extend")
+def api_admin_subscription_extend(bid: int, body: TrialAdminIn, x_auth: str = Header(default="")):
+    """Владелец VELOR: продлить действующую подписку (аддитивно). После повторной
+    оплаты будущая платёжка вызовет этот же путь."""
+    require_owner(x_auth)
+    trial.extend_subscription(bid, months=(body.months or 1))
     return {"ok": True, **trial.access(database.get_business(bid))}
 
 
@@ -570,9 +580,12 @@ def api_orders(business_id: int = 0, x_auth: str = Header(default="")):
 
 
 @app.post("/api/orders")
-def api_add_order(order: OrderIn):
-    """Принять новый заказ извне (розетка для приложения/сайта — вход открыт)."""
-    biz = database.get_business(order.business_id) if order.business_id and order.business_id > 0 else None
+def api_add_order(order: OrderIn, x_auth: str = Header(default="")):
+    """Создать заказ. Только авторизованный владелец своей компании (через ту же
+    систему X-Auth, что и вся панель). Анонимное создание заявок извне закрыто —
+    business_id берётся из токена, а не из тела запроса (защита арендаторов)."""
+    bid = _resolve_bid(x_auth, order.business_id)
+    biz = database.get_business(bid)
     if not biz:
         raise HTTPException(status_code=400,
                             detail="Не указана или неизвестна компания (business_id).")
@@ -580,13 +593,13 @@ def api_add_order(order: OrderIn):
         raise HTTPException(status_code=402,
                             detail="Приём новых заявок приостановлен: у компании завершён пробный период.")
     order_id = database.add_order(
-        business_id=order.business_id,
+        business_id=bid,
         text=order.text,
         phone=order.phone,
         address=order.address,
         date_wanted=order.date_wanted,
     )
-    signals.react(order.business_id, "order")   # заказ влияет на Директора, брифинг, риски
+    signals.react(bid, "order")   # заказ влияет на Директора, брифинг, риски
     return {"ok": True, "order_id": order_id}
 
 
@@ -754,6 +767,15 @@ def api_update_business(body: BusinessPatch, x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, body.business_id)
     fields = body.model_dump(exclude={"business_id"}, exclude_none=True)
     database.update_business(bid, **fields)
+    # Завершение настройки = запуск полноценного Trial. Если бизнес ещё в онбординге
+    # (отсчёт 14 дней не шёл — раньше это давало бессрочный бесплатный доступ), стартуем
+    # триал через TrialService. launch идемпотентен и наполняет trial_registry/owner_identity,
+    # поэтому совместимость с триалом, реестром и Telegram-верификацией сохранена.
+    try:
+        if trial.access(database.get_business(bid))["phase"] == "onboarding":
+            trial.launch(bid)
+    except Exception:
+        logging.exception("Не удалось запустить триал по завершении настройки (biz %s)", bid)
     # Сохранили токен бота → сразу подключаем webhook, чтобы клиенты писали в кабинет
     # без отдельного процесса. Best-effort: если не вышло — настройки всё равно сохранены.
     webhook = None
@@ -2495,6 +2517,13 @@ async def api_tg_webhook(token: str, request: Request):
         update = await request.json()
     except Exception:
         return {"ok": True}
+    # Защита от повторной доставки: тот же update_id уже обработан → тихо выходим,
+    # не создавая повторную заявку и не отправляя повторный ответ.
+    try:
+        if database.tg_update_seen(bid, update.get("update_id")):
+            return {"ok": True}
+    except Exception:
+        logging.exception("Проверка дубля update_id не удалась (biz %s)", bid)
     msg = update.get("message") or update.get("edited_message") or {}
     chat_id = (msg.get("chat") or {}).get("id")
     text = msg.get("text")

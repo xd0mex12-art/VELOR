@@ -21,6 +21,7 @@ import uuid
 
 import requests
 
+import prompt_engine
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL, GIGACHAT_AUTH_KEY
 
 try:
@@ -178,34 +179,47 @@ def _timeline_block(timeline: str | None) -> str:
 
 def _system_assistant(business: dict, role: str | None, snapshot: str | None,
                       docs: list[str] | None = None, persona: str | None = None,
-                      timeline: str | None = None) -> str:
+                      timeline: str | None = None, question: str = "") -> str:
+    """Собрать системный промпт через Prompt Engine.
+
+    Профессию (маркетолог, продавец, CFO, юрист, HR, руководитель…) движок
+    определяет САМ по тексту запроса владельца — пользователю не нужно писать
+    промпты. persona (если задан) — свой AI-сотрудник владельца из БД, тогда
+    берём его характер вместо автоопределённой роли.
+    """
     name = business.get("name") or "компания"
     about = business.get("about")
     who = f"«{name}»" + (f" ({about})" if about else "")
-    base = (
+    base_identity = (
         f"Ты — VELOR AI, цифровой сотрудник бизнеса {who}. "
         + _identity(business) +
-        "Характер: спокойный, профессиональный, честный, ориентирован на результат. "
-        "Ты не просто исполнитель, а партнёр: если видишь проблему или возможность — "
-        "коротко предложи улучшение, но не навязывайся. "
-        "Пиши по-русски, по делу, без воды."
+        "Ты не языковая модель и не чат-бот, а опытный член команды: пользователь "
+        "должен чувствовать, что говорит с живым профессионалом. Ты партнёр, "
+        "ориентированный на результат: видишь проблему или возможность — коротко "
+        "предлагаешь, но не навязываешься."
     )
-    if not persona:
-        persona = _ROLE_PERSONA.get(role or "assistant", _ROLE_PERSONA["assistant"])
-    p = base + "\n\n" + persona + _tone_line(business)
+
+    role_key, mandate = prompt_engine.build_persona(
+        business, question, ui_role=role, forced_persona=persona)
+
+    # Контекст компании — единым блоком (движок отвечает за архитектуру, ai.py —
+    # за доступ к данным бизнеса).
+    ctx = _tone_line(business)
     if snapshot:
-        p += "\n\nТекущие данные бизнеса: " + snapshot + "."
-    p += _knowledge_block(business)
-    p += _timeline_block(timeline)
-    p += _docs_block(docs)
-    return p
+        ctx += "\n\nТекущие данные бизнеса: " + snapshot + "."
+    ctx += _knowledge_block(business)
+    ctx += _timeline_block(timeline)
+    ctx += _docs_block(docs)
+
+    return prompt_engine.compose(business, base_identity, mandate, role_key, ctx)
 
 
 def assistant_answer(business: dict, question: str, role: str | None = None,
                      snapshot: str | None = None, docs: list[str] | None = None,
                      persona: str | None = None, timeline: str | None = None) -> str:
-    """Ответ AI-сотрудника: роль (или свой характер) + знания + история компании + документы."""
-    return _ask(_system_assistant(business, role, snapshot, docs, persona, timeline),
+    """Ответ AI-сотрудника: авто-определение профессии + знания + история + документы."""
+    return _ask(_system_assistant(business, role, snapshot, docs, persona, timeline,
+                                  question=question),
                 [{"role": "user", "content": question[:800]}], max_tokens=600).strip()
 
 

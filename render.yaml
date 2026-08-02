@@ -38,6 +38,13 @@ services:
       # Без него ассистент не отвечает — это главное, что нужно для демо.
       - key: GIGACHAT_AUTH_KEY
         sync: false
-      # DB_PATH и LOG_DIR не задаём — приложение пишет базу и логи в свою рабочую
-      # папку (она доступна на запись). На free-тарифе это эфемерно и сбрасывается
-      # при передеплое — так и задумано для демо.
+      # ПОСТОЯННОЕ ХРАНИЛИЩЕ (обязательно для реальных клиентов). Пока DATABASE_URL
+      # не задан — приложение пишет SQLite в рабочую папку, которая на free-тарифе
+      # ЭФЕМЕРНА и стирается при каждом передеплое (годится только для демо).
+      # Впишите строку подключения Postgres (Supabase → Project Settings → Database →
+      # Connection string → Transaction pooler) в панели Render → Environment.
+      # Формат: postgresql://USER:PASSWORD@HOST:6543/postgres
+      - key: DATABASE_URL
+        sync: false
+      # DB_PATH и LOG_DIR не задаём — приложение пишет логи в свою рабочую папку.
+      # Когда задан DATABASE_URL, данные живут в Postgres и передеплой их не трогает.

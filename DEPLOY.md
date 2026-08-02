@@ -126,6 +126,20 @@ docker compose up -d --build   # пересобрать и перезапуст�
 База, логи и загрузки лежат в томах `data/`, `logs/`, `uploads/` и при обновлении
 не теряются.
 
+### Postgres вместо SQLite (обязательно для хостингов с эфемерным диском)
+
+На Docker-развёртывании SQLite лежит на постоянном томе `data/` — этого достаточно.
+Но на платформах вроде **Render free** диск эфемерный: SQLite стирается при каждом
+передеплое. Чтобы данные клиента жили постоянно, задайте `DATABASE_URL` — приложение
+само переключится на Postgres (адаптер уже встроен, менять код не нужно):
+
+```
+DATABASE_URL=postgresql://USER:PASSWORD@HOST:6543/postgres
+```
+
+Строку возьмите в Supabase → Project Settings → Database → Connection string →
+**Transaction pooler** (порт 6543). Пустой `DATABASE_URL` = прежний режим SQLite.
+
 ---
 
 ## 6. Резервное копирование
