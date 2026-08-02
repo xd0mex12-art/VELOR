@@ -2442,11 +2442,20 @@ def api_ask(body: AskIn, x_auth: str = Header(default="")):
                 "detail": "Пробный период завершён — оформите подписку, чтобы ИИ снова отвечал."}
     try:
         if bid is not None:                    # кабинет бизнеса — роль + данные
-            business = database.get_business(bid) or {"name": "VELOR AI"}
+            role = body.role or "assistant"
             snapshot = _biz_snapshot(bid)
+            # НОВЫЙ СЛОЙ: Context Engine собирает полный контекст (компания, знания,
+            # документы-RAG, память, CRM, финансы) и сам зовёт LLM. Обратная
+            # совместимость: при ЛЮБОЙ ошибке — прежний путь ai.assistant_answer.
+            try:
+                import context_engine
+                return {"ok": True, "answer": context_engine.respond(
+                    bid, body.question, role=role, snapshot=snapshot)}
+            except Exception:
+                logging.exception("Context Engine упал — откат на assistant_answer (biz %s)", bid)
+            business = database.get_business(bid) or {"name": "VELOR AI"}
             docs = database.search_chunks(bid, body.question)
             persona = None
-            role = body.role or "assistant"
             if role.startswith("agent:") and role[6:].isdigit():   # свой сотрудник — характер из БД
                 agent = database.get_agent(int(role[6:]), bid)
                 if agent:
