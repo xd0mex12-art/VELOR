@@ -23,6 +23,7 @@ Pipeline (respond):
 """
 from __future__ import annotations
 
+import json
 import re
 import time
 
@@ -155,8 +156,10 @@ def _finance_block(bid: int) -> str:
     return "\n\nФИНАНСЫ (только по данным, ничего не досчитывать):\n" + "\n".join(lines)
 
 
-def _client_block(bid: int, client_id) -> str:
-    """Досье клиента — если запрос идёт в контексте конкретного клиента."""
+def _client_block(bid: int, client_id, with_messages: bool = True) -> str:
+    """Досье клиента — если запрос идёт в контексте конкретного клиента.
+    with_messages=False — не подкладывать переписку (в клиентском диалоге история
+    уже уходит в messages, дублировать не нужно)."""
     if not client_id:
         return ""
     c = _safe(lambda: database.get_client(client_id, bid), None)
@@ -169,12 +172,13 @@ def _client_block(bid: int, client_id) -> str:
     orders = _safe(lambda: database.get_client_orders(client_id, bid, limit=6), []) or []
     if orders:
         lines.append("Заказы: " + "; ".join((o.get("text") or "").strip()[:50] for o in orders[:6]))
-    msgs = _safe(lambda: database.get_client_messages(client_id, bid, limit=8), []) or []
-    if msgs:
-        lines.append("Последние реплики:")
-        for m in msgs[-6:]:
-            who = "клиент" if m.get("role") == "user" else "сотрудник"
-            lines.append(f"  {who}: {(m.get('content') or '').strip()[:120]}")
+    if with_messages:
+        msgs = _safe(lambda: database.get_client_messages(client_id, bid, limit=8), []) or []
+        if msgs:
+            lines.append("Последние реплики:")
+            for m in msgs[-6:]:
+                who = "клиент" if m.get("role") == "user" else "сотрудник"
+                lines.append(f"  {who}: {(m.get('content') or '').strip()[:120]}")
     return "\n\nКЛИЕНТ (история — опирайся на неё, узнавай постоянного):\n" + "\n".join(lines)
 
 
@@ -319,3 +323,43 @@ def respond(business_id: int, question: str, *, role: str | None = None,
     answer = ai._ask(system, [{"role": "user", "content": (question or "")[:800]}],
                      max_tokens=max_tokens).strip()
     return check_and_improve(answer, business)
+
+
+def respond_chat(business_id: int, history: list[dict], *, client_info: dict | None = None,
+                 client_id=None):
+    """Клиентский диалог (Telegram) через Context Engine. Возвращает (reply, order|None) —
+    совместимо с ai.chat_reply, чтобы botcore не менял свою логику.
+
+    Клиентский путь держим лёгким (горячий вебхук): базовый системный промпт
+    диалога с клиентом (ai._system_chat — там тон, база знаний с guardrail, docs-RAG
+    и инструкция ORDER_JSON) ОБОГАЩАЕМ досье клиента, чтобы узнавать постоянного.
+    Внутренние CRM/финансы владельца в ответ клиенту НЕ подкладываем. Второго
+    LLM-прохода (Output Check) здесь нет — ответ клиенту должен быть быстрым, а
+    служебная строка ORDER_JSON не должна пострадать от переписывания."""
+    business = _business(business_id)
+    last_user = ""
+    for m in reversed(history or []):
+        if m.get("role") == "user":
+            last_user = m.get("content") or ""
+            break
+    docs = _safe(lambda: database.search_chunks(business_id, last_user, k=4), []) or []
+
+    system = ai._system_chat(business, client_info, docs)
+    system += _client_block(business_id, client_id, with_messages=False)
+
+    raw = ai._ask(system, history)
+
+    # Извлечение заказа — та же логика, что в ai.chat_reply (бизнес-логику не меняем).
+    order = None
+    m = ai._ORDER_RE.search(raw)
+    if m:
+        try:
+            order = json.loads(m.group(1))
+            for k in ("phone", "address", "date_wanted"):
+                if isinstance(order.get(k), str) and order[k].lower() in ("null", "none", ""):
+                    order[k] = None
+        except json.JSONDecodeError:
+            order = None
+        raw = ai._ORDER_RE.sub("", raw)
+
+    return raw.strip(), order

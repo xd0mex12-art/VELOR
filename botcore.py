@@ -57,12 +57,21 @@ def handle_message(bid, tg_user_id, full_name, text):
         "предпочтения": client.get("favorite"),
         "заметки": client.get("notes"),
     }
-    docs = database.search_chunks(bid, text)
+    # НОВЫЙ СЛОЙ: Context Engine собирает контекст (знания, документы-RAG, досье
+    # клиента) и извлекает заказ. Обратная совместимость: при ЛЮБОЙ ошибке —
+    # прежний путь ai.chat_reply; при его сбое — вежливая заглушка, как раньше.
     try:
-        reply, order = ai.chat_reply(business, history, client_info, docs)
+        import context_engine
+        reply, order = context_engine.respond_chat(
+            bid, history, client_info=client_info, client_id=client["id"])
     except Exception:
-        logging.exception("Ошибка ИИ (webhook, biz %s)", bid)
-        return "Ой, я на секунду задумалась. Напишите ещё раз, пожалуйста."
+        logging.exception("Context Engine (webhook) упал — откат на ai.chat_reply (biz %s)", bid)
+        try:
+            docs = database.search_chunks(bid, text)
+            reply, order = ai.chat_reply(business, history, client_info, docs)
+        except Exception:
+            logging.exception("Ошибка ИИ (webhook, biz %s)", bid)
+            return "Ой, я на секунду задумалась. Напишите ещё раз, пожалуйста."
 
     if order:
         order_id = database.add_order(
