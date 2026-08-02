@@ -519,6 +519,30 @@ def api_admin_chat(bid: int, client_id: int, x_auth: str = Header(default="")):
     return database.get_chat(bid, client_id)
 
 
+# ---------- ДИАГНОСТИКА ИИ (только владелец) ----------
+
+@app.get("/api/admin/ai-status")
+def api_admin_ai_status(x_auth: str = Header(default="")):
+    """Какой AI-провайдер сейчас основной и кто реально отвечает. Делает крошечный
+    живой вызов (ping). Ключи НЕ раскрываются — только имена и модель/URL."""
+    require_owner(x_auth)
+    import ai
+    configured = [name for name, _ in ai._all_providers()]   # порядок приоритета
+    active = None
+    try:
+        active = ai.ping()                                   # первый ответивший провайдер
+    except Exception:
+        logging.exception("ai-status: ping не удался")
+    return {
+        "configured": configured,          # напр. ["gemini","gigachat"]
+        "primary": configured[0] if configured else None,
+        "active": active,                  # кто реально ответил на пробный запрос
+        "gemini_enabled": bool(ai.GEMINI_API_KEY),
+        "gemini_model": config.GEMINI_MODEL if ai.GEMINI_API_KEY else None,
+        "gemini_base_url": config.GEMINI_BASE_URL if ai.GEMINI_API_KEY else None,
+    }
+
+
 # ---------- ЖУРНАЛ ОШИБОК (только владелец) ----------
 
 @app.get("/api/admin/errors")
