@@ -139,6 +139,12 @@
     <div class="kpi"><div class="v num" id="kCount">—</div><div class="c">Бизнесов</div></div>
   </div>
 
+  <div id="aiStatus" style="margin:14px 0 2px; font-size:13px; color:var(--ash); display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+    <span id="aiDot" style="width:8px; height:8px; border-radius:50%; background:#555; flex:none"></span>
+    <span id="aiStatusText">Проверяю ИИ…</span>
+    <button class="pill" id="aiRefresh" style="padding:2px 10px; font-size:12px">обновить</button>
+  </div>
+
   <div class="barhead">
     <span class="label" style="color:var(--ash)">// Подключённые бизнесы</span>
     <button class="pill" id="addBtn">+ Добавить бизнес</button>
@@ -331,7 +337,28 @@ document.getElementById('nSave').onclick = async () => {
   dlg.close(); toast('Бизнес создан'); load();
 };
 
+const AI_NAMES = { gemini:'Gemini', gigachat:'GigaChat', claude:'Claude' };
+const aiNice = n => AI_NAMES[n] || n || '—';
+async function loadAiStatus(){
+  const dot = document.getElementById('aiDot'), txt = document.getElementById('aiStatusText');
+  txt.textContent = 'Проверяю ИИ…'; dot.style.background = '#555';
+  try{
+    const s = await api('/api/admin/ai-status');
+    const chain = (s.configured || []).map(aiNice).join(' → ') || '—';
+    const onPrimary = s.active && s.active === s.primary;
+    dot.style.background = s.active ? (onPrimary ? '#2fd4b2' : '#e0a83d') : '#c0392b';
+    let msg = s.active ? ('ИИ: отвечает ' + aiNice(s.active)) : 'ИИ: не отвечает ни один провайдер';
+    if (s.primary) msg += ' · основной ' + aiNice(s.primary);
+    msg += ' · цепочка ' + chain;
+    if (s.active && !onPrimary) msg += ' — основной недоступен, работает страховка!';
+    if (s.gemini_enabled && s.gemini_model) msg += ' · модель ' + s.gemini_model;
+    txt.textContent = msg;
+  }catch(e){ if(e.message!=='auth'){ dot.style.background='#c0392b'; txt.textContent='ИИ: не удалось проверить'; } }
+}
+document.getElementById('aiRefresh').addEventListener('click', loadAiStatus);
+
 load();
+loadAiStatus();
 </script>
 </body>
 </html>
