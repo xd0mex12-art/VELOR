@@ -39,8 +39,10 @@ services:
       # реселлера/прокси задайте их OpenAI-совместимый URL в GEMINI_BASE_URL.
       - key: GEMINI_API_KEY
         sync: false
+      # Имя модели зависит от провайдера/реселлера (напр. у tokenn.pro —
+      # gemini-3.5-flash), поэтому задаётся в панели, а не жёстко в блупринте.
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        sync: false
       - key: GEMINI_BASE_URL
         sync: false
       # Ключ ИИ (GigaChat / Сбер) — страховка/запасной. Вставляете сами в Render.
