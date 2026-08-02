@@ -15,7 +15,7 @@ import threading
 import time
 
 from config import (LOGIN_MAX_FAILS, LOGIN_FAIL_WINDOW_MIN, LOGIN_BLOCK_MIN,
-                    REGISTER_MAX, REGISTER_WINDOW_MIN)
+                    REGISTER_MAX, REGISTER_WINDOW_MIN, ASK_MAX, ASK_WINDOW_MIN)
 
 _lock = threading.Lock()
 _fails: dict[str, list[float]] = {}    # ключ -> метки времени неудачных попыток
@@ -25,6 +25,7 @@ _events: dict[str, list[float]] = {}   # ключ -> метки времени �
 _LOGIN_WINDOW = LOGIN_FAIL_WINDOW_MIN * 60
 _LOGIN_BLOCK = LOGIN_BLOCK_MIN * 60
 _REG_WINDOW = REGISTER_WINDOW_MIN * 60
+_ASK_WINDOW = ASK_WINDOW_MIN * 60
 
 
 def _clean(seq: list[float], horizon: float) -> list[float]:
@@ -78,6 +79,24 @@ def register_retry_after(key: str) -> int:
         if len(seq) >= REGISTER_MAX:
             oldest = seq[0]
             return int(oldest + _REG_WINDOW - now) + 1
+        seq.append(now)
+        _events[key] = seq
+    return 0
+
+
+def ask_retry_after(key: str) -> int:
+    """
+    Сколько секунд ждать до следующего разрешённого запроса к ИИ с этого ключа
+    (обычно IP); 0 — можно спрашивать. Та же оконная механика, что у регистраций
+    (общий счётчик _events, ключи не пересекаются: «ask:…» vs «reg:…»). Вызывать
+    ДО обращения к модели — при превышении к ИИ не идём вовсе.
+    """
+    now = time.time()
+    with _lock:
+        seq = _clean(_events.get(key, []), now - _ASK_WINDOW)
+        if len(seq) >= ASK_MAX:
+            oldest = seq[0]
+            return int(oldest + _ASK_WINDOW - now) + 1
         seq.append(now)
         _events[key] = seq
     return 0

@@ -2442,7 +2442,7 @@ def _biz_snapshot(bid: int) -> str:
 
 
 @app.post("/api/ask")
-def api_ask(body: AskIn, x_auth: str = Header(default="")):
+def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
     """Вопрос ядру — отвечает ИИ (если ключ настроен).
 
     На лендинге запрос идёт без токена → короткий ответ от лица бизнеса.
@@ -2450,6 +2450,13 @@ def api_ask(body: AskIn, x_auth: str = Header(default="")):
     роли, зная базу знаний и свежую сводку бизнеса.
     """
     import ai
+    # Защита общего ключа ИИ: лимит запросов по IP. Проверяем ДО обращения к модели —
+    # при превышении отдаём понятную 429 и к ИИ не идём вовсе (никаких лишних вызовов).
+    wait = ratelimit.ask_retry_after("ask:" + _client_ip(request))
+    if wait:
+        raise HTTPException(status_code=429, detail=(
+            "Слишком много запросов подряд. Подождите " + ratelimit.human_wait(wait)
+            + " и попробуйте снова."))
     if not ai.ai_available():
         return {"ok": False, "answer": None}   # сайт покажет заготовленную фразу
 
@@ -2461,9 +2468,21 @@ def api_ask(body: AskIn, x_auth: str = Header(default="")):
     if x_auth and not payload:
         raise HTTPException(status_code=401, detail="Сессия истекла — обновите вход")
     bid = payload["bid"] if payload and payload.get("role") == "business" else None
-    if bid is not None and trial.access(database.get_business(bid))["read_only"]:
-        return {"ok": False, "answer": None, "locked": True,
-                "detail": "Пробный период завершён — оформите подписку, чтобы ИИ снова отвечал."}
+    if bid is not None:
+        st = trial.access(database.get_business(bid))
+        # Онбординг + реальное использование ИИ = старт триала (как при сохранении
+        # настроек в /api/business). Иначе аккаунт мог бы бесконечно пользоваться ИИ,
+        # формально оставаясь в онбординге и не запуская отсчёт 14 дней. launch
+        # идемпотентен и наполняет trial_registry/owner_identity — совместимость цела.
+        if st["phase"] == "onboarding":
+            try:
+                trial.launch(bid)
+            except Exception:
+                logging.exception("Не удалось запустить триал по первому запросу ИИ (biz %s)", bid)
+            st = trial.access(database.get_business(bid))
+        if st["read_only"]:
+            return {"ok": False, "answer": None, "locked": True,
+                    "detail": "Пробный период завершён — оформите подписку, чтобы ИИ снова отвечал."}
     try:
         if bid is not None:                    # кабинет бизнеса — роль + данные
             role = body.role or "assistant"

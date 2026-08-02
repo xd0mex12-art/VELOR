@@ -9,7 +9,7 @@ import hmac
 import os
 import re
 import sqlite3
-from config import DB_PATH
+from config import DB_PATH, IS_PRODUCTION
 
 # ============================================================
 #  ВЫБОР БАЗЫ: SQLite (локально) или PostgreSQL (прод, Supabase)
@@ -21,6 +21,17 @@ from config import DB_PATH
 DATABASE_URL = (os.getenv("DATABASE_URL") or "").strip()
 _PG = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 _pg_pool = None
+
+# Защита от случайного запуска на эфемерном SQLite в бою: если APP_ENV=production,
+# но DATABASE_URL не задан (или не Postgres) — не стартуем вовсе. Иначе данные
+# клиентов молча писались бы в SQLite и терялись при каждом передеплое Render.
+if IS_PRODUCTION and not _PG:
+    raise RuntimeError(
+        "ОСТАНОВКА ЗАПУСКА (APP_ENV=production): не задан DATABASE_URL (Postgres). "
+        "Без него данные писались бы в эфемерный SQLite и терялись при передеплое. "
+        "Укажите строку подключения Postgres в переменной окружения DATABASE_URL "
+        "(Supabase → Project Settings → Database → Connection string)."
+    )
 
 if _PG:
     from psycopg_pool import ConnectionPool
