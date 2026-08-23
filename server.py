@@ -29,8 +29,10 @@ import exporters
 import auth
 import ratelimit
 import errorlog
+import safeurl
 import config
 import botcore
+import connectors
 import trial
 import identity
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
@@ -65,6 +67,50 @@ _cred_warning = config.check_owner_credentials()
 if _cred_warning:
     log.warning("%s", _cred_warning)
     print("\n[ВНИМАНИЕ] " + _cred_warning + "\n")
+
+
+# ---------- ЗАЩИТНЫЕ HTTP-ЗАГОЛОВКИ ----------
+# Раньше они жили только в конфиге nginx, а nginx поднимается лишь в
+# docker-compose. Боевой деплой (Render) — это голый uvicorn, то есть в проде не
+# было НИ ОДНОГО защитного заголовка. Ставим их в самом приложении: тогда они
+# есть везде, где бы приложение ни запускалось.
+#
+# Про CSP. Кабинет написан инлайновыми <script> и обработчиками onclick, поэтому
+# полностью запретить инлайн нельзя — это переписывание всех 36 страниц. Но самое
+# ценное CSP даёт и так: 'self' на connect/img/script закрывает УТЕЧКУ. Даже если
+# в имя клиента из Telegram подсунут скрипт, он не сможет отправить токен из
+# localStorage на чужой сервер — ни fetch'ем, ни картинкой, ни формой.
+_CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",       # инлайновые скрипты страниц
+    "style-src 'self' 'unsafe-inline'",        # инлайновые стили страниц
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "connect-src 'self'",                      # запросы только к своему API
+    "form-action 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",                  # защита от кликджекинга
+])
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("Content-Security-Policy", _CSP)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Permissions-Policy",
+                            "geolocation=(), microphone=(), camera=(), payment=()")
+    resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    # HSTS — только когда соединение действительно защищено, иначе локальный
+    # http-запуск на 127.0.0.1 браузер запомнит как «только https» и сломает разработку.
+    if request.url.scheme == "https" or \
+            request.headers.get("x-forwarded-proto", "").split(",")[0].strip() == "https":
+        resp.headers.setdefault("Strict-Transport-Security",
+                                "max-age=31536000; includeSubDomains")
+    return resp
 
 
 @app.exception_handler(Exception)
@@ -110,6 +156,15 @@ def _client_ip(request: Request) -> str:
     if fwd:
         return fwd.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+# Понятные тексты на нарушение уникальности (её гарантирует база, а не проверка
+# «сначала посмотрели, потом записали» — та не выдерживает одновременных запросов).
+_DUPLICATE_TEXT = {
+    "login": "Такой логин уже занят — придумайте другой.",
+    "tg_bot_token": "Этот бот уже подключён к другой компании. "
+                    "Создайте отдельного бота в @BotFather для этой компании.",
+}
 
 
 class LoginIn(BaseModel):
@@ -177,12 +232,19 @@ def api_register(body: RegisterIn, request: Request):
     if database.login_taken(login):
         raise HTTPException(status_code=409, detail="Такой логин уже занят — придумайте другой")
 
-    bid = database.create_business(
-        name=name,
-        about=(body.about or "").strip() or "малый бизнес: приём заказов и заявок",
-        greeting="Здравствуйте! Напишите, что вам нужно — я приму заявку и всё оформлю.",
-    )
-    database.update_business(bid, login=login, password=password)
+    # Аккаунт создаётся ОДНОЙ вставкой вместе с логином и паролем. Проверка выше —
+    # только ради понятного текста ошибки; настоящую гарантию даёт уникальный
+    # индекс в базе, поэтому одновременную регистрацию с тем же логином ловим здесь.
+    try:
+        bid = database.create_business(
+            name=name,
+            about=(body.about or "").strip() or "малый бизнес: приём заказов и заявок",
+            greeting="Здравствуйте! Напишите, что вам нужно — я приму заявку и всё оформлю.",
+            login=login,
+            password=password,
+        )
+    except database.DuplicateError:
+        raise HTTPException(status_code=409, detail="Такой логин уже занят — придумайте другой")
 
     # ── Регистрация НЕ запускает триал: аккаунт в онбординге, отсчёт 14 дней
     #    стартует по кнопке «Запустить VELOR» (/api/trial/start). Fingerprint —
@@ -230,6 +292,21 @@ def api_register(body: RegisterIn, request: Request):
 
 
 # ---------- TRIAL / ПОДПИСКА ----------
+
+def _ai_locked(bid) -> bool:
+    """ИИ на паузе (триал завершён)?
+
+    Нужен там, где модель дёргается ЛЕНИВО при открытии страницы — брифинг,
+    обзор недели, дневник, резюме клиента, совет директоров. Такие страницы
+    нельзя закрывать ошибкой 402 (данные должны оставаться видны), но и
+    тратить на них общий ключ ИИ после окончания триала нельзя: показываем
+    то, что уже сохранено, и молчим.
+    """
+    try:
+        return bool(trial.access(database.get_business(bid))["read_only"])
+    except Exception:
+        return False
+
 
 def require_active(bid):
     """Гейт активных операций (ИИ, бот, создание). read-only → 402 с понятным текстом."""
@@ -474,9 +551,13 @@ class BusinessNew(BaseModel):
 @app.post("/api/admin/businesses")
 def api_admin_create(body: BusinessNew, x_auth: str = Header(default="")):
     require_owner(x_auth)
-    bid = database.create_business(name=body.name, about=body.about, greeting=body.greeting)
-    extra = {k: v for k, v in {"plan": body.plan, "fee": body.fee,
-                               "login": body.login, "password": body.password}.items() if v is not None}
+    try:
+        bid = database.create_business(name=body.name, about=body.about,
+                                       greeting=body.greeting,
+                                       login=body.login, password=body.password)
+    except database.DuplicateError:
+        raise HTTPException(status_code=409, detail="Такой логин уже занят — придумайте другой")
+    extra = {k: v for k, v in {"plan": body.plan, "fee": body.fee}.items() if v is not None}
     if extra:
         database.update_business(bid, **extra)
     return {"ok": True, "id": bid}
@@ -496,7 +577,10 @@ class BusinessEdit(BaseModel):
 @app.post("/api/admin/businesses/{bid}")
 def api_admin_edit(bid: int, body: BusinessEdit, x_auth: str = Header(default="")):
     require_owner(x_auth)
-    database.update_business(bid, **body.model_dump(exclude_none=True))
+    try:
+        database.update_business(bid, **body.model_dump(exclude_none=True))
+    except database.DuplicateError as e:
+        raise HTTPException(status_code=409, detail=_DUPLICATE_TEXT[e.field])
     return {"ok": True}
 
 
@@ -571,6 +655,7 @@ class OrderIn(BaseModel):
     phone: str | None = None
     address: str | None = None
     date_wanted: str | None = None
+    amount: str | int | float | None = None   # сумма заказа — основа всего оборота
     business_id: int = 0
 
 
@@ -598,9 +683,19 @@ def _resolve_bid(x_auth: str, requested: int) -> int:
 
 
 @app.get("/api/orders")
-def api_orders(business_id: int = 0, x_auth: str = Header(default="")):
-    """Заказы бизнеса — для его панели."""
-    return database.get_orders(_resolve_bid(x_auth, business_id))
+def api_orders(business_id: int = 0, limit: int = 50, offset: int = 0,
+               x_auth: str = Header(default="")):
+    """Заказы бизнеса — для его панели.
+
+    Отдаём страницу заказов И настоящие итоги по всей таблице. Раньше страница
+    показывала последние 20 записей и других чисел не было вовсе — из-за этого
+    и панель, и ИИ считали, что у компании ровно столько заказов, сколько влезло
+    в выборку.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    limit = max(1, min(limit, 200))
+    items = database.get_orders(bid, limit=limit, offset=max(0, offset))
+    return {"items": items, **database.orders_overview(bid)}
 
 
 @app.post("/api/orders")
@@ -622,9 +717,26 @@ def api_add_order(order: OrderIn, x_auth: str = Header(default="")):
         phone=order.phone,
         address=order.address,
         date_wanted=order.date_wanted,
+        amount=order.amount,
     )
     signals.react(bid, "order")   # заказ влияет на Директора, брифинг, риски
     return {"ok": True, "order_id": order_id}
+
+
+class AmountIn(BaseModel):
+    amount: str | int | float | None = None
+    business_id: int = 0
+
+
+@app.post("/api/orders/{order_id}/amount")
+def api_update_amount(order_id: int, body: AmountIn, x_auth: str = Header(default="")):
+    """Проставить сумму заказа. Из неё складываются оборот компании, сумма
+    покупок клиента и весь денежный анализ — поэтому это отдельное быстрое
+    действие прямо в списке заказов, а не поле в глубокой форме."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    value = database.set_order_amount(order_id, bid, body.amount)
+    signals.react(bid, "order")
+    return {"ok": True, "order_id": order_id, "amount": value}
 
 
 # Разрешённые статусы заказа
@@ -704,11 +816,17 @@ def _ensure_client_summary(bid, client, orders, messages, force=False):
     today = datetime.date.today().isoformat()
     if not force and client.get("summary_day") == today:
         return client.get("ai_summary") or "", client.get("ai_advice") or ""
-    if not ai.ai_available():
+    if not ai.ai_available() or _ai_locked(bid):
         return client.get("ai_summary") or "", client.get("ai_advice") or ""
     business = database.get_business(bid) or {}
     facts = _client_facts_text(client, orders, messages)
-    res = ai.client_summary(business, facts)
+    # Сбой модели (нет денег на ключе, таймаут, 401) НЕ должен ронять карточку
+    # клиента: контакты, заказы и переписка важнее резюме. Отдаём прошлое резюме.
+    try:
+        res = ai.client_summary(business, facts)
+    except Exception:
+        logging.exception("Резюме клиента не собралось (biz %s, client %s)", bid, client.get("id"))
+        return client.get("ai_summary") or "", client.get("ai_advice") or ""
     summary, advice = res.get("summary", ""), res.get("advice", "")
     database.save_client_summary(client["id"], bid, summary, advice, today)
     return summary, advice
@@ -733,6 +851,7 @@ def api_client_card(client_id: int, business_id: int = 0, x_auth: str = Header(d
 def api_client_summary_refresh(client_id: int, business_id: int = 0, x_auth: str = Header(default="")):
     """Пересобрать резюме клиента принудительно."""
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     client = database.get_client(client_id, bid)
     if not client:
         raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -790,7 +909,12 @@ def api_update_business(body: BusinessPatch, x_auth: str = Header(default="")):
     """Сохранить настройки бизнеса — VELOR AI сразу подстроится под него."""
     bid = _resolve_bid(x_auth, body.business_id)
     fields = body.model_dump(exclude={"business_id"}, exclude_none=True)
-    database.update_business(bid, **fields)
+    try:
+        database.update_business(bid, **fields)
+    except database.DuplicateError as e:
+        # Чаще всего это токен бота, уже привязанный к другой компании. Пустить
+        # такое нельзя: клиенты чужого бота начали бы попадать в эту панель.
+        raise HTTPException(status_code=409, detail=_DUPLICATE_TEXT[e.field])
     # Завершение настройки = запуск полноценного Trial. Если бизнес ещё в онбординге
     # (отсчёт 14 дней не шёл — раньше это давало бессрочный бесплатный доступ), стартуем
     # триал через TrialService. launch идемпотентен и наполняет trial_registry/owner_identity,
@@ -833,8 +957,9 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, business_id)
     business = database.get_business(bid) or {}
     sig = database.risk_signals(bid)
+    # Итоги — из базы (COUNT/SUM по всей таблице), а не из обрезанной выборки.
+    totals = database.orders_overview(bid)
     orders = database.get_orders(bid, limit=100)
-    today = datetime.date.today().isoformat()
 
     risks = [r for r in database.list_risks(bid) if r["status"] == "new"]
     opps = [o for o in database.list_opportunities(bid) if o["status"] == "new"]
@@ -842,7 +967,6 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
     advice = journal[0]["advice"] if journal and journal[0]["advice"] else ""
 
     orders_new = [o for o in orders if o.get("status") == "новый"]
-    orders_today = [o for o in orders if (o.get("created_at") or "").startswith(today)]
 
     # «Сегодня важно»: одна главная мысль. Сначала то, что горит.
     money_insight = signals.top_insight(bid)   # живое денежное следствие (без ИИ)
@@ -850,9 +974,10 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
         focus = {"text": risks[0]["title"], "note": risks[0]["why"], "kind": "риск", "href": "risks.html"}
     elif money_insight:
         focus = money_insight
-    elif orders_new:
-        focus = {"text": f"Разберите {database._plural(len(orders_new), 'новую заявку', 'новые заявки', 'новых заявок')}",
-                 "note": (orders_new[0].get("text") or "")[:140], "kind": "заявки", "href": "orders.html"}
+    elif totals["new"]:
+        focus = {"text": f"Разберите {database._plural(totals['new'], 'новую заявку', 'новые заявки', 'новых заявок')}",
+                 "note": (orders_new[0].get("text") or "")[:140] if orders_new else "",
+                 "kind": "заявки", "href": "orders.html"}
     elif advice:
         focus = {"text": advice, "note": "Совет из вчерашнего дневника", "kind": "совет", "href": "journal.html"}
     elif opps:
@@ -870,7 +995,8 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
         "business": {"name": business.get("name"), "ai_name": business.get("ai_name"),
                      "ai_avatar": business.get("ai_avatar")},
         "focus": focus,
-        "orders": {"new": len(orders_new), "today": len(orders_today), "total": len(orders)},
+        "orders": {"new": totals["new"], "today": totals["today"],
+                   "total": totals["total"], "turnover": totals["turnover"]},
         "money": {"income": sig["current"]["income"], "profit": sig["current"]["profit"],
                   "income_change": sig["change"]["income"], "profit_change": sig["change"]["profit"]},
         "clients": {"new": sig["current"]["clients"], "change": sig["change"]["clients"]},
@@ -1109,6 +1235,7 @@ def _board_facts_text(bid):
     fin = database.finance_summary(bid)
     sig = database.growth_signals(bid)
     stats = database.business_stats(bid)
+    _ord = database.orders_overview(bid)
     docs = database.list_documents(bid)
     goals = database.list_goals(bid, only_active=True)
     content_30 = database.count_events(bid, ["content", "knowledge"], 30)
@@ -1135,7 +1262,11 @@ def _board_facts_text(bid):
         f"Всего клиентов {sig['clients']}, спят больше 30 дней {sig['sleeping']}, "
         f"с повторными заказами {sig['repeat_clients']}.",
         f"Заказов всего {stats['orders_total']}, выполнено {stats['orders_done']}, "
-        f"сообщений обработано {stats['messages']}.",
+        f"сообщений обработано {stats['messages']}."
+        + (f" Оборот по заказам {_ord['turnover']} ₽, средний чек "
+           f"{_ord['turnover'] // _ord['total']} ₽."
+           if _ord.get("turnover") and _ord.get("total") else
+           " Суммы у заказов не проставлены — оборот и средний чек посчитать нельзя."),
         "— КОНТЕНТ —",
         f"За 30 дней подготовлено материалов и знаний: {content_30}.",
         "— ДОКУМЕНТЫ —",
@@ -1185,7 +1316,8 @@ def api_board(business_id: int = 0, x_auth: str = Header(default="")):
     business = database.get_business(bid) or {}
     # Пересобираем заседание, если данные менялись (реактивно) или его ещё не было сегодня.
     dirty = signals.is_dirty(bid, "board")
-    if dirty or (business.get("board_day") != day and not database.list_board_recs(bid)):
+    need = dirty or (business.get("board_day") != day and not database.list_board_recs(bid))
+    if need and not _ai_locked(bid):
         _, err = _generate_board(bid, day)
         if not err:
             signals.settle(bid, "board")
@@ -1270,6 +1402,8 @@ def _ensure_journal(bid, back=7, budget=3):
     budget — сколько дней за раз можно собрать с участием ИИ, чтобы не подвешивать страницу.
     """
     business = database.get_business(bid) or {"name": "VELOR AI"}
+    if _ai_locked(bid):
+        return                      # триал завершён: показываем уже написанное
     have = database.journal_days(bid)
     today = datetime.date.today().isoformat()
     for i in range(back):
@@ -1303,6 +1437,7 @@ def api_journal(business_id: int = 0, x_auth: str = Header(default="")):
 def api_journal_refresh(business_id: int = 0, x_auth: str = Header(default="")):
     """Пересобрать отчёт за сегодня — кнопкой или из планировщика задач."""
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     business = database.get_business(bid) or {"name": "VELOR AI"}
     _write_day(bid, business, datetime.date.today().isoformat())
     return {"ok": True}
@@ -1432,6 +1567,7 @@ def api_search(body: SearchIn, x_auth: str = Header(default="")):
     """
     import ai
     bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
     question = (body.question or "").strip()
     if len(question) < 2:
         raise HTTPException(status_code=400, detail="Напишите, что ищем")
@@ -1567,6 +1703,7 @@ async def api_finance_import(file: UploadFile = File(...),
                              x_auth: str = Header(default="")):
     """Загрузка выписки: разбираем файл, раскладываем по категориям, пишем в базу."""
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     raw = await file.read()
     if len(raw) > 8 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Файл больше 8 МБ")
@@ -1757,7 +1894,7 @@ def _build_briefing(bid, day):
 def _load_briefing(bid, day, force=False):
     # Реактивность: если после сборки менялись данные — пересобираем брифинг,
     # чтобы Директор учёл свежие риски (напр. из документов) и цифры.
-    if signals.is_dirty(bid, "briefing"):
+    if signals.is_dirty(bid, "briefing") and not _ai_locked(bid):
         force = True
     row = None if force else database.get_briefing(bid, day)
     if row and row.get("payload"):
@@ -1765,6 +1902,8 @@ def _load_briefing(bid, day, force=False):
             return json.loads(row["payload"]), row.get("shown_on")
         except json.JSONDecodeError:
             pass
+    if _ai_locked(bid):
+        return None, (row or {}).get("shown_on")   # триал завершён — новый не собираем
     payload = _build_briefing(bid, day)
     signals.settle(bid, "briefing")
     return payload, (row or {}).get("shown_on")
@@ -1782,6 +1921,7 @@ def api_briefing(business_id: int = 0, x_auth: str = Header(default="")):
 @app.post("/api/briefing/refresh")
 def api_briefing_refresh(business_id: int = 0, x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     day = datetime.date.today().isoformat()
     return {"day": day, "payload": _build_briefing(bid, day)}
 
@@ -1902,17 +2042,20 @@ _WEEKLY_NARRATIVE = ("achievements", "mistakes", "finance_note",
 
 def _load_weekly(bid, week_start, force=False):
     import ai
-    row = None if force else database.get_weekly_review(bid, week_start)
+    locked = _ai_locked(bid)
+    row = None if (force and not locked) else database.get_weekly_review(bid, week_start)
     if row and row.get("payload"):
         try:
             payload = json.loads(row["payload"])
             # Если прошлый сбор не получил формулировок из-за сбоя модели, а модель
             # снова доступна — пересобираем, чтобы не залипал пустой обзор.
             empty = not any(payload.get(k) for k in _WEEKLY_NARRATIVE)
-            if not (empty and ai.ai_available()):
+            if locked or not (empty and ai.ai_available()):
                 return payload
         except json.JSONDecodeError:
             pass
+    if locked:
+        return None                     # триал завершён — новый обзор не собираем
     return _build_weekly(bid, week_start)
 
 
@@ -1933,6 +2076,7 @@ def api_weekly(business_id: int = 0, week: str = "",
 def api_weekly_refresh(business_id: int = 0, week: str = "",
                        x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     try:
         base = datetime.date.fromisoformat(week) if week else datetime.date.today()
     except ValueError:
@@ -1996,6 +2140,143 @@ def api_tool_run(tool_id: int | str, business_id: int = 0,
     if not handler:
         raise HTTPException(status_code=501, detail="Этот инструмент ещё готовится")
     return handler(bid)
+
+
+# ---------- ПОДКЛЮЧЁННЫЕ СЕРВИСЫ (источники знаний) ----------
+#
+# Правило страницы «Источники»: «Подключено» пишем ТОЛЬКО после успешного живого
+# запроса к сервису. Поэтому подключение и проверка — это одно действие, а не два.
+
+
+class ConnectIn(BaseModel):
+    credentials: dict = {}
+    business_id: int = 0
+
+
+@app.get("/api/connections")
+def api_connections(business_id: int = 0, x_auth: str = Header(default="")):
+    """Каталог источников + состояние подключений этого бизнеса.
+
+    Секреты наружу не отдаются никогда — только статус, время синхронизации,
+    сколько записей загружено и текст последней ошибки.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    return connectors.status(bid)
+
+
+@app.post("/api/connections/{provider}")
+def api_connection_save(provider: str, body: ConnectIn,
+                        x_auth: str = Header(default="")):
+    """Подключить сервис: проверяем ключи живым запросом и сохраняем зашифрованно."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    if provider not in connectors.REGISTRY:
+        raise HTTPException(status_code=404, detail="Неизвестный источник.")
+    creds = {k: (str(v) if v is not None else "") for k, v in (body.credentials or {}).items()}
+    try:
+        conn = connectors.connect(bid, provider, creds)
+    except connectors.ConnectorError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Сразу забираем первую порцию данных: владелец должен увидеть результат
+    # немедленно, а не «когда-нибудь синхронизируется».
+    result = connectors.sync(bid, provider)
+    return {"ok": True, "connection": database.get_connection(bid, provider),
+            "synced": result}
+
+
+@app.post("/api/connections/{provider}/sync")
+def api_connection_sync(provider: str, business_id: int = 0,
+                        x_auth: str = Header(default="")):
+    """Забрать новое прямо сейчас (кнопка «Обновить» в карточке источника)."""
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    if provider not in connectors.REGISTRY:
+        raise HTTPException(status_code=404, detail="Неизвестный источник.")
+    return connectors.sync(bid, provider)
+
+
+@app.post("/api/connections/sync-all")
+def api_connections_sync_all(business_id: int = 0, x_auth: str = Header(default="")):
+    """Обновить все подключённые источники разом."""
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    return {"ok": True, "results": connectors.sync_all(bid)}
+
+
+@app.post("/api/connections/{provider}/delete")
+def api_connection_delete(provider: str, business_id: int = 0,
+                          x_auth: str = Header(default="")):
+    """Отключить сервис. Загруженные данные остаются — они принадлежат бизнесу."""
+    bid = _resolve_bid(x_auth, business_id)
+    database.delete_connection(bid, provider)
+    return {"ok": True}
+
+
+# ---------- ФОНОВАЯ СИНХРОНИЗАЦИЯ ИСТОЧНИКОВ ----------
+#
+# Подключённый сервис должен приносить данные сам, а не только по кнопке.
+# Отдельный воркер поднимать не будем (на бесплатном хостинге его негде держать
+# — по той же причине бот живёт вебхуком): достаточно фонового потока внутри
+# веб-процесса. Он спит, просыпается раз в SYNC_EVERY_MIN и обходит бизнесы,
+# у которых есть подключения.
+#
+# Осознанные ограничения:
+#   • аккаунты в read-only (триал кончился) пропускаем — не тратим чужие лимиты;
+#   • ошибка одного источника не мешает остальным (см. connectors.sync);
+#   • при нескольких воркерах uvicorn каждый будет синхронизировать своё, но
+#     upsert по external_id идемпотентен — дублей не возникнет.
+
+SYNC_EVERY_MIN = int(_os.getenv("SYNC_EVERY_MIN", "30"))
+SYNC_STALE_MIN = int(_os.getenv("SYNC_STALE_MIN", "25"))   # что считаем «пора обновить»
+
+
+def _needs_sync(conn_row) -> bool:
+    last = conn_row.get("last_sync_at")
+    if not last:
+        return True
+    try:
+        dt = datetime.datetime.strptime(str(last)[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return True
+    age = (datetime.datetime.utcnow() - dt).total_seconds() / 60
+    return age >= SYNC_STALE_MIN
+
+
+def _sync_round():
+    """Один обход всех бизнесов с подключениями."""
+    for biz in database.list_businesses_with_stats():
+        bid = biz["id"]
+        try:
+            if trial.access(database.get_business(bid))["read_only"]:
+                continue
+            for conn_row in database.list_connections(bid):
+                if conn_row.get("status") == "paused" or not _needs_sync(conn_row):
+                    continue
+                connectors.sync(bid, conn_row["provider"])
+        except Exception:
+            logging.exception("Фоновая синхронизация: бизнес %s", bid)
+
+
+def _sync_worker():
+    import time as _time
+    # Небольшая задержка на старте: пусть сервер сначала поднимется и ответит
+    # на первые запросы, а тяжёлые сетевые вызовы пойдут следом.
+    _time.sleep(60)
+    while True:
+        try:
+            _sync_round()
+        except Exception:
+            logging.exception("Фоновая синхронизация: обход не удался")
+        _time.sleep(max(5, SYNC_EVERY_MIN) * 60)
+
+
+@app.on_event("startup")
+def _start_sync_worker():
+    if _os.getenv("DISABLE_SYNC_WORKER"):
+        return                      # выключатель для тестов и локальной отладки
+    import threading
+    threading.Thread(target=_sync_worker, name="velor-sync", daemon=True).start()
+    log.info("Фоновая синхронизация источников: раз в %s мин", SYNC_EVERY_MIN)
 
 
 # ---------- ЭКСПОРТ ДАННЫХ ----------
@@ -2070,6 +2351,8 @@ def _ensure_goal_advice(bid, goals):
     today = datetime.date.today().isoformat()
     stale = [g for g in goals if g["status"] == "active" and g.get("advice_day") != today]
     if not stale or not ai.ai_available():
+        return goals
+    if _ai_locked(bid):
         return goals
     try:
         business = database.get_business(bid) or {}
@@ -2213,14 +2496,40 @@ def api_plan(business_id: int = 0, x_auth: str = Header(default="")):
 
 # ---------- VELOR RESEARCH (анализ конкурентов) ----------
 
+import urllib.request as _urlreq
+
+
+class _SafeRedirect(_urlreq.HTTPRedirectHandler):
+    """Проверять КАЖДЫЙ адрес в цепочке редиректов. Иначе публичный сайт мог бы
+    ответить «перейди на http://169.254.169.254» и обойти проверку на входе."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _check_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _check_public_url(url: str) -> str:
+    """Разрешить только публичный http(s)-адрес (защита от SSRF).
+
+    Сама проверка живёт в safeurl.py — её используют и коннекторы, где адрес
+    тоже приходит от пользователя (вебхук Bitrix24, домен магазина).
+    """
+    try:
+        return safeurl.normalize(url)
+    except safeurl.UnsafeUrl as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 def _fetch_url_text(url: str) -> str:
     """Скачать страницу и вытащить видимый текст (без тегов). '' при ошибке."""
     import re as _re
     import urllib.request
-    if not url.lower().startswith(("http://", "https://")):
-        url = "https://" + url
+    url = _check_public_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (VELOR Research)"})
-    with urllib.request.urlopen(req, timeout=8) as r:
+    # Редиректы не отключаем (сайты их используют штатно), но и не даём уводить
+    # себя внутрь сети: каждый следующий адрес снова проходит проверку.
+    opener = urllib.request.build_opener(_SafeRedirect)
+    with opener.open(req, timeout=8) as r:
         raw = r.read(600_000).decode("utf-8", errors="ignore")
     raw = _re.sub(r"(?is)<(script|style|head|nav|footer)[^>]*>.*?</\1>", " ", raw)
     text = _re.sub(r"(?s)<[^>]+>", " ", raw)
@@ -2239,12 +2548,20 @@ def api_research(body: ResearchIn, x_auth: str = Header(default="")):
     """Анализ конкурента: по ссылке (скачаем сами) или по вставленному тексту."""
     import ai
     bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    material = (body.text or "").strip()
+    # Адрес проверяем ПЕРВЫМ делом, до всего остального. Если поставить проверку
+    # после «а настроен ли ИИ», то при выключенном ИИ запрос на внутренний адрес
+    # тихо получал бы обычный ответ — то есть защиты от SSRF фактически не было бы.
+    if not material and body.url:
+        _check_public_url(body.url)
     if not ai.ai_available():
         return {"ok": False, "answer": None}
-    material = (body.text or "").strip()
     if not material and body.url:
         try:
             material = _fetch_url_text(body.url)
+        except HTTPException:
+            raise           # понятная причина отказа (внутренний адрес, битая ссылка)
         except Exception:
             return {"ok": False, "error": "Не удалось открыть ссылку — проверьте адрес или вставьте текст вручную."}
     if not material:
@@ -2361,6 +2678,7 @@ def api_finance_insights(business_id: int = 0, x_auth: str = Header(default=""))
     """AI-инсайты по финансам: выводы и рекомендации от VELOR."""
     import ai
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
     s = database.finance_summary(bid)
     if not ai.ai_available():
         return {"ok": False, "answer": None}
@@ -2396,6 +2714,7 @@ def api_growth_analyze(body: GrowthAnalyzeIn, x_auth: str = Header(default="")):
     """Разбор поста/описания AI-маркетологом."""
     import ai
     bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
     if not ai.ai_available() or not (body.text or "").strip():
         return {"ok": False, "answer": None}
     business = database.get_business(bid) or {"name": "VELOR AI"}
@@ -2410,6 +2729,7 @@ def api_growth_generate(body: GrowthGenerateIn, x_auth: str = Header(default="")
     """Генерация контент-плана / поста / рекламы под бизнес."""
     import ai
     bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
     if not ai.ai_available():
         return {"ok": False, "answer": None}
     business = database.get_business(bid) or {"name": "VELOR AI"}
@@ -2431,14 +2751,22 @@ class AskIn(BaseModel):
 
 
 def _biz_snapshot(bid: int) -> str:
-    """Короткая сводка бизнеса — чтобы AI-сотрудник отвечал по свежим данным."""
-    from datetime import date
-    orders = database.get_orders(bid) or []
-    clients = database.list_clients(bid) or []
-    today = date.today().isoformat()
-    new = sum(1 for o in orders if (o.get("status") if isinstance(o, dict) else o["status"]) == "новый")
-    tod = sum(1 for o in orders if str((o.get("created_at") if isinstance(o, dict) else o["created_at"]) or "").startswith(today))
-    return f"заказов всего {len(orders)}, новых {new}, сегодня {tod}, клиентов {len(clients)}"
+    """Короткая сводка бизнеса — чтобы AI-сотрудник отвечал по свежим данным.
+
+    Все числа считает база (COUNT/SUM), а не длина выборки. Раньше здесь брались
+    последние 20 заказов и в промпт уходило «заказов всего 20» для любой компании —
+    ИИ строил выводы и рекомендации на заведомо неверных цифрах.
+    """
+    o = database.orders_overview(bid)
+    clients = database.count_clients(bid)
+    parts = [f"заказов всего {o['total']}", f"новых {o['new']}",
+             f"выполнено {o['done']}", f"сегодня {o['today']}",
+             f"клиентов {clients}"]
+    if o["turnover"]:
+        parts.append(f"оборот по заказам {o['turnover']} руб.")
+        if o["total"]:
+            parts.append(f"средний чек {o['turnover'] // o['total']} руб.")
+    return ", ".join(parts)
 
 
 @app.post("/api/ask")

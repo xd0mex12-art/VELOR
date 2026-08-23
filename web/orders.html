@@ -102,6 +102,20 @@
   .act:hover{ color:#fff; filter:drop-shadow(0 0 12px var(--c,rgba(128,82,255,.5))); background:rgba(255,255,255,.12); }
   .act:disabled{ opacity:.4; cursor:default; }
 
+  .orders-head{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+
+  /* сумма заказа — вводится прямо в строке, из неё складывается весь оборот */
+  .sum{ display:inline-flex; align-items:center; gap:6px; }
+  .sum input{
+    width:104px; min-height:36px; padding:6px 10px; border-radius:12px;
+    border:1px solid var(--hairline); background:rgba(255,255,255,.04);
+    color:var(--bone); font-family:inherit; font-size:14px; text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .sum input:focus{ outline:none; border-color:rgba(128,82,255,.55); background:rgba(128,82,255,.07); }
+  .sum input.saved{ border-color:rgba(47,212,178,.55); }
+  .sum .cur{ color:var(--ash); font-size:14px; }
+
   /* скелетон загрузки */
   .sk{ height:76px; margin:14px 0; border-radius:16px;
     background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04));
@@ -143,7 +157,7 @@
     <div class="today-grid">
       <div class="tcard attention"><div class="tv num" id="t-new">—</div><div class="tl">Новых заявок — ждут ответа</div></div>
       <div class="tcard"><div class="tv num" id="t-today">—</div><div class="tl">Заказов сегодня</div></div>
-      <div class="tcard"><div class="tv num" id="t-clients">—</div><div class="tl">Клиентов в базе</div></div>
+      <div class="tcard"><div class="tv num" id="t-money">—</div><div class="tl">Оборот по заказам</div></div>
       <div class="tcard rec">
         <div class="rec-badge">V</div>
         <div class="rec-txt" id="t-rec">Смотрю, что происходит…</div>
@@ -157,9 +171,15 @@
     <div class="stat"><div class="v num" id="s-today">—</div><div class="caption">Сегодня</div></div>
   </div>
 
-  <span class="label" style="color:var(--ash)">Все заказы</span>
+  <div class="orders-head">
+    <span class="label" style="color:var(--ash)">Все заказы</span>
+    <span class="caption" id="shown-note"></span>
+  </div>
   <div id="orders" style="margin-top:12px" aria-live="polite">
     <div class="sk"></div><div class="sk"></div><div class="sk"></div>
+  </div>
+  <div style="text-align:center; margin-top:20px">
+    <button class="act" id="moreBtn" hidden>Показать ещё</button>
   </div>
 </main>
 
@@ -221,22 +241,67 @@ function actionBtn(id, status, labelText, color){
   return `<button class="act" style="--c:${color}80" onclick="ARINA_status(${id},'${status}',this)" aria-label="Заказ ${id}: ${labelText}">${labelText}</button>`;
 }
 
+// Сумма заказа. Это единственное место, где она попадает в систему, поэтому
+// сохраняем сразу по потере фокуса или по Enter — без отдельной кнопки «ОК».
+const money = n => (Number(n)||0).toLocaleString('ru-RU');
+
+async function ARINA_amount(id, input){
+  const raw = input.value;
+  if (raw === input.dataset.was) return;
+  input.disabled = true;
+  try{
+    const r = await fetch('/api/orders/' + id + '/amount', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ amount: raw })
+    });
+    const j = await r.json();
+    if (j.ok){
+      input.value = j.amount ? money(j.amount) : '';
+      input.dataset.was = input.value;
+      input.classList.add('saved');
+      setTimeout(()=> input.classList.remove('saved'), 1400);
+      toast('Сумма заказа №' + id + ' сохранена');
+      ARINA_load();          // оборот и рекомендация пересчитываются сразу
+    } else {
+      toast(j.detail || 'Не получилось сохранить сумму');
+      input.value = input.dataset.was || '';
+    }
+  }catch(e){
+    toast('Нет связи с сервером');
+    input.value = input.dataset.was || '';
+  }
+  input.disabled = false;
+}
+
+let PAGE = 50;   // сколько заказов показываем; «Показать ещё» увеличивает
+
 async function ARINA_load(manual){
   const box = document.getElementById('orders');
   try{
-    const res = await fetch('/api/orders');
-    const orders = await res.json();
+    const res = await fetch('/api/orders?limit=' + PAGE);
+    const data = await res.json();
+    const orders = data.items || [];
 
-    const today = new Date().toISOString().slice(0,10);
-    const newCount = orders.filter(o=>o.status==='новый').length;
-    const todayCount = orders.filter(o=>(o.created_at||'').startsWith(today)).length;
-    document.getElementById('s-count').textContent = orders.length;
+    // Итоги приходят с сервера по ВСЕЙ таблице, а не по видимой странице:
+    // раньше «всего заказов» показывало длину выборки и врало на любом объёме.
+    const newCount = data.new || 0, todayCount = data.today || 0;
+    document.getElementById('s-count').textContent = data.total || 0;
     document.getElementById('s-new').textContent = newCount;
     document.getElementById('s-today').textContent = todayCount;
-    // блок «Сегодня важно»
     document.getElementById('t-new').textContent = newCount;
     document.getElementById('t-today').textContent = todayCount;
-    setRecommendation(newCount, todayCount, orders.length);
+    document.getElementById('t-money').textContent = money(data.turnover || 0) + ' ₽';
+    setRecommendation(newCount, todayCount, data.total || 0, data.turnover || 0);
+
+    const note = document.getElementById('shown-note');
+    const more = document.getElementById('moreBtn');
+    if ((data.total || 0) > orders.length){
+      note.textContent = 'Показаны последние ' + orders.length + ' из ' + data.total;
+      more.hidden = false;
+    } else {
+      note.textContent = '';
+      more.hidden = true;
+    }
 
     const maxId = orders.reduce((m,o)=> Math.max(m, o.id), 0);
     if(ARINA_maxId !== null && maxId > ARINA_maxId) ARINA_signal();
@@ -251,6 +316,7 @@ async function ARINA_load(manual){
     box.innerHTML = orders.map(o=>{
       const sc = STATUS_COLOR[o.status] || '#8052ff';
       const meta = [o.phone, o.date_wanted, o.created_at].filter(Boolean).map(esc).join(' · ');
+      const val = o.amount ? money(o.amount) : '';
       const actions = [
         actionBtn(o.id, 'принят', 'Принять', '#ffb829'),
         actionBtn(o.id, 'выполнен', 'Выполнен', '#2fd4b2'),
@@ -264,6 +330,13 @@ async function ARINA_load(manual){
           <span class="meta num" style="display:block">${meta}</span>
         </span>
         <span class="right">
+          <span class="sum">
+            <input type="text" inputmode="numeric" value="${esc(val)}" data-was="${esc(val)}"
+                   placeholder="сумма" aria-label="Сумма заказа ${o.id}"
+                   onblur="ARINA_amount(${o.id}, this)"
+                   onkeydown="if(event.key==='Enter'){this.blur()}">
+            <span class="cur">₽</span>
+          </span>
           <span class="status" style="color:${sc}"><span class="dot" aria-hidden="true"></span>${esc(o.status||'новый')}</span>
           <span class="actions">${actions}</span>
         </span>
@@ -275,6 +348,11 @@ async function ARINA_load(manual){
   }
 }
 
+document.getElementById('moreBtn').addEventListener('click', function(){
+  PAGE = Math.min(PAGE + 50, 200);
+  ARINA_load();
+});
+
 // каскадное появление строк (Motion stagger)
 let staggered = false;
 function staggerRows(){
@@ -285,30 +363,45 @@ function staggerRows(){
     { delay: window.Motion.stagger(0.07), duration:0.6, ease:[0.16,1,0.3,1] });
 }
 
+// Русские склонения: «1 заявка», «2 заявки», «5 заявок». Без этого в шапке
+// демо висело «2 новых заявок ждут» — мелочь, но её видит клиент первой.
+function plural(n, one, few, many){
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  if (b === 1) return one;
+  return many;
+}
+
 // рекомендация от VELOR — по делу, по свежим цифрам
-function setRecommendation(newCount, todayCount, total){
+function setRecommendation(newCount, todayCount, total, turnover){
   const el = document.getElementById('t-rec');
   let msg;
   if (newCount > 0){
-    msg = `<b>${newCount}</b> ${newCount===1?'новая заявка ждёт':'новых заявок ждут'} ответа. Отвечу клиентам сам — переключите меня в роль «Продавец» в разделе AI.`;
+    msg = `<b>${newCount}</b> ${plural(newCount,'новая заявка ждёт','новые заявки ждут','новых заявок ждут')}`
+        + ' ответа. Отвечу клиентам сам — переключите меня в роль «Продавец» в разделе AI.';
+  } else if (total > 0 && !turnover){
+    // Без сумм не работают ни оборот, ни средний чек, ни советы по деньгам —
+    // поэтому это важнее «спокойного дня».
+    msg = 'Проставьте суммы заказов в строках справа — тогда я посчитаю оборот, средний чек и подскажу, где растёт прибыль.';
   } else if (todayCount === 0){
     msg = 'Сегодня новых заявок нет — хороший день, чтобы запустить акцию. Загляните ко мне в роли «Маркетолог».';
   } else {
-    msg = `Сегодня всё под контролем: ${todayCount} ${todayCount===1?'заказ':'заказов'}, новых заявок без ответа нет. Так держать.`;
+    const avg = total ? Math.round(turnover / total) : 0;
+    msg = `Сегодня всё под контролем: ${todayCount} ${plural(todayCount,'заказ','заказа','заказов')}, новых заявок без ответа нет.`
+        + (avg ? ` Средний чек — <b>${money(avg)} ₽</b>.` : ' Так держать.');
   }
   el.innerHTML = msg;
 }
 
-// клиенты в базе
-async function loadClientsCount(){
-  try{ const cs = await (await fetch('/api/clients')).json();
-    document.getElementById('t-clients').textContent = Array.isArray(cs) ? cs.length : 0;
-  }catch{}
-}
-
 ARINA_load();
-loadClientsCount();
-setInterval(ARINA_load, 15000);
+// Автообновление не должно затирать поле суммы, которое человек прямо сейчас
+// заполняет: пока фокус внутри строки заказа — тихо пропускаем тик.
+setInterval(function(){
+  const a = document.activeElement;
+  if (a && a.tagName === 'INPUT' && a.closest('.order')) return;
+  ARINA_load();
+}, 15000);
 </script>
 </body>
 </html>

@@ -157,6 +157,27 @@ class _PGConn:
         return False
 
 
+# ---------- НАРУШЕНИЕ УНИКАЛЬНОСТИ ----------
+
+class DuplicateError(Exception):
+    """Значение уже занято (логин бизнеса, токен бота). Поле — в .field."""
+    def __init__(self, field, message=None):
+        self.field = field
+        super().__init__(message or f"Значение поля {field} уже занято")
+
+
+def _is_unique_violation(exc) -> bool:
+    """Отличить «занято» от прочих ошибок базы. Работает и для SQLite, и для
+    Postgres: у первого это IntegrityError с текстом UNIQUE constraint failed,
+    у второго — UniqueViolation (класс из psycopg)."""
+    name = type(exc).__name__
+    if name in ("UniqueViolation", "IntegrityError"):
+        text = str(exc).lower()
+        return ("unique" in text or "duplicate key" in text
+                or name == "UniqueViolation")
+    return False
+
+
 # ---------- ПАРОЛИ (хранятся только в виде соли+хеша) ----------
 
 def _hash_password(raw):
@@ -254,6 +275,12 @@ def _migrate_columns(conn):
         ("businesses", "ai_desc", "TEXT"),               # описание характера своими словами
         ("businesses", "board_day", "TEXT"),             # день последнего заседания «Совета директоров»
         ("orders", "amount", "INTEGER DEFAULT 0"),       # сумма заказа (оборот бизнеса)
+        # Откуда пришёл заказ и его id в чужой системе. Нужны, чтобы повторная
+        # синхронизация с Ozon/amoCRM не создавала дубли тех же заказов.
+        ("orders", "external_id", "TEXT"),
+        ("orders", "source", "TEXT"),                    # telegram | ozon | amocrm | …
+        ("clients", "external_id", "TEXT"),              # id клиента в чужой CRM
+        ("clients", "source", "TEXT"),
         ("timeline", "read_at", "TEXT"),                 # центр уведомлений: прочитанность
         ("timeline", "level", "TEXT DEFAULT 'info'"),    # info | important
         ("finance_entries", "op_date", "TEXT"),          # дата операции по выписке
@@ -549,6 +576,28 @@ def init_db():
                )"""
         )
 
+        # Подключённые внешние сервисы (источники знаний): Ozon, ЮKassa, amoCRM…
+        # credentials — ЗАШИФРОВАННЫЙ JSON с ключами доступа (см. secretbox.py):
+        # их нужно читать обратно на каждую синхронизацию, поэтому хешировать,
+        # как пароли, нельзя. meta — открытые несекретные детали (домен магазина,
+        # выбранная воронка), cursor — докуда дочитали в прошлый раз.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS connections (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   provider     TEXT NOT NULL,
+                   status       TEXT DEFAULT 'connected',   -- connected | error | paused
+                   credentials  TEXT,
+                   meta         TEXT,
+                   cursor       TEXT,
+                   last_sync_at TEXT,
+                   last_error   TEXT,
+                   items_total  INTEGER DEFAULT 0,
+                   created_at   TEXT DEFAULT (datetime('now')),
+                   UNIQUE(business_id, provider)
+               )"""
+        )
+
         # Обработанные апдейты Telegram — защита от повторной доставки (webhook).
         # Telegram при таймауте/ошибке повторяет апдейт; по (business_id, update_id)
         # отсекаем дубли, чтобы не создавать повторные заявки и не слать повторный ответ.
@@ -585,20 +634,61 @@ def init_db():
             ("idx_owner_tg",             "owner_identity",  "telegram_user_id"),
             ("idx_owner_email",          "owner_identity",  "email"),
             ("idx_owner_phone",          "owner_identity",  "phone"),
+            ("idx_connections_biz",      "connections",     "business_id"),
+            ("idx_orders_external",      "orders",          "business_id, external_id"),
+            ("idx_clients_external",     "clients",         "business_id, external_id"),
+            ("idx_finance_external",     "finance_entries", "business_id, external_id"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
+
+    # ---- Уникальность логина и токена бота (защита арендаторов) ----
+    # Проверки «сначала SELECT, потом INSERT» недостаточно: два одновременных
+    # запроса успевают пройти её оба. Уникальность должна гарантировать БАЗА.
+    # Токен бота критичнее логина: два бизнеса с одним токеном — это чужие
+    # клиенты в чужой панели, потому что бота ищут именно по токену.
+    # Индексы частичные (WHERE ... IS NOT NULL) — пустые значения не мешают
+    # друг другу; синтаксис поддерживают и SQLite, и Postgres.
+    # Отдельным соединением и по одному: если в старой базе уже есть дубли,
+    # создание индекса упадёт — это НЕ должно рушить запуск сервера.
+    for idx, cols in [("uq_businesses_login", "login"),
+                      ("uq_businesses_bot_token", "tg_bot_token")]:
+        try:
+            with _connect() as conn:
+                conn.execute(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {idx} ON businesses ({cols}) "
+                    f"WHERE {cols} IS NOT NULL AND {cols} != ''"
+                )
+        except Exception:
+            # Дубликаты в существующей базе. Сервер поднимаем, но говорим об этом
+            # владельцу в лог — их нужно развести вручную.
+            import logging as _lg
+            _lg.getLogger("velor").warning(
+                "Не удалось включить уникальность %s: в таблице businesses есть "
+                "повторяющиеся значения. Разведите их вручную.", cols)
 
 
 # ---------- БИЗНЕСЫ (тенанты) ----------
 
-def create_business(name, about=None, greeting=None):
-    """Добавить новый бизнес. Возвращает его id."""
-    with _connect() as conn:
-        cur = conn.execute(
-            "INSERT INTO businesses (name, about, greeting) VALUES (?, ?, ?)",
-            (name, about, greeting),
-        )
-        return cur.lastrowid
+def create_business(name, about=None, greeting=None, login=None, password=None):
+    """Добавить новый бизнес. Возвращает его id.
+
+    Логин и пароль принимаем ЗДЕСЬ, а не отдельным update после создания: иначе
+    при занятом логине в базе оставался бы «осиротевший» бизнес без входа.
+    Одна вставка — либо аккаунт создан целиком, либо не создан вовсе.
+    """
+    try:
+        with _connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO businesses (name, about, greeting, login, password)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (name, about, greeting, (login or None),
+                 _hash_password(password) if password else None),
+            )
+            return cur.lastrowid
+    except Exception as e:
+        if _is_unique_violation(e):
+            raise DuplicateError("login") from e
+        raise
 
 
 def get_business(business_id):
@@ -930,7 +1020,12 @@ def update_business(business_id, **fields):
     allowed = {"name", "about", "greeting", "plan", "fee", "tg_bot_token", "login", "password", "knowledge", "tone",
                "ai_name", "ai_avatar", "ai_traits", "ai_desc",
                "trial_start", "trial_end", "trial_used", "subscription_status",
-               "subscription_plan", "subscription_started", "subscription_expires", "board_day", "risk_score"}
+               "subscription_plan", "subscription_started", "subscription_expires", "board_day", "risk_score",
+               # Подтверждение личности владельца. Без этих двух полей в списке
+               # код привязки Telegram молча терялся: /api/trial/start выдавал код,
+               # он не сохранялся, webhook его не находил — и кнопка «Запустить
+               # VELOR» не могла сработать никогда.
+               "tg_verify_code", "owner_verified"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return
@@ -939,11 +1034,19 @@ def update_business(business_id, **fields):
         sets["password"] = _hash_password(sets["password"])
     before = get_business(business_id) or {}
     q = ", ".join(f"{k} = ?" for k in sets)
-    with _connect() as conn:
-        conn.execute(
-            f"UPDATE businesses SET {q} WHERE id = ?",
-            (*sets.values(), business_id),
-        )
+    try:
+        with _connect() as conn:
+            conn.execute(
+                f"UPDATE businesses SET {q} WHERE id = ?",
+                (*sets.values(), business_id),
+            )
+    except Exception as e:
+        if _is_unique_violation(e):
+            # Занят либо логин, либо токен бота. Определяем по тому, что меняли:
+            # токен важнее — с ним чужие клиенты попали бы в чужую панель.
+            field = "tg_bot_token" if "tg_bot_token" in sets else "login"
+            raise DuplicateError(field) from e
+        raise
     _log_business_changes(before, sets, business_id)
 
 
@@ -2576,27 +2679,84 @@ def get_history(business_id, client_id, limit=20):
 
 # ---------- ЗАКАЗЫ ----------
 
-def add_order(business_id, text, client_id=None, phone=None, address=None, date_wanted=None):
-    """Записать новый заказ. Возвращает id заказа."""
+def add_order(business_id, text, client_id=None, phone=None, address=None,
+              date_wanted=None, amount=0):
+    """Записать новый заказ. Возвращает id заказа.
+
+    amount — сумма заказа в рублях. Именно из неё складывается оборот бизнеса,
+    сумма покупок клиента и вся денежная аналитика, поэтому её нужно писать
+    сразу при создании (раньше колонка существовала, но не заполнялась никогда,
+    и все обороты в системе были нулями).
+    """
     with _connect() as conn:
         cur = conn.execute(
-            """INSERT INTO orders (business_id, client_id, text, phone, address, date_wanted)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (business_id, client_id, text, phone, address, date_wanted),
+            """INSERT INTO orders (business_id, client_id, text, phone, address, date_wanted, amount)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (business_id, client_id, text, phone, address, date_wanted, _money(amount)),
         )
         order_id = cur.lastrowid
-    log_event(business_id, "order", "Создан заказ", (text or "")[:120])
+    detail = (text or "")[:120]
+    if _money(amount):
+        detail += f" · {_money(amount)} ₽"
+    log_event(business_id, "order", "Создан заказ", detail)
     return order_id
 
 
-def get_orders(business_id, limit=20):
+def _money(value):
+    """Привести сумму к целым рублям: принимаем 1500, '1500', '1 500,50', None."""
+    if value is None:
+        return 0
+    if isinstance(value, (int, float)):
+        return max(0, int(round(value)))
+    s = str(value).replace(" ", " ").replace(" ", "").replace(",", ".")
+    s = re.sub(r"[^\d.\-]", "", s)
+    try:
+        return max(0, int(round(float(s))))
+    except (ValueError, TypeError):
+        return 0
+
+
+def set_order_amount(order_id, business_id, amount):
+    """Проставить/исправить сумму заказа — только в своём бизнесе."""
+    if not business_id:
+        raise ValueError("set_order_amount требует business_id (защита арендаторов)")
+    value = _money(amount)
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE orders SET amount = ? WHERE id = ? AND business_id = ?",
+            (value, order_id, business_id),
+        )
+    return value
+
+
+def get_orders(business_id, limit=20, offset=0):
     """Получить последние заказы бизнеса (для просмотра/отчётов)."""
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM orders WHERE business_id = ? ORDER BY id DESC LIMIT ?",
-            (business_id, limit),
+            "SELECT * FROM orders WHERE business_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+            (business_id, limit, max(0, int(offset or 0))),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def orders_overview(business_id):
+    """Настоящие итоги по заказам: сколько всего, сколько новых, сколько сегодня
+    и на какую сумму. Считается в базе через COUNT/SUM, а не длиной выборки —
+    раньше ИИ и главная получали «заказов всего 20», потому что мерили len()
+    списка, ограниченного LIMIT."""
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) AS total,
+                      COALESCE(SUM(CASE WHEN status = 'новый' THEN 1 ELSE 0 END), 0) AS new,
+                      COALESCE(SUM(CASE WHEN status = 'выполнен' THEN 1 ELSE 0 END), 0) AS done,
+                      COALESCE(SUM(CASE WHEN date(created_at) = date('now') THEN 1 ELSE 0 END), 0) AS today,
+                      COALESCE(SUM(amount), 0) AS turnover
+                 FROM orders WHERE business_id = ?""",
+            (business_id,),
+        ).fetchone()
+    return {"total": int(row["total"] or 0), "new": int(row["new"] or 0),
+            "done": int(row["done"] or 0), "today": int(row["today"] or 0),
+            "turnover": int(row["turnover"] or 0)}
 
 
 def update_order_status(order_id, status, business_id):
@@ -2680,3 +2840,199 @@ def finance_summary(business_id):
         "profit": income - expense,
         "by_category": [dict(r) for r in cats],
     }
+
+
+# ============================================================
+#  ПОДКЛЮЧЁННЫЕ СЕРВИСЫ (Ozon, ЮKassa, amoCRM…) И ИХ ДАННЫЕ
+# ============================================================
+# Правило: данные из внешних сервисов ложатся в УЖЕ СУЩЕСТВУЮЩИЕ сущности —
+# заказы в orders, платежи в finance_entries, покупатели в clients. Отдельных
+# таблиц «заказы Ozon» и «платежи ЮKassa» нет и не нужно: тогда весь продукт
+# (CRM, финансы, AI-директор, экспорт, цели) видит эти данные без единой правки.
+# Дедупликацию обеспечивает пара (business_id, external_id) в каждой таблице.
+
+import json as _json
+
+
+def list_connections(business_id):
+    """Все подключения бизнеса. Секреты НЕ отдаём — только статус и метаданные."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM connections WHERE business_id = ? ORDER BY provider",
+            (business_id,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d.pop("credentials", None)
+        try:
+            d["meta"] = _json.loads(d.get("meta") or "{}")
+        except (ValueError, TypeError):
+            d["meta"] = {}
+        out.append(d)
+    return out
+
+
+def get_connection(business_id, provider, with_secrets=False):
+    """Одно подключение. with_secrets=True — только для самой синхронизации."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM connections WHERE business_id = ? AND provider = ?",
+            (business_id, provider),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["meta"] = _json.loads(d.get("meta") or "{}")
+    except (ValueError, TypeError):
+        d["meta"] = {}
+    if not with_secrets:
+        d.pop("credentials", None)
+    return d
+
+
+def save_connection(business_id, provider, credentials_blob=None, meta=None, status="connected"):
+    """Создать или обновить подключение. credentials_blob уже зашифрован (secretbox)."""
+    meta_json = _json.dumps(meta or {}, ensure_ascii=False)
+    exists = get_connection(business_id, provider)
+    with _connect() as conn:
+        if exists:
+            if credentials_blob is None:      # секреты не меняли — не затираем
+                conn.execute(
+                    "UPDATE connections SET meta = ?, status = ?, last_error = NULL "
+                    "WHERE business_id = ? AND provider = ?",
+                    (meta_json, status, business_id, provider))
+            else:
+                conn.execute(
+                    "UPDATE connections SET credentials = ?, meta = ?, status = ?, last_error = NULL "
+                    "WHERE business_id = ? AND provider = ?",
+                    (credentials_blob, meta_json, status, business_id, provider))
+        else:
+            conn.execute(
+                "INSERT INTO connections (business_id, provider, credentials, meta, status) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (business_id, provider, credentials_blob, meta_json, status))
+    if not exists:
+        log_event(business_id, "integration", "Подключён источник: " + provider,
+                  "VELOR начнёт забирать оттуда данные автоматически")
+    return get_connection(business_id, provider)
+
+
+def mark_connection_synced(business_id, provider, added=0, cursor=None, error=None):
+    """Записать итог синхронизации: когда, сколько нового, была ли ошибка."""
+    with _connect() as conn:
+        if error:
+            conn.execute(
+                "UPDATE connections SET status = 'error', last_error = ?, "
+                "last_sync_at = datetime('now') WHERE business_id = ? AND provider = ?",
+                (str(error)[:400], business_id, provider))
+        else:
+            conn.execute(
+                "UPDATE connections SET status = 'connected', last_error = NULL, "
+                "last_sync_at = datetime('now'), items_total = COALESCE(items_total,0) + ?, "
+                "cursor = COALESCE(?, cursor) WHERE business_id = ? AND provider = ?",
+                (int(added or 0), cursor, business_id, provider))
+
+
+def delete_connection(business_id, provider):
+    """Отключить сервис. Уже загруженные данные остаются — они принадлежат бизнесу."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM connections WHERE business_id = ? AND provider = ?",
+                     (business_id, provider))
+    log_event(business_id, "integration", "Отключён источник: " + provider,
+              "Ранее загруженные данные сохранены")
+
+
+def connected_providers(business_id):
+    """Названия подключённых сервисов — для контекста ИИ и шкалы знаний."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT provider FROM connections WHERE business_id = ? AND status != 'paused'",
+            (business_id,),
+        ).fetchall()
+    return [r["provider"] for r in rows]
+
+
+# ---------- ИДЕМПОТЕНТНАЯ ЗАПИСЬ ТОГО, ЧТО ПРИШЛО ИЗВНЕ ----------
+
+def upsert_external_client(business_id, external_id, source, name=None, phone=None, notes=None):
+    """Покупатель из внешней системы. Повторная синхронизация не создаёт дубль."""
+    key = source + ":" + str(external_id)
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM clients WHERE business_id = ? AND external_id = ?",
+            (business_id, key),
+        ).fetchone()
+        if row:
+            # дополняем то, чего не хватало (телефон часто приходит позже)
+            fields, params = [], []
+            if phone and not row["phone"]:
+                fields.append("phone = ?")
+                params.append(phone)
+            if name and not row["name"]:
+                fields.append("name = ?")
+                params.append(name)
+            if fields:
+                conn.execute("UPDATE clients SET " + ", ".join(fields) + " WHERE id = ?",
+                             (*params, row["id"]))
+            return row["id"], False
+        cur = conn.execute(
+            """INSERT INTO clients (business_id, name, phone, notes, external_id, source)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (business_id, name, phone, notes, key, source),
+        )
+        return cur.lastrowid, True
+
+
+def upsert_external_order(business_id, external_id, source, text, amount=0,
+                          status=None, client_id=None, phone=None, created_at=None):
+    """
+    Заказ из внешней системы. Возвращает (order_id, создан_ли_новый).
+    Статус и сумма обновляются при каждой синхронизации: заказ в маркетплейсе
+    живёт своей жизнью (оплачен, отменён, возвращён), и мы должны это видеть.
+    """
+    key = source + ":" + str(external_id)
+    value = _money(amount)
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, status, amount FROM orders WHERE business_id = ? AND external_id = ?",
+            (business_id, key),
+        ).fetchone()
+        if row:
+            if (status and status != row["status"]) or value != (row["amount"] or 0):
+                conn.execute(
+                    "UPDATE orders SET status = COALESCE(?, status), amount = ? WHERE id = ?",
+                    (status, value, row["id"]))
+            return row["id"], False
+        cur = conn.execute(
+            """INSERT INTO orders (business_id, client_id, text, phone, status, amount,
+                                   external_id, source, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+            (business_id, client_id, text, phone, status or "новый", value,
+             key, source, created_at),
+        )
+        return cur.lastrowid, True
+
+
+def upsert_external_finance(business_id, external_id, source, kind, amount,
+                            category=None, note=None, counterparty=None, op_date=None):
+    """Платёж/операция из внешней системы в общие финансы. Дубли отсекаются."""
+    key = source + ":" + str(external_id)
+    value = _money(amount)
+    if not value:
+        return None, False
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id FROM finance_entries WHERE business_id = ? AND external_id = ?",
+            (business_id, key),
+        ).fetchone()
+        if row:
+            return row["id"], False
+        cur = conn.execute(
+            """INSERT INTO finance_entries (business_id, kind, category, amount, note,
+                                            counterparty, external_id, source, op_date, confidence)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+            (business_id, kind, category, value, note, counterparty, key, source, op_date),
+        )
+        return cur.lastrowid, True

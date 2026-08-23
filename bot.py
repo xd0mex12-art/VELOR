@@ -99,6 +99,7 @@ async def ai_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
             phone=order.get("phone"),
             address=order.get("address"),
             date_wanted=order.get("date_wanted"),
+            amount=order.get("amount"),
         )
         if order.get("phone") and not client.get("phone"):
             database.update_client(client["id"], bid, phone=order["phone"])

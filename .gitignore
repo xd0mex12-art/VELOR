@@ -5,6 +5,7 @@
 .env
 .env.*
 .jwt_secret
+.secret_box
 # ...но шаблоны без секретов оставляем
 !.env.example
 !.env.production.example

@@ -110,14 +110,20 @@ def _company_block(b: dict) -> str:
 
 
 def _snapshot_block(bid: int, snapshot: str | None) -> str:
+    """Числа для модели считает база (COUNT/SUM), а не длина выборки: иначе у
+    компании с сотнями заказов в промпт уходило «заказов 20» — и весь анализ
+    строился на неверных цифрах."""
     if snapshot:
         return "\n\nТекущие данные бизнеса: " + snapshot + "."
-    orders = _safe(lambda: database.get_orders(bid, limit=20), []) or []
-    clients = _safe(lambda: database.list_clients(bid, limit=20), []) or []
-    if not orders and not clients:
+    o = _safe(lambda: database.orders_overview(bid), {}) or {}
+    clients = _safe(lambda: database.count_clients(bid), 0) or 0
+    if not o.get("total") and not clients:
         return ""
-    new = sum(1 for o in orders if (o.get("status") if isinstance(o, dict) else None) == "новый")
-    return f"\n\nТекущие данные бизнеса: заказов {len(orders)}, новых {new}, клиентов {len(clients)}."
+    line = (f"заказов {o.get('total', 0)}, новых {o.get('new', 0)}, "
+            f"выполнено {o.get('done', 0)}, клиентов {clients}")
+    if o.get("turnover"):
+        line += f", оборот по заказам {o['turnover']} ₽"
+    return "\n\nТекущие данные бизнеса: " + line + "."
 
 
 def _crm_block(bid: int) -> str:
@@ -130,12 +136,35 @@ def _crm_block(bid: int) -> str:
         for o in orders:
             txt = (o.get("text") or "").strip()[:70]
             st = o.get("status") or "новый"
-            lines.append(f"  · {txt} [{st}]")
+            amt = f" — {int(o['amount'])} ₽" if o.get("amount") else ""
+            lines.append(f"  · {txt}{amt} [{st}]")
     clients = _safe(lambda: database.list_clients(bid, limit=5), []) or []
     if clients:
         names = ", ".join((c.get("name") or "без имени") for c in clients[:5])
         lines.append("Недавние клиенты: " + names)
     return ("\n\nCRM (свежее):\n" + "\n".join(lines)) if lines else ""
+
+
+def _sources_block(bid: int) -> str:
+    """Из каких систем пришли данные.
+
+    Без этой строки ассистент не отличает заявку из Telegram от заказа с Ozon и
+    не может сказать «выручка по Wildberries просела». Названия берём из реестра
+    коннекторов, поэтому новый источник появляется здесь сам.
+    """
+    providers = _safe(lambda: database.connected_providers(bid), []) or []
+    if not providers:
+        return ""
+    try:
+        import connectors
+        names = [connectors.REGISTRY[p].NAME for p in providers if p in connectors.REGISTRY]
+    except Exception:
+        names = providers
+    if not names:
+        return ""
+    return ("\n\nПОДКЛЮЧЁННЫЕ СИСТЕМЫ: " + ", ".join(names) +
+            ". Заказы и платежи оттуда уже в данных выше — ссылайся на них как на "
+            "факты компании и различай источники, если это важно для вывода.")
 
 
 def _finance_block(bid: int) -> str:
@@ -255,6 +284,7 @@ def build_system(business: dict, question: str, *, role: str | None = None,
     ctx += ai._timeline_block(_safe(lambda: database.timeline_digest(bid), ""))
     ctx += _finance_block(bid)
     ctx += _crm_block(bid)
+    ctx += _sources_block(bid)
     ctx += _client_block(bid, client_id)
     ctx += _memory_block(bid, question)
     ctx += _docs_block(bid, question)
