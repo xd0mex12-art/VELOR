@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 
 import database
 import secretbox
 import signals
-from connectors.base import ConnectorError
+from connectors.base import ConnectorError, patient
 
 from connectors import (amocrm, bitrix24, cloudpayments, hubspot, ozon, shopify,
                         slack, stripe, wildberries, woocommerce, yookassa)
@@ -27,6 +28,16 @@ MODULES = [ozon, wildberries, shopify, woocommerce,
            bitrix24, amocrm, hubspot, slack]
 
 REGISTRY = {m.ID: m for m in MODULES}
+
+# Кто прямо сейчас синхронизируется: пары (бизнес, источник).
+#
+# Фоновый обход и кнопка «Обновить» легко встречаются на одном источнике.
+# Дублей данных от этого не будет (всё пишется по внешнему id), но два
+# одновременных прогона тратят лимит запросов сервиса вдвое быстрее и могут
+# откатить курсор назад — тогда часть свежих записей пропускается до
+# следующего круга. Дешевле никого не пускать вторым.
+_busy: set[tuple[int, str]] = set()
+_busy_lock = threading.Lock()
 
 
 def catalog() -> list[dict]:
@@ -71,6 +82,13 @@ def connect(business_id: int, provider: str, creds: dict) -> dict:
     if not m:
         raise ConnectorError("Неизвестный источник.")
 
+    # Ключи копируют мышкой из чужого кабинета, и вместе с ключом приезжают
+    # пробелы, перевод строки, а из некоторых панелей — неразрывный пробел.
+    # Глазами это не видно, а сервис отвечает «неверный ключ».
+    nbsp = chr(160)                     # неразрывный пробел: глазами не отличить
+    creds = {k: (v.replace(nbsp, " ").strip() if isinstance(v, str) else v)
+             for k, v in (creds or {}).items()}
+
     # Если поле-секрет прислали пустым, а подключение уже есть — оставляем старый
     # ключ: в интерфейсе он показан звёздочками, и заставлять вводить заново глупо.
     existing = database.get_connection(business_id, provider, with_secrets=True)
@@ -98,20 +116,37 @@ def sync(business_id: int, provider: str) -> dict:
     row = database.get_connection(business_id, provider, with_secrets=True)
     if not m or not row:
         return {"ok": False, "added": 0, "error": "Источник не подключён."}
-    try:
-        added, cursor = m.sync(business_id, _creds(row), row.get("meta") or {},
-                               row.get("cursor"))
-    except ConnectorError as e:
-        database.mark_connection_synced(business_id, provider, error=str(e))
-        return {"ok": False, "added": 0, "error": str(e)}
-    except Exception as e:                       # неожиданное — не показываем внутренности
-        log.exception("Синхронизация %s упала (biz %s)", provider, business_id)
-        database.mark_connection_synced(
-            business_id, provider,
-            error="Внутренняя ошибка синхронизации. Мы записали её и разберёмся.")
-        return {"ok": False, "added": 0, "error": "Внутренняя ошибка синхронизации."}
 
-    database.mark_connection_synced(business_id, provider, added=added, cursor=cursor)
+    key = (int(business_id), provider)
+    with _busy_lock:
+        if key in _busy:
+            # Не ошибка: этот источник прямо сейчас качает фоновый обход.
+            return {"ok": True, "added": 0, "busy": True, "error": None}
+        _busy.add(key)
+    try:
+        try:
+            # Фоновому потоку спешить некуда: пусть спокойно дожидается своей
+            # очереди у сервисов, которые пускают редко.
+            with patient():
+                added, cursor = m.sync(business_id, _creds(row), row.get("meta") or {},
+                                       row.get("cursor"))
+        except ConnectorError as e:
+            database.mark_connection_synced(business_id, provider, error=str(e))
+            return {"ok": False, "added": 0, "error": str(e)}
+        except Exception:                        # неожиданное — не показываем внутренности
+            log.exception("Синхронизация %s упала (biz %s)", provider, business_id)
+            database.mark_connection_synced(
+                business_id, provider,
+                error="Внутренняя ошибка синхронизации. Мы записали её и разберёмся.")
+            return {"ok": False, "added": 0, "error": "Внутренняя ошибка синхронизации."}
+
+        # Курсор пишем под тем же замком, что и качали: иначе следующий прогон
+        # успеет стартовать со старого места и пройдёт тот же кусок заново.
+        database.mark_connection_synced(business_id, provider, added=added, cursor=cursor)
+    finally:
+        with _busy_lock:
+            _busy.discard(key)
+
     if added:
         # Новые заказы и деньги должны сразу отражаться на Директоре и брифинге.
         try:

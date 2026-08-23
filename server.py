@@ -2174,14 +2174,29 @@ def api_connection_save(provider: str, body: ConnectIn,
         raise HTTPException(status_code=404, detail="Неизвестный источник.")
     creds = {k: (str(v) if v is not None else "") for k, v in (body.credentials or {}).items()}
     try:
-        conn = connectors.connect(bid, provider, creds)
+        connectors.connect(bid, provider, creds)
     except connectors.ConnectorError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    # Сразу забираем первую порцию данных: владелец должен увидеть результат
-    # немедленно, а не «когда-нибудь синхронизируется».
-    result = connectors.sync(bid, provider)
+
+    # Первую порцию данных забираем в фоне, а не прямо здесь.
+    #
+    # Раньше выгрузка шла внутри этого запроса, и у живого магазина с историей
+    # заказов человек сидел перед крутящейся кнопкой все 25 секунд, а у
+    # Wildberries вдобавок ловил 429: проверка ключа и выгрузка били в один
+    # эндпоинт подряд, а он пускает примерно раз в минуту.
+    #
+    # Теперь ключ проверен (иначе мы бы сюда не дошли), подключение сохранено,
+    # и кабинет отвечает мгновенно. Данные догоняются следом, страница их
+    # дожидается сама и показывает результат.
+    if _os.getenv("DISABLE_SYNC_WORKER"):
+        return {"ok": True, "connection": database.get_connection(bid, provider),
+                "synced": connectors.sync(bid, provider)}
+
+    import threading
+    threading.Thread(target=connectors.sync, args=(bid, provider),
+                     name=f"velor-first-sync-{provider}", daemon=True).start()
     return {"ok": True, "connection": database.get_connection(bid, provider),
-            "synced": result}
+            "synced": {"ok": True, "added": 0, "pending": True, "error": None}}
 
 
 @app.post("/api/connections/{provider}/sync")

@@ -10,7 +10,7 @@ Wildberries — продажи и возвраты.
 поэтому прибыль в VELOR совпадает с реальностью, а не только с продажами.
 """
 import database
-from connectors.base import (MAX_ITEMS, ConnectorError, day_of, field, need,
+from connectors.base import (MAX_ITEMS, ConnectorError, day_of, field, need, now,
                              request, rub, since, to_stamp)
 
 ID = "wildberries"
@@ -30,10 +30,18 @@ def _headers(creds):
     return {"Authorization": need(creds, "token")}
 
 
-def _sales(creds, date_from):
-    """Продажи с указанной даты. WB отдаёт до 80 000 строк за запрос."""
+def _sales(creds, date_from, flag=0):
+    """
+    Продажи. flag=0 — всё, что менялось с указанного момента (может быть
+    очень много строк), flag=1 — только за одну указанную дату.
+
+    Ответ WB бывает объёмным, поэтому на выгрузку даём больше времени, чем
+    на обычный запрос: у активного продавца первая порция за два месяца
+    собирается дольше стандартных 25 секунд.
+    """
     data = request("GET", f"{API}/api/v1/supplier/sales", headers=_headers(creds),
-                   params={"dateFrom": date_from, "flag": 0})
+                   params={"dateFrom": date_from, "flag": flag},
+                   timeout=120 if flag == 0 else None)
     if not isinstance(data, list):
         raise ConnectorError("Wildberries вернул неожиданный ответ. Проверьте права токена "
                              "— нужна категория «Статистика».")
@@ -41,8 +49,16 @@ def _sales(creds, date_from):
 
 
 def check(creds, meta):
-    # Узкое окно: проверяем именно тот доступ, который потом используем.
-    _sales(creds, "2024-01-01T00:00:00")
+    """
+    Проверка токена одним дешёвым запросом.
+
+    Берём flag=1 за сегодня: тот же эндпоинт и то же право доступа, но ответ
+    заведомо маленький. Раньше здесь стоял flag=0 от 2024-01-01 — то есть на
+    проверку ключа заказывалась вся история продаж магазина, и у активного
+    продавца подключение отваливалось по таймауту ещё до сохранения.
+    Пустой список — это тоже успех: значит, доступ есть, продаж сегодня нет.
+    """
+    _sales(creds, now().strftime("%Y-%m-%dT00:00:00"), flag=1)
     return dict(meta or {}, verified=True)
 
 

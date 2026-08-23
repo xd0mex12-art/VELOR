@@ -575,10 +575,27 @@ function modalConnect(s){
       });
       const d = await r.json();
       if (!r.ok){ say(d.detail || 'Не удалось подключить.', true); return; }
+      if (window.VELOR_CORE) window.VELOR_CORE.insight();
+
+      // Ключ принят. Данные сервер тянет следом, в фоне — дожидаемся их здесь,
+      // чтобы человек увидел результат, а не пустую карточку.
+      if (d.synced && d.synced.pending){
+        say('Ключ принят. Загружаю данные…');
+        go.textContent = 'Загружаю данные…';
+        const res = await waitFirstSync(s.id, live);
+        if (res.error) say('Подключено, но данные пока не пришли: ' + res.error, true);
+        else if (res.added) say(`Готово. Загружено записей: ${res.added}.`);
+        else if (res.done) say('Готово. Данных за последнее время нет — '
+                             + 'появятся, как только что-то произойдёт.');
+        else say('Ключ принят. Данные подтянутся в ближайшие минуты — можно закрыть окно.');
+        await reload();
+        setTimeout(closeModal, res.error ? 4000 : 1800);
+        return;
+      }
+
       const added = (d.synced && d.synced.added) || 0;
       say(added ? `Готово. Загружено записей: ${added}.`
                 : 'Готово. Данных за последнее время нет — появятся при следующей синхронизации.');
-      if (window.VELOR_CORE) window.VELOR_CORE.insight();
       await reload();
       setTimeout(closeModal, 1400);
     }catch(e){
@@ -594,7 +611,8 @@ function modalConnect(s){
     syncBtn.disabled = true; syncBtn.textContent = 'Обновляю…';
     try{
       const d = await (await fetch('/api/connections/' + s.id + '/sync', {method:'POST'})).json();
-      say(d.ok ? `Загружено новых записей: ${d.added || 0}.` : (d.error || 'Не получилось.'), !d.ok);
+      if (d.busy) say('Обновление уже идёт — подождите, оно вот-вот закончится.');
+      else say(d.ok ? `Загружено новых записей: ${d.added || 0}.` : (d.error || 'Не получилось.'), !d.ok);
       await reload();
     }catch(e){ say('Нет связи с сервером.', true); }
     syncBtn.disabled = false; syncBtn.textContent = 'Обновить данные сейчас';
@@ -671,6 +689,27 @@ document.getElementById('syncAll').addEventListener('click', async function(){
 
 // ── ЗАГРУЗКА ДАННЫХ ──
 const j = (url, dflt) => fetch(url).then(r=>r.ok ? r.json() : dflt).catch(()=>dflt);
+
+// ── ОЖИДАНИЕ ПЕРВОЙ ВЫГРУЗКИ ──
+// Верхняя граница подобрана под Wildberries: его статистика пускает примерно
+// раз в минуту, поэтому первая порция приходит не сразу. Не дождались — это
+// не ошибка: фоновая синхронизация всё равно доведёт дело до конца.
+const FIRST_SYNC_WAIT_MS = 105000;
+
+async function waitFirstSync(id, before){
+  const wasAt = (before && before.last_sync_at) || '';
+  const wasTotal = (before && before.items_total) || 0;
+  const started = Date.now();
+  while (Date.now() - started < FIRST_SYNC_WAIT_MS){
+    await new Promise(r => setTimeout(r, 3000));
+    const conns = await j('/api/connections', {items:[]});
+    const c = ((conns && conns.items) || []).find(x => x.id === id);
+    if (!c || (c.last_sync_at || '') === wasAt) continue;   // ещё не отработала
+    if (c.last_error) return { error: c.last_error };
+    return { done: true, added: Math.max(0, (c.items_total || 0) - wasTotal) };
+  }
+  return {};
+}
 
 async function reload(){
   const [b, st, f, d, fin, home, conns] = await Promise.all([
