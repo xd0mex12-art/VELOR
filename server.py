@@ -3401,6 +3401,68 @@ def api_inbox_delete(item_id: int, business_id: int = 0, x_auth: str = Header(de
 
 ACTOR_RU = {"business": "владелец", "owner": "поддержка VELOR", "velor": "VELOR"}
 
+# Какое изменение какую аналитику пересобирает. Владелец исправил сумму —
+# прибыль, прогноз, Директор и утренний брифинг должны считать заново, а не
+# на следующий день: иначе на одном экране одна правда, на другом другая.
+REACT_DOMAIN = {"expense": "finance", "income": "finance", "order": "order",
+                "client": "client", "document": "document", "goal": "goal",
+                "service": "memory", "product": "memory", "rule": "memory",
+                "employee": "memory", "supplier": "memory", "company": "memory"}
+
+
+def _react(bid: int, entity_type: str) -> None:
+    domain = REACT_DOMAIN.get(entity_type)
+    if domain:
+        signals.react(bid, domain)
+
+
+def _ai_values(history: list) -> dict:
+    """
+    Что предлагал ИИ, когда запись появилась.
+
+    Берём из решения (original) — это ровно то, что показали человеку, — а
+    если решения не было, из самого разбора. Правка владельца лежит отдельно,
+    поэтому исходное предложение ИИ не затирается никогда: без него нельзя
+    сказать, где он ошибается.
+    """
+    created = next((h for h in history if h.get("event") == "created"), None)
+    if not created:
+        return {}
+    original = ((created.get("decision") or {}).get("original")
+                or (created.get("result") or {}).get("extracted") or {})
+    return {k: v for k, v in dict(original).items() if not str(k).endswith("_id")}
+
+
+def _corrections(fields: list, ai: dict, values: dict) -> list:
+    """Где живое значение разошлось с предложением ИИ."""
+    out = []
+    for fl in fields:
+        name = fl["name"]
+        if name not in ai:
+            continue
+        was, now = ai.get(name), values.get(name)
+        if str(was if was is not None else "").strip() == str(now if now is not None else "").strip():
+            continue
+        out.append({"field": name, "label": fl["label"], "ai": was, "now": now})
+    return out
+
+
+# Три разных происхождения, и путать их нельзя. «VELOR записал сам» — это
+# автоприменение. «VELOR предложил, вы подтвердили» — разбор, который прошёл
+# через человека. «Внесено вручную» — человек с нуля. Доверие к цифре у них
+# разное, поэтому и подпись разная.
+BY_RU = {"velor": "записал VELOR",
+         "confirmed": "VELOR предложил, вы подтвердили",
+         "manual": "внесено вручную"}
+
+
+def _link_by(link) -> str:
+    if not link:
+        return ""
+    if link.get("actor") == "velor":
+        return "velor"
+    return "confirmed" if link.get("source_kind") == "inbox" else "manual"
+
 
 def _memory_link_public(link: dict) -> dict:
     """Одно событие памяти наружу: что случилось, откуда и с какой уверенностью."""
@@ -3408,6 +3470,8 @@ def _memory_link_public(link: dict) -> dict:
            ("id", "event", "source_kind", "item_id", "result_id", "decision_id",
             "confidence", "changes", "actor", "note", "created_at")}
     out["actor_ru"] = ACTOR_RU.get(link.get("actor"), link.get("actor") or "")
+    out["by"] = _link_by(link)
+    out["by_ru"] = BY_RU.get(out["by"], "")
     if link.get("item_id"):
         out["item"] = {"id": link["item_id"],
                        "title": link.get("item_title") or link.get("item_filename"),
@@ -3459,7 +3523,10 @@ def api_memory_map(business_id: int = 0, x_auth: str = Header(default="")):
             documented_all += documented
             kinds.append({"type": t, "title": sch["title"], "plural": sch["plural"],
                           "where": sch["where"], "can_edit": sch["can_edit"],
-                          "can_create": sch["can_create"], "count": n,
+                          "can_create": sch["can_create"],
+                          "can_archive": sch["can_archive"],
+                          "can_delete": sch["can_delete"], "count": n,
+                          "archived": entities.count(bid, t, archived=True),
                           "linked": linked, "documented": documented})
         if kinds:
             groups.append({"key": key, "title": title, "types": kinds,
@@ -3471,12 +3538,18 @@ def api_memory_map(business_id: int = 0, x_auth: str = Header(default="")):
 
 @app.get("/api/memory/list")
 def api_memory_list(type: str = "", business_id: int = 0, limit: int = 50, offset: int = 0,
-                    x_auth: str = Header(default="")):
-    """Записи одного вида вместе с их происхождением."""
+                    archived: int = 0, x_auth: str = Header(default="")):
+    """
+    Записи одного вида вместе с их происхождением.
+
+    archived=1 — то, что владелец убрал из работы. Архив должен быть виден:
+    невидимый архив ничем не отличается от удаления.
+    """
     bid = _resolve_bid(x_auth, business_id)
     sch = _memory_type(type)
     limit = max(1, min(int(limit or 50), 200))
-    items = entities.listing(bid, type, limit=limit, offset=max(0, int(offset or 0)))
+    items = entities.listing(bid, type, limit=limit, offset=max(0, int(offset or 0)),
+                             archived=bool(archived))
     ids = [i["id"] for i in items]
     origins = database.memory_origins(bid, type, ids)
     edits = database.memory_edit_counts(bid, type, ids)
@@ -3486,7 +3559,12 @@ def api_memory_list(type: str = "", business_id: int = 0, limit: int = 50, offse
         it["edits"] = int(edits.get(it["id"], 0))
     return {"type": type, "title": sch["title"], "plural": sch["plural"],
             "where": sch["where"], "can_edit": sch["can_edit"],
-            "total": entities.count(bid, type), "items": items}
+            "can_create": sch["can_create"], "can_archive": sch["can_archive"],
+            "can_delete": sch["can_delete"], "archived": bool(archived),
+            "fields": sch["fields"] if sch["can_create"] else [],
+            "total": entities.count(bid, type, archived=bool(archived)),
+            "archived_total": entities.count(bid, type, archived=True),
+            "items": items}
 
 
 @app.get("/api/memory/entity/{entity_type}/{entity_id}")
@@ -3498,6 +3576,9 @@ def api_memory_entity(entity_type: str, entity_id: int, business_id: int = 0,
     """
     bid = _resolve_bid(x_auth, business_id)
     sch = _memory_type(entity_type)
+    # Схему собираем под бизнес: в форме правки списки сотрудников и заявок
+    # должны быть свои.
+    sch = entities.schema(entity_type, bid)
     values = entities.read(bid, entity_type, entity_id)
     if values is None:
         raise HTTPException(status_code=404, detail="Запись не найдена.")
@@ -3505,17 +3586,108 @@ def api_memory_entity(entity_type: str, entity_id: int, business_id: int = 0,
     history = [_memory_link_public(l)
                for l in database.memory_links(bid, entity_type, entity_id)]
     source = next((h for h in history if h["event"] == "created"), None)
+    ai = _ai_values(history)
     return {"entity": entity_type, "id": entity_id,
             "schema": sch, "values": values,
             "label": entities.label(entity_type, raw),
             "created_at": raw.get("created_at"),
+            "archived": entities.is_archived(entity_type, raw),
+            "blocked": entities.blockers(bid, entity_type, entity_id),
             "origin": entities.origin_of(entity_type, raw),
+            "ai": ai, "corrections": _corrections(sch["fields"], ai, values),
             "source": source, "history": history}
 
 
 class MemoryEdit(BaseModel):
     data: dict
     business_id: int = 0
+
+
+class ArchiveIn(BaseModel):
+    on: bool = True
+    business_id: int = 0
+
+
+@app.post("/api/memory/entity/{entity_type}")
+def api_memory_create(entity_type: str, body: MemoryEdit,
+                      x_auth: str = Header(default="")):
+    """
+    Завести запись руками — любую: услугу, сотрудника, правило, цель, клиента,
+    заявку, доход, расход. Дорога та же, что у подтверждённого разбора, и
+    запись в истории получается такая же — меняется только автор.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    sch = _memory_type(entity_type)
+    if not sch["can_create"]:
+        raise HTTPException(status_code=400,
+                            detail="«%s» так не создаётся." % sch["title"])
+    try:
+        eid, detail, _clean = entities.create(bid, entity_type, body.data or {})
+    except entities.EntityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logging.exception("Память: не удалось создать %s (biz %s)", entity_type, bid)
+        raise HTTPException(status_code=502, detail="Не удалось сохранить запись.")
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_memory_link(bid, entity_type, eid, event="created", source_kind="manual",
+                             confidence=1.0, actor=actor, actor_id=actor_id, note=detail)
+    _react(bid, entity_type)
+    raw = entities.row(bid, entity_type, eid) or {}
+    return {"ok": True, "id": eid, "detail": detail,
+            "label": entities.label(entity_type, raw)}
+
+
+@app.post("/api/memory/entity/{entity_type}/{entity_id}/archive")
+def api_memory_archive(entity_type: str, entity_id: int, body: ArchiveIn,
+                       x_auth: str = Header(default="")):
+    """
+    Убрать запись из работы или вернуть обратно.
+
+    Архив — не удаление: запись цела, история цела, старые операции
+    продолжают показывать имя. Из знаний ядра она при этом уходит.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    _memory_type(entity_type)
+    try:
+        detail = entities.archive(bid, entity_type, entity_id, body.on)
+    except entities.EntityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_memory_link(bid, entity_type, entity_id,
+                             event="archived" if body.on else "restored",
+                             source_kind="manual", actor=actor, actor_id=actor_id,
+                             note=detail)
+    _react(bid, entity_type)
+    history = [_memory_link_public(l)
+               for l in database.memory_links(bid, entity_type, entity_id)]
+    return {"ok": True, "archived": bool(body.on), "detail": detail, "history": history}
+
+
+@app.post("/api/memory/entity/{entity_type}/{entity_id}/delete")
+def api_memory_delete(entity_type: str, entity_id: int, business_id: int = 0,
+                      x_auth: str = Header(default="")):
+    """
+    Удалить запись насовсем.
+
+    Запись уходит, след — нет: что удалили, кто и когда, остаётся в истории.
+    Если на запись ссылаются деньги или заказы, удаление не проходит и
+    объясняет почему: оборванная ссылка хуже лишней строки.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    _memory_type(entity_type)
+    try:
+        gone = entities.delete(bid, entity_type, entity_id)
+    except entities.EntityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_memory_link(bid, entity_type, entity_id, event="removed",
+                             source_kind="manual", actor=actor, actor_id=actor_id,
+                             note="Удалено: " + gone)
+    _react(bid, entity_type)
+    return {"ok": True, "detail": "Удалено: " + gone}
 
 
 @app.post("/api/memory/entity/{entity_type}/{entity_id}")
@@ -3543,11 +3715,15 @@ def api_memory_edit(entity_type: str, entity_id: int, body: MemoryEdit,
         database.add_memory_link(bid, entity_type, entity_id, event="edited",
                                  source_kind="manual", changes=changes,
                                  actor=actor, actor_id=actor_id, note=detail)
+    _react(bid, entity_type)
     raw = entities.row(bid, entity_type, entity_id) or {}
     history = [_memory_link_public(l)
                for l in database.memory_links(bid, entity_type, entity_id)]
+    ai = _ai_values(history)
     return {"ok": True, "detail": detail, "changes": changes, "values": now,
-            "label": entities.label(entity_type, raw), "history": history}
+            "label": entities.label(entity_type, raw), "history": history,
+            "ai": ai, "corrections": _corrections(
+                entities.schema(entity_type, bid)["fields"], ai, now)}
 
 
 @app.get("/api/memory/source/{item_id}")
@@ -3632,6 +3808,17 @@ class FinanceIn(BaseModel):
     business_id: int = 0
 
 
+def _finance_origin(link) -> dict:
+    """Происхождение операции одним объектом: кем записана и с какой уверенностью."""
+    if not link:
+        return {"by": "", "by_ru": "", "actor_ru": "", "confidence": None, "item": None}
+    by = _link_by(link)
+    return {"by": by, "by_ru": BY_RU.get(by, ""),
+            "actor_ru": ACTOR_RU.get(link.get("actor"), link.get("actor") or ""),
+            "confidence": link.get("confidence"),
+            "item": (link.get("item_title") or link.get("item_filename")) or None}
+
+
 def _finance_public(row: dict) -> dict:
     """Операция наружу: с именами тех, с кем она была, и с понятным документом."""
     out = dict(row)
@@ -3653,8 +3840,19 @@ def api_finance(business_id: int = 0, limit: int = 100, kind: str = "",
     bid = _resolve_bid(x_auth, business_id)
     rows = database.finance_rows(bid, limit=max(1, min(int(limit or 100), 500)),
                                  kind=kind or None, doc_type=doc_type or None)
+    # Кто записал операцию — VELOR или человек — видно в списке, а не только в
+    # карточке: доверять цифре, не зная её происхождения, нельзя.
+    origins = {}
+    for k in ("income", "expense"):
+        origins.update({(k, i): l for i, l in database.memory_origins(
+            bid, k, [r["id"] for r in rows if r["kind"] == k]).items()})
+    entries = []
+    for r in rows:
+        pub = _finance_public(r)
+        pub["origin"] = _finance_origin(origins.get((r["kind"], r["id"])))
+        entries.append(pub)
     return {"summary": database.finance_summary(bid),
-            "entries": [_finance_public(r) for r in rows],
+            "entries": entries,
             "fields": entities.schema("expense", bid)["fields"],
             "docs": database.DOC_TYPES}
 
@@ -3688,6 +3886,7 @@ def api_finance_add(body: FinanceIn, x_auth: str = Header(default="")):
     database.add_memory_link(bid, kind, eid, event="created", source_kind="manual",
                              confidence=1.0, actor=actor, actor_id=actor_id,
                              note=detail)
+    signals.react(bid, "finance")   # деньги → прибыль, прогноз, Директор, риски
     return {"ok": True, "id": eid, "detail": detail, "entry": _finance_public(
         database.finance_row(eid, bid) or {}), "summary": database.finance_summary(bid)}
 
@@ -3709,6 +3908,7 @@ def api_finance_delete(entry_id: int, business_id: int = 0,
                              source_kind="manual", actor=actor, actor_id=actor_id,
                              note="Удалено: {} ₽ · {}".format(
                                  row.get("amount"), row.get("category") or "без категории"))
+    signals.react(bid, "finance")
     return {"ok": True, "summary": database.finance_summary(bid)}
 
 
@@ -3755,11 +3955,17 @@ def api_finance_entry(entry_id: int, business_id: int = 0, x_auth: str = Header(
     values = entities.read(bid, kind, entry_id)
     if values is None:
         raise HTTPException(status_code=404, detail="Операция не найдена.")
+    history = [_memory_link_public(l)
+               for l in database.memory_links(bid, kind, entry_id)]
+    sch = entities.schema(kind, bid)
+    ai = _ai_values(history)
+    created = next((h for h in history if h.get("event") == "created"), None)
     return {"kind": kind, "id": entry_id, "values": values,
-            "schema": entities.schema(kind, bid),
+            "schema": sch,
             "entry": _finance_public(database.finance_row(entry_id, bid) or {}),
-            "history": [_memory_link_public(l)
-                        for l in database.memory_links(bid, kind, entry_id)]}
+            "origin": _finance_origin(created),
+            "ai": ai, "corrections": _corrections(sch["fields"], ai, values),
+            "history": history}
 
 
 @app.post("/api/finance/{entry_id}")
@@ -3784,11 +3990,16 @@ def api_finance_edit(entry_id: int, body: FinanceEdit, x_auth: str = Header(defa
         actor, actor_id = _actor(x_auth, bid)
         database.add_memory_link(bid, kind, entry_id, event="edited", source_kind="manual",
                                  changes=changes, actor=actor, actor_id=actor_id, note=detail)
+    signals.react(bid, "finance")   # исправили сумму — аналитика считает заново
+    history = [_memory_link_public(l)
+               for l in database.memory_links(bid, kind, entry_id)]
+    ai = _ai_values(history)
     return {"ok": True, "detail": detail, "changes": changes, "values": now,
             "entry": _finance_public(database.finance_row(entry_id, bid) or {}),
             "summary": database.finance_summary(bid),
-            "history": [_memory_link_public(l)
-                        for l in database.memory_links(bid, kind, entry_id)]}
+            "ai": ai, "corrections": _corrections(
+                entities.schema(kind, bid)["fields"], ai, now),
+            "history": history}
 
 
 # ---------- GROWTH (AI-маркетолог / контент) ----------

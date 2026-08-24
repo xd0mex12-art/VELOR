@@ -66,6 +66,23 @@
   .src-tag.none{ color:var(--ash); border-style:dashed; }
   .src-tag .nm{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .src-tag .cf{ color:var(--ash); flex:none; }
+  .src-tag.ai i{ background:var(--iris); }
+  .src-tag.arch{ border-style:dashed; color:var(--ash); }
+  .know.arch .t{ color:var(--silver); }
+
+  /* инструменты списка: добавить и заглянуть в архив */
+  .tools{ display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-top:var(--sp-3); }
+
+  /* что предлагал ИИ и что стало после правки владельца */
+  .fix{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-4); display:grid; gap:var(--sp-2); }
+  .fix .r{ display:flex; gap:var(--sp-3); justify-content:space-between;
+    align-items:baseline; flex-wrap:wrap; }
+  .fix .k{ color:var(--ash); font-size:var(--fs-sm); }
+  .fix .was{ color:var(--ash); text-decoration:line-through; }
+  .fix .now{ color:var(--saffron); }
+  .fix .w{ font-size:var(--fs-caption); color:var(--ash); }
+  .note{ margin-top:var(--sp-4); font-size:var(--fs-sm); color:var(--ash); }
 
   /* карточка знания */
   .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
@@ -168,7 +185,8 @@
       </div>
     </div>
     <div class="v-acts">
-      <a class="v-btn" href="inbox.html">Пополнить память</a>
+      <button class="v-btn" type="button" id="addBtn" hidden>Добавить</button>
+      <a class="v-btn ghost" href="inbox.html">Пополнить память</a>
     </div>
   </header>
 
@@ -184,6 +202,7 @@
   <section>
     <div class="sec-h">Записи <span class="n" id="listN"></span></div>
     <div class="v-segs" id="segs" role="group" aria-label="Вид записей"></div>
+    <div class="tools" id="tools"></div>
     <div class="v-panel" id="listBox" style="margin-top:var(--sp-4)">
       <div class="v-sk row"></div><div class="v-sk row"></div><div class="v-sk row"></div>
     </div>
@@ -195,10 +214,25 @@
     <h2 id="cTitle">Знание</h2>
     <div class="kindline" id="cKind"></div>
     <div id="cBody"></div>
+    <div class="note" id="cNote" hidden></div>
     <div class="foot">
       <button class="v-btn" type="button" id="cSave">Сохранить</button>
       <button class="v-btn ghost" type="button" id="cSource">Открыть источник</button>
+      <button class="v-btn ghost" type="button" id="cArch">В архив</button>
+      <button class="v-btn danger" type="button" id="cDel">Удалить</button>
       <button class="v-btn ghost close" type="button" id="cClose">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="newModal" role="dialog" aria-modal="true" aria-labelledby="nTitle">
+  <div class="box">
+    <h2 id="nTitle">Новая запись</h2>
+    <div class="kindline" id="nKind"></div>
+    <form class="edit" id="newForm" style="margin-top:var(--sp-6)"></form>
+    <div class="foot">
+      <button class="v-btn" type="button" id="nSave">Добавить</button>
+      <button class="v-btn ghost close" type="button" id="nClose">Отмена</button>
     </div>
   </div>
 </div>
@@ -236,14 +270,33 @@ const FIELD_RU = { amount:'Сумма', category:'Категория', note:'З�
   deadline:'Срок', role:'Должность', contact:'Контакт', terms:'Условия',
   filename:'Название', person:'Кто', supplier:'Поставщик', currency:'Валюта',
   direction:'Направление', counterparty:'Кому', salary:'Оклад', address:'Адрес',
-  inn:'ИНН', kpp:'КПП', ogrn:'ОГРН', type:'Вид материала' };
+  inn:'ИНН', kpp:'КПП', ogrn:'ОГРН', type:'Вид материала',
+  doc_type:'Документ', source:'Источник', op_date:'Дата операции',
+  amount_unverified:'Сумму стоит проверить' };
 
 const SOURCE_RU = { inbox:'из входящих', manual:'внесено вручную',
   telegram:'из Telegram', import:'из выписки' };
+const DOC_RU = { receipt:'чек', bank:'банковская операция', invoice:'счёт',
+  waybill:'накладная', salary:'зарплата', refund:'возврат',
+  income:'документ о доходе', import:'выписка', manual:'без документа' };
+const DIRECTION_RU = { expense: 'расход', income: 'доход' };
+// Ссылки на записи (employee_id и прочие) человеку показывать незачем: рядом
+// уже стоит имя, а голое число — это внутренность базы, а не факт о документе.
+const HIDDEN_FACTS = new Set(['employee_id', 'supplier_id', 'client_id', 'order_id']);
+
+function factValue(k, v){
+  if (k === 'direction') return DIRECTION_RU[v] || v;
+  if (k === 'doc_type') return DOC_RU[v] || v;
+  if (k === 'source') return SOURCE_RU[v] || v;
+  if (k === 'amount' || k === 'target' || k === 'salary') return Number(v).toLocaleString('ru-RU');
+  return String(v);
+}
 
 let MAP = null;            // карта разделов
 let TYPE = '';             // какой вид сейчас смотрим
 let CURRENT = null;        // открытая карточка
+let LIST = null;           // последний ответ списка: что с этим видом можно делать
+let ARCHIVED = false;      // смотрим действующие записи или архив
 
 const failEl = document.getElementById('failZone');
 function paintFail(msg){
@@ -320,6 +373,7 @@ function paintSegs(m){
 function choose(type){
   if (!type) return;
   TYPE = type;
+  ARCHIVED = false;
   document.querySelectorAll('#segs .v-seg').forEach(b =>
     b.setAttribute('aria-pressed', String(b.dataset.t === type)));
   loadList();
@@ -330,7 +384,8 @@ function srcTag(src, origin){
   if (src && src.item){
     const cf = src.confidence != null
       ? `<span class="cf num">${Math.round(src.confidence * 100)}%</span>` : '';
-    return `<span class="src-tag doc" title="Источник: ${esc(src.item.title || '')}">
+    return `<span class="src-tag ${src.by === 'velor' ? 'ai' : 'doc'}"
+                  title="${esc(src.by_ru || '')}: ${esc(src.item.title || '')}">
       <i></i><span class="nm">${esc(src.item.title || src.item.filename || 'материал')}</span>${cf}</span>`;
   }
   if (src) return '<span class="src-tag hand"><i></i>' +
@@ -339,12 +394,41 @@ function srcTag(src, origin){
   return '<span class="src-tag none">источник не записан</span>';
 }
 
+// Кто внёс запись — вопрос не праздный: к тому, что записал VELOR, доверия
+// ровно столько, сколько показывает уверенность разбора.
+function whoLine(it){
+  const s = it.source;
+  const bits = [];
+  // Метка источника уже сказала «внесено вручную» — повторять это второй раз
+  // строкой ниже незачем. Дописываем автора только там, где он добавляет
+  // смысл: разбор VELOR или правка не самим владельцем.
+  if (s && s.by && s.by !== 'manual') bits.push(s.by_ru);
+  else if (s && s.actor && s.actor !== 'business') bits.push('внёс ' + (s.actor_ru || ''));
+  if (it.edits) bits.push('правок: ' + it.edits);
+  return bits.join(' · ');
+}
+
+function paintTools(d){
+  const add = document.getElementById('addBtn');
+  add.hidden = !(d.can_create && !ARCHIVED);
+  add.textContent = 'Добавить: ' + String(d.title || '').toLowerCase();
+  const box = document.getElementById('tools');
+  box.innerHTML = (d.archived_total || ARCHIVED)
+    ? `<button class="v-btn ghost sm" type="button" id="archToggle"
+               aria-pressed="${ARCHIVED}">${ARCHIVED
+        ? 'Показать действующие' : 'Архив · ' + d.archived_total}</button>`
+    : '';
+  const t = document.getElementById('archToggle');
+  if (t) t.addEventListener('click', () => { ARCHIVED = !ARCHIVED; loadList(); });
+}
+
 async function loadList(){
   const box = document.getElementById('listBox');
   box.innerHTML = '<div class="v-sk row"></div><div class="v-sk row"></div>';
   let d;
   try{
-    const r = await fetch('/api/memory/list?type=' + encodeURIComponent(TYPE) + '&limit=100');
+    const r = await fetch('/api/memory/list?type=' + encodeURIComponent(TYPE)
+                          + '&limit=100' + (ARCHIVED ? '&archived=1' : ''));
     if (!r.ok) throw new Error('http');
     d = await r.json();
   }catch{
@@ -352,22 +436,29 @@ async function loadList(){
       'Проверьте связь и обновите страницу.</div>';
     return;
   }
+  LIST = d;
+  paintTools(d);
   document.getElementById('listN').textContent = d.total ? d.total : '';
   if (!d.items.length){
-    box.innerHTML = `<div class="v-empty"><strong>${esc(d.plural)} — пока пусто</strong>
-      VELOR узнаёт о бизнесе из того, что вы ему присылаете.
-      Отправьте документ во <a href="inbox.html">Входящие</a> — он разберёт его и
-      предложит, что записать.</div>`;
+    box.innerHTML = ARCHIVED
+      ? `<div class="v-empty"><strong>В архиве пусто</strong>
+         Сюда попадает то, что вы убрали из работы. Записи остаются целыми, и
+         вернуть их можно в любой момент.</div>`
+      : `<div class="v-empty"><strong>${esc(d.plural)} — пока пусто</strong>
+         VELOR узнаёт о бизнесе из того, что вы ему присылаете.
+         Отправьте документ во <a href="inbox.html">Входящие</a> — он разберёт его и
+         предложит, что записать${d.can_create ? ', либо заведите запись сами' : ''}.</div>`;
     return;
   }
   box.innerHTML = d.items.map(it => `
-    <button class="know" type="button" data-id="${it.id}">
+    <button class="know${it.archived ? ' arch' : ''}" type="button" data-id="${it.id}">
       <span class="body">
         <span class="t">${esc(it.title)}</span>
         ${it.sub ? `<span class="d">${esc(it.sub)}</span>` : ''}
       </span>
-      <span class="from">${srcTag(it.source, it.origin)}
-        ${it.edits ? `<span class="d">правок: ${it.edits}</span>` : ''}</span>
+      <span class="from">${it.archived
+          ? '<span class="src-tag arch">в архиве</span> ' : ''}${srcTag(it.source, it.origin)}
+        ${whoLine(it) ? `<span class="d">${esc(whoLine(it))}</span>` : ''}</span>
     </button>`).join('');
   box.querySelectorAll('.know').forEach(b =>
     b.addEventListener('click', () => openCard(TYPE, Number(b.dataset.id))));
@@ -380,6 +471,9 @@ const cKind   = document.getElementById('cKind');
 const cBody   = document.getElementById('cBody');
 const cSave   = document.getElementById('cSave');
 const cSource = document.getElementById('cSource');
+const cArch   = document.getElementById('cArch');
+const cDel    = document.getElementById('cDel');
+const cNote   = document.getElementById('cNote');
 let blobUrl = null;
 function dropBlob(){ if (blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl = null; } }
 
@@ -426,9 +520,11 @@ function chainHTML(d){
   if (s && s.result){
     const ex = s.decision && Object.keys(s.decision.original || {}).length
       ? s.decision.original : (s.result.extracted || {});
-    const rows = Object.entries(ex).map(([k, v]) =>
+    const rows = Object.entries(ex)
+      .filter(([k, v]) => v !== null && v !== '' && v !== false && !HIDDEN_FACTS.has(k))
+      .map(([k, v]) =>
       `<div class="kv"><span class="k">${esc(FIELD_RU[k] || k)}</span>
-        <span class="v">${esc(v)}</span></div>`).join('');
+        <span class="v">${esc(factValue(k, v))}</span></div>`).join('');
     steps.push(`<div class="step got"><span class="pin"></span><div class="b">
       <div class="k">VELOR понял</div>
       <div class="v">${esc(sumLine(s.result))}</div>
@@ -440,12 +536,30 @@ function chainHTML(d){
   steps.push(`<div class="step made"><span class="pin"></span><div class="b">
     <div class="k">Запись в памяти</div>
     <div class="v">${esc(d.label.title)}${d.label.sub ? ' · ' + esc(d.label.sub) : ''}</div>
-    <div class="w">${esc(d.schema.title)}${s ? ' · записал ' + esc(s.actor_ru || '') : ''}</div>
+    <div class="w">${esc(d.schema.title)}${s && s.by_ru ? ' · ' + esc(s.by_ru) : ''}</div>
   </div></div>`);
   return '<div class="chain">' + steps.join('') + '</div>';
 }
 
-const EVENT_RU = { created: 'Записано в память', edited: 'Изменено' };
+const EVENT_RU = { created: 'Записано в память', edited: 'Изменено',
+  archived: 'Убрано в архив', restored: 'Возвращено в работу', removed: 'Удалено' };
+
+// Исправление ИИ — самое ценное, что есть в карточке: по нему видно, где он
+// ошибается. Поэтому предложение ИИ показываем рядом с живым значением, а не
+// вместо него.
+function aiHTML(d){
+  if (!d.corrections || !d.corrections.length) return '';
+  const rows = d.corrections.map(c => `
+    <div class="r"><span class="k">${esc(c.label)}</span>
+      <span><span class="was">${esc(c.ai === null || c.ai === '' ? '—' : c.ai)}</span>
+        → <span class="now">${esc(c.now === null || c.now === '' ? '—' : c.now)}</span></span>
+    </div>`).join('');
+  return `<div class="blk"><h3>ИИ предложил — вы поправили</h3>
+    <div class="fix">${rows}
+      <div class="w">Предложение ИИ остаётся записанным: по нему видно, в чём
+        он ошибается, и это единственный способ его чему-то научить.</div>
+    </div></div>`;
+}
 
 function historyHTML(history){
   if (!history || !history.length) return '';
@@ -455,7 +569,8 @@ function historyHTML(history){
         → <b>${esc(v.now == null ? '—' : v.now)}</b></div>`).join('');
     return `<div class="ev e-${esc(h.event)}"><span class="pin"></span><div class="b">
       <div class="t">${esc(EVENT_RU[h.event] || h.event)}${h.note ? ' — ' + esc(h.note) : ''}</div>
-      <div class="w">${esc(h.actor_ru || '')} · ${esc(when(h.created_at))}</div>
+      <div class="w">${esc(h.event === 'created' && h.by_ru ? h.by_ru : (h.actor_ru || ''))}
+        · ${esc(when(h.created_at))}</div>
       ${chg ? `<div class="chg">${chg}</div>` : ''}
     </div></div>`;
   }).join('');
@@ -476,14 +591,24 @@ function editHTML(d){
 function paintCard(d){
   CURRENT = d;
   cTitle.textContent = d.label.title || d.schema.title;
-  cKind.textContent = d.schema.title + (d.label.sub ? ' · ' + d.label.sub : '');
-  cBody.innerHTML = chainHTML(d) + editHTML(d) + historyHTML(d.history);
+  cKind.textContent = d.schema.title + (d.label.sub ? ' · ' + d.label.sub : '')
+    + (d.archived ? ' · в архиве' : '');
+  cBody.innerHTML = chainHTML(d) + aiHTML(d) + editHTML(d) + historyHTML(d.history);
 
   cSave.style.display = d.schema.can_edit ? '' : 'none';
   cSave.disabled = false; cSave.textContent = 'Сохранить';
   const hasFile = !!(d.source && d.source.item);
   cSource.style.display = hasFile ? '' : 'none';
   cSource.disabled = false; cSource.textContent = 'Открыть источник';
+
+  cArch.style.display = d.schema.can_archive ? '' : 'none';
+  cArch.disabled = false;
+  cArch.textContent = d.archived ? 'Вернуть в работу' : 'В архив';
+  cDel.style.display = d.schema.can_delete ? '' : 'none';
+  cDel.disabled = !!d.blocked; cDel.dataset.sure = ''; cDel.textContent = 'Удалить';
+  // Почему удалить нельзя, человек должен узнать ДО нажатия, а не из ошибки.
+  cNote.hidden = !d.blocked;
+  cNote.textContent = d.blocked || '';
 
   // Помечаем изменённое поле сразу: правку видно до нажатия, а не только потом.
   cBody.querySelectorAll('.edit input, .edit select').forEach(inp => inp.addEventListener('input', () => {
@@ -502,6 +627,7 @@ async function openCard(type, id){
   cKind.textContent = '';
   cBody.innerHTML = '<div class="v-sk panel" style="margin-top:var(--sp-6)"></div>';
   cSave.style.display = 'none'; cSource.style.display = 'none';
+  cArch.style.display = 'none'; cDel.style.display = 'none'; cNote.hidden = true;
   try{
     const r = await fetch('/api/memory/entity/' + encodeURIComponent(type) + '/' + id);
     if (!r.ok) throw new Error('http');
@@ -544,6 +670,104 @@ cSave.addEventListener('click', async () => {
     toast('Нет связи с сервером');
     cSave.disabled = false; cSave.textContent = 'Сохранить';
   }
+});
+
+cArch.addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const on = !CURRENT.archived;
+  cArch.disabled = true;
+  cArch.textContent = on ? 'Убираю…' : 'Возвращаю…';
+  try{
+    const r = await fetch('/api/memory/entity/' + encodeURIComponent(CURRENT.entity)
+                          + '/' + CURRENT.id + '/archive', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не получилось'); }
+    else {
+      toast(on ? 'Убрано в архив — можно вернуть' : 'Вернули в работу');
+      paintCard(Object.assign({}, CURRENT, { archived: on,
+                                             history: d.history || CURRENT.history }));
+      loadList(); loadMap();
+      return;
+    }
+  }catch{ toast('Нет связи с сервером'); }
+  cArch.disabled = false;
+  cArch.textContent = CURRENT.archived ? 'Вернуть в работу' : 'В архив';
+});
+
+// Удаление необратимо, поэтому спрашиваем второй раз — той же кнопкой.
+cDel.addEventListener('click', async () => {
+  if (!CURRENT) return;
+  if (cDel.dataset.sure !== '1'){
+    cDel.dataset.sure = '1';
+    cDel.textContent = 'Точно удалить?';
+    return;
+  }
+  cDel.disabled = true; cDel.textContent = 'Удаляю…';
+  try{
+    const r = await fetch('/api/memory/entity/' + encodeURIComponent(CURRENT.entity)
+                          + '/' + CURRENT.id + '/delete', { method: 'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){
+      toast(d.detail || 'Не удалилось');
+      cDel.disabled = false; cDel.dataset.sure = ''; cDel.textContent = 'Удалить';
+      return;
+    }
+    toast(d.detail || 'Удалено');
+    closeCard(); loadList(); loadMap();
+  }catch{
+    toast('Нет связи с сервером');
+    cDel.disabled = false; cDel.dataset.sure = ''; cDel.textContent = 'Удалить';
+  }
+});
+
+// ── завести запись руками ─────────────────────────────────────────────────
+const newModal = document.getElementById('newModal');
+const newForm  = document.getElementById('newForm');
+const nSave    = document.getElementById('nSave');
+
+function closeNew(){
+  newModal.classList.remove('on');
+  if (!modal.classList.contains('on')) document.body.style.overflow = '';
+}
+document.getElementById('nClose').addEventListener('click', closeNew);
+newModal.addEventListener('click', e => { if (e.target === newModal) closeNew(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && newModal.classList.contains('on')) closeNew();
+});
+
+document.getElementById('addBtn').addEventListener('click', () => {
+  if (!LIST || !LIST.can_create) return;
+  document.getElementById('nTitle').textContent =
+    'Новая запись: ' + String(LIST.title || '').toLowerCase();
+  document.getElementById('nKind').textContent =
+    'Вы вносите это сами — в истории записи так и будет сказано.';
+  newForm.innerHTML = (LIST.fields || []).map(f => fieldHTML(f, 'n')).join('');
+  newModal.classList.add('on');
+  document.body.style.overflow = 'hidden';
+  const first = newForm.querySelector('input, select');
+  if (first) first.focus();
+});
+
+nSave.addEventListener('click', async () => {
+  if (!LIST) return;
+  nSave.disabled = true; nSave.textContent = 'Сохраняю…';
+  try{
+    const r = await fetch('/api/memory/entity/' + encodeURIComponent(TYPE), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: formValues(newForm) })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не удалось сохранить'); }
+    else {
+      toast(d.detail || 'Записано');
+      closeNew();
+      await loadList(); await loadMap();
+    }
+  }catch{ toast('Нет связи с сервером'); }
+  nSave.disabled = false; nSave.textContent = 'Добавить';
 });
 
 // Оригинал отдаётся только с заголовком авторизации, поэтому открываем его

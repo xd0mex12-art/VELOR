@@ -156,8 +156,8 @@ def _fact_updater(kind, word, extra=()):
 
 
 def _fact_lister(kind):
-    def lister(bid, limit, offset):
-        return database.list_facts(bid, kind)[offset:offset + limit]
+    def lister(bid, limit, offset, archived=False):
+        return database.list_facts(bid, kind, archived=archived)[offset:offset + limit]
     return lister
 
 
@@ -172,6 +172,37 @@ def _fact_labeler(extra=()):
     return label
 
 
+# ── как запись убирается из работы ─────────────────────────────────────────
+# Архив и удаление — разные вещи. Архив: «было правдой, перестало действовать»
+# (уволился, сняли с продажи, правило отменили) — запись уходит из работы и из
+# знаний ядра, но остаётся вместе с историей. Удаление: «этого не было».
+#
+# Удалить запись, на которую ссылаются деньги или заказы, нельзя: в выплате
+# осталась бы ссылка на несуществующего человека. Такие записи архивируются —
+# старые операции при этом продолжают показывать имя.
+
+def _archiver(table):
+    def archive(bid, eid, on=True):
+        return database.set_archived(table, int(eid), bid, on)
+    return archive
+
+
+def _fact_blockers(kind):
+    """Что мешает удалить сотрудника или поставщика — по-человечески."""
+    field = {"employee": "employee_id", "supplier": "supplier_id"}.get(kind)
+
+    def blockers(bid, eid):
+        if not field:
+            return None
+        n = database.finance_ref_count(bid, field, eid)
+        if n:
+            return ("К этой записи привязаны денежные операции (%d). "
+                    "Удаление оборвало бы им ссылку — отправьте запись в архив: "
+                    "в старых операциях имя останется." % n)
+        return None
+    return blockers
+
+
 def _fact_entity(kind, title, plural, word, group, fields, extra=(), where="memory.html"):
     """Собрать описание вида, который хранится в memory_facts."""
     return {
@@ -182,8 +213,12 @@ def _fact_entity(kind, title, plural, word, group, fields, extra=(), where="memo
         "row": lambda bid, eid: database.get_fact(eid, bid),
         "update": _fact_updater(kind, word, extra),
         "list": _fact_lister(kind),
-        "count": lambda bid, _k=kind: database.count_facts(bid, _k),
+        "count": lambda bid, archived=False, _k=kind: database.count_facts(
+            bid, _k, archived=archived),
         "label": _fact_labeler(extra),
+        "archive": _archiver("memory_facts"),
+        "delete": lambda bid, eid: database.delete_fact(int(eid), bid),
+        "blockers": _fact_blockers(kind),
     }
 
 
@@ -450,6 +485,35 @@ def _label_document(row):
     return {"title": row.get("filename") or "без имени", "sub": tail}
 
 
+def _client_blockers(bid, eid):
+    orders = database.orders_of_client_count(bid, eid)
+    money = database.finance_ref_count(bid, "client_id", eid)
+    if orders or money:
+        bits = []
+        if orders:
+            bits.append("заказов: %d" % orders)
+        if money:
+            bits.append("операций: %d" % money)
+        return ("У клиента есть история (%s). Удаление стёрло бы связь с ней — "
+                "отправьте клиента в архив." % ", ".join(bits))
+    return None
+
+
+def _order_blockers(bid, eid):
+    money = database.finance_ref_count(bid, "order_id", eid)
+    if money:
+        return ("К заявке привязаны денежные операции (%d). Сначала отвяжите "
+                "их в Финансах." % money)
+    return None
+
+
+def _archive_goal(bid, eid, on=True):
+    if not database.get_goal(int(eid), bid):
+        return False
+    database.update_goal(int(eid), bid, status="archived" if on else "active")
+    return True
+
+
 # Реестр. Всё, что знает система о создании и чтении знаний, лежит здесь.
 # group — как это показывать в памяти бизнеса; порядок ключей = порядок разделов.
 ENTITIES = {
@@ -491,9 +555,13 @@ ENTITIES = {
                    f("notes", "Заметка", "text")],
         "make": _make_client, "read": _read_client, "update": _update_client,
         "row": lambda bid, eid: database.get_client(eid, bid),
-        "list": lambda bid, limit, offset: database.list_clients(bid, limit=limit, offset=offset),
-        "count": lambda bid: database.count_clients(bid),
+        "list": lambda bid, limit, offset, archived=False: database.list_clients(
+            bid, limit=limit, offset=offset, archived=archived),
+        "count": lambda bid, archived=False: database.count_clients(bid, archived=archived),
         "label": _label_client,
+        "archive": _archiver("clients"),
+        "delete": lambda bid, eid: database.delete_client(int(eid), bid),
+        "blockers": _client_blockers,
     },
     "order": {
         "title": "Заявка", "plural": "Заявки", "group": "money",
@@ -504,9 +572,14 @@ ENTITIES = {
                    f("date_wanted", "На какую дату", "date")],
         "make": _make_order, "read": _read_order, "update": _update_order,
         "row": lambda bid, eid: database.get_order(eid, bid),
-        "list": lambda bid, limit, offset: database.get_orders(bid, limit=limit, offset=offset),
-        "count": lambda bid: database.count_orders(bid),
+        "list": lambda bid, limit, offset, archived=False: (
+            [] if archived else database.get_orders(bid, limit=limit, offset=offset)),
+        "count": lambda bid, archived=False: (0 if archived else database.count_orders(bid)),
         "label": _label_order,
+        # Заявка — событие: оно либо было, либо нет. Отменённую заявку
+        # показывает статус, архивировать её незачем.
+        "delete": lambda bid, eid: database.delete_order(int(eid), bid),
+        "blockers": _order_blockers,
     },
     "expense": {
         "title": "Расход", "plural": "Расходы", "group": "money",
@@ -515,10 +588,16 @@ ENTITIES = {
         "make": _make_expense, "read": _money_reader("expense"),
         "update": _money_updater("expense", "Расход"),
         "row": lambda bid, eid: database.finance_row(eid, bid),
-        "list": lambda bid, limit, offset: database.finance_rows(
-            bid, limit=limit, kind="expense", offset=offset),
-        "count": lambda bid: database.count_finance_entries(bid, "expense"),
+        "list": lambda bid, limit, offset, archived=False: (
+            [] if archived else database.finance_rows(
+                bid, limit=limit, kind="expense", offset=offset)),
+        "count": lambda bid, archived=False: (
+            0 if archived else database.count_finance_entries(bid, "expense")),
         "label": _money_labeler,
+        # Операция тоже событие: архивировать деньги нельзя — спрятанный, но
+        # посчитанный расход врал бы в прибыли. Ошибочную запись удаляют, и
+        # след об удалении остаётся в истории.
+        "delete": lambda bid, eid: database.delete_finance_entry(int(eid), bid),
     },
     "income": {
         "title": "Доход", "plural": "Доходы", "group": "money",
@@ -527,10 +606,16 @@ ENTITIES = {
         "make": _make_income, "read": _money_reader("income"),
         "update": _money_updater("income", "Доход"),
         "row": lambda bid, eid: database.finance_row(eid, bid),
-        "list": lambda bid, limit, offset: database.finance_rows(
-            bid, limit=limit, kind="income", offset=offset),
-        "count": lambda bid: database.count_finance_entries(bid, "income"),
+        "list": lambda bid, limit, offset, archived=False: (
+            [] if archived else database.finance_rows(
+                bid, limit=limit, kind="income", offset=offset)),
+        "count": lambda bid, archived=False: (
+            0 if archived else database.count_finance_entries(bid, "income")),
         "label": _money_labeler,
+        # Операция тоже событие: архивировать деньги нельзя — спрятанный, но
+        # посчитанный расход врал бы в прибыли. Ошибочную запись удаляют, и
+        # след об удалении остаётся в истории.
+        "delete": lambda bid, eid: database.delete_finance_entry(int(eid), bid),
     },
     "goal": {
         "title": "Цель", "plural": "Цели", "group": "goals",
@@ -543,9 +628,13 @@ ENTITIES = {
                    f("deadline", "Срок", "date")],
         "make": _make_goal, "read": _read_goal, "update": _update_goal,
         "row": lambda bid, eid: database.get_goal(eid, bid),
-        "list": lambda bid, limit, offset: database.list_goals(bid)[offset:offset + limit],
-        "count": lambda bid: len(database.list_goals(bid)),
+        "list": lambda bid, limit, offset, archived=False: database.list_goals(
+            bid, archived=archived)[offset:offset + limit],
+        "count": lambda bid, archived=False: len(database.list_goals(bid, archived=archived)),
         "label": _label_goal,
+        # У цели уже есть жизненный цикл, поэтому архив — это её статус.
+        "archive": _archive_goal,
+        "delete": lambda bid, eid: database.delete_goal(int(eid), bid),
     },
     "document": {
         "title": "Документ", "plural": "Документы", "group": "docs",
@@ -556,9 +645,14 @@ ENTITIES = {
         "fields": [f("filename", "Название", "text", True)],
         "make": None, "read": _read_document, "update": _update_document,
         "row": lambda bid, eid: database.get_document(eid, bid),
-        "list": lambda bid, limit, offset: database.list_documents(bid)[offset:offset + limit],
-        "count": lambda bid: database.count_documents(bid),
+        "list": lambda bid, limit, offset, archived=False: database.list_documents(
+            bid, archived=archived)[offset:offset + limit],
+        "count": lambda bid, archived=False: database.count_documents(bid, archived=archived),
         "label": _label_document,
+        # Архивный документ остаётся файлом, но перестаёт отвечать на вопросы:
+        # старый прайс не должен цитироваться как действующий.
+        "archive": _archiver("documents"),
+        "delete": lambda bid, eid: database.delete_document(int(eid), bid),
     },
 }
 
@@ -613,6 +707,7 @@ def schema(entity_type, business_id=None):
     return {"entity": entity_type, "title": e["title"], "plural": e["plural"],
             "group": e["group"], "where": e["where"],
             "can_create": bool(e.get("make")), "can_edit": bool(e.get("update")),
+            "can_archive": bool(e.get("archive")), "can_delete": bool(e.get("delete")),
             "fields": [_field_public(x, business_id) for x in e["fields"]]}
 
 
@@ -712,10 +807,10 @@ def update(business_id, entity_type, entity_id, data):
     return text, clean, before
 
 
-def listing(business_id, entity_type, limit=50, offset=0):
+def listing(business_id, entity_type, limit=50, offset=0, archived=False):
     """Записи вида одним списком: сырые строки плюс подпись для интерфейса."""
     e = _entity(entity_type)
-    rows = e["list"](business_id, int(limit), int(offset)) or []
+    rows = e["list"](business_id, int(limit), int(offset), archived) or []
     out = []
     for r in rows:
         row = dict(r)
@@ -723,8 +818,56 @@ def listing(business_id, entity_type, limit=50, offset=0):
         out.append({"id": row.get("id"), "entity": entity_type,
                     "title": label["title"], "sub": label.get("sub") or "",
                     "created_at": row.get("created_at"),
+                    "archived": is_archived(entity_type, row),
                     "origin": origin_of(entity_type, row)})
     return out
+
+
+def is_archived(entity_type, raw):
+    """Убрана ли запись из работы. У цели это статус, у остальных — отметка."""
+    if not raw:
+        return False
+    if entity_type == "goal":
+        return (raw.get("status") or "") == "archived"
+    return bool(raw.get("archived_at"))
+
+
+def archive(business_id, entity_type, entity_id, on=True):
+    """Убрать запись из работы или вернуть обратно."""
+    e = _entity(entity_type)
+    if not e.get("archive"):
+        raise EntityError("«%s» в архив не убирается." % e["title"])
+    if read(business_id, entity_type, entity_id) is None:
+        raise EntityError("Запись не найдена.")
+    e["archive"](business_id, int(entity_id), bool(on))
+    return ("В архиве: " if on else "Вернули в работу: ") + \
+        (label(entity_type, row(business_id, entity_type, entity_id)) or {}).get("title", "")
+
+
+def blockers(business_id, entity_type, entity_id):
+    """Почему удалить нельзя — текстом для человека. Можно — None."""
+    e = _entity(entity_type)
+    check = e.get("blockers")
+    return check(business_id, int(entity_id)) if check else None
+
+
+def delete(business_id, entity_type, entity_id):
+    """
+    Удалить запись насовсем. Возвращает подпись удалённого — она нужна, чтобы
+    в истории осталось, ЧТО именно убрали, а не только «запись №17».
+    """
+    e = _entity(entity_type)
+    if not e.get("delete"):
+        raise EntityError("«%s» удалить нельзя." % e["title"])
+    raw = row(business_id, entity_type, entity_id)
+    if raw is None:
+        raise EntityError("Запись не найдена.")
+    stop = blockers(business_id, entity_type, entity_id)
+    if stop:
+        raise EntityError(stop)
+    lb = label(entity_type, raw)
+    e["delete"](business_id, int(entity_id))
+    return " · ".join(x for x in (lb.get("title"), lb.get("sub")) if x)
 
 
 def row(business_id, entity_type, entity_id):
@@ -751,8 +894,8 @@ FACT_ENTITY_BY_KIND = {
 }
 
 
-def count(business_id, entity_type):
-    return int(_entity(entity_type)["count"](business_id) or 0)
+def count(business_id, entity_type, archived=False):
+    return int(_entity(entity_type)["count"](business_id, archived) or 0)
 
 
 # Откуда запись взялась, если связь с материалом не записана. Ответ есть у

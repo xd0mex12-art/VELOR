@@ -315,6 +315,12 @@ def _migrate_columns(conn):
         # должность, телефон, условия. Держим это структурой в JSON, а не
         # склеенной строкой, — иначе правка теряет разбиение на поля.
         ("memory_facts", "data", "TEXT"),
+        # Архив. Уволенный сотрудник, снятая с продажи услуга, устаревший
+        # документ — это не ошибка, которую надо стереть, а знание, которое
+        # перестало действовать. Удаление уносит с собой историю; архив нет.
+        ("memory_facts", "archived_at", "TEXT"),
+        ("clients", "archived_at", "TEXT"),
+        ("documents", "archived_at", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -876,13 +882,16 @@ def _metric_value(conn, business_id, metric, since, manual):
     return 0
 
 
-def list_goals(business_id, only_active=False):
+def list_goals(business_id, only_active=False, archived=False):
     """Цели с посчитанным прогрессом и темпом: успеваем или отстаём."""
     today = datetime.date.today()
     with _connect() as conn:
         sql = "SELECT * FROM goals WHERE business_id = ?"
         if only_active:
             sql += " AND status = 'active'"
+        # У цели уже есть жизненный цикл, поэтому архив — это статус, а не
+        # вторая отдельная пометка о том же самом.
+        sql += " AND status = 'archived'" if archived else " AND status != 'archived'"
         rows = conn.execute(sql + " ORDER BY status = 'active' DESC, id DESC", (business_id,)).fetchall()
 
         goals = []
@@ -989,7 +998,10 @@ FACT_KINDS = {
 def _facts_text(conn, business_id):
     """Услуги/товары/правила/цели одним текстом — так их читает ядро."""
     rows = conn.execute(
-        "SELECT kind, title, body, data FROM memory_facts WHERE business_id = ? ORDER BY kind, id",
+        # Архивное знание в ядро не попадает: уволенный мастер не должен
+        # всплывать в ответе клиенту, который спрашивает, кто его подстрижёт.
+        "SELECT kind, title, body, data FROM memory_facts "
+        "WHERE business_id = ? AND archived_at IS NULL ORDER BY kind, id",
         (business_id,),
     ).fetchall()
     if not rows:
@@ -1046,33 +1058,38 @@ def get_fact(fact_id, business_id):
     return _fact_row(row) if row else None
 
 
-def count_facts(business_id, kind=None):
+def count_facts(business_id, kind=None, archived=False):
+    """Сколько знаний этого вида. По умолчанию — только действующие."""
+    where = "business_id = ?" + (" AND archived_at IS NOT NULL" if archived
+                                 else " AND archived_at IS NULL")
+    params = [business_id]
+    if kind:
+        where += " AND kind = ?"
+        params.append(kind)
     with _connect() as conn:
-        if kind:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM memory_facts WHERE business_id = ? AND kind = ?",
-                (business_id, kind),
-            ).fetchone()
-        else:
-            row = conn.execute(
-                "SELECT COUNT(*) AS n FROM memory_facts WHERE business_id = ?",
-                (business_id,),
-            ).fetchone()
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM memory_facts WHERE {where}", tuple(params)
+        ).fetchone()
     return int(row["n"] or 0)
 
 
-def list_facts(business_id, kind=None):
+def list_facts(business_id, kind=None, archived=False):
+    """
+    Знания вида. archived=True — наоборот, только архив: владелец должен
+    иметь возможность посмотреть, что он убрал, и вернуть это обратно.
+    """
+    where = "business_id = ?" + (" AND archived_at IS NOT NULL" if archived
+                                 else " AND archived_at IS NULL")
+    params = [business_id]
+    order = "kind, id DESC"
+    if kind:
+        where += " AND kind = ?"
+        params.append(kind)
+        order = "id DESC"
     with _connect() as conn:
-        if kind:
-            rows = conn.execute(
-                "SELECT * FROM memory_facts WHERE business_id = ? AND kind = ? ORDER BY id DESC",
-                (business_id, kind),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM memory_facts WHERE business_id = ? ORDER BY kind, id DESC",
-                (business_id,),
-            ).fetchall()
+        rows = conn.execute(
+            f"SELECT * FROM memory_facts WHERE {where} ORDER BY {order}", tuple(params)
+        ).fetchall()
         return [_fact_row(r) for r in rows]
 
 
@@ -1118,6 +1135,90 @@ def delete_fact(fact_id, business_id):
         )
     if row:
         log_event(business_id, "memory", f"Из памяти удалено: {row['title']}")
+
+
+# ---------- АРХИВ И УДАЛЕНИЕ ----------
+# Две разные вещи, и путать их нельзя. Архив: запись была правдой и перестала
+# действовать — она уходит из работы, но остаётся в базе вместе со всей своей
+# историей. Удаление: записи не должно было быть — она уходит совсем.
+#
+# Удалять запись, на которую ссылаются деньги или заказы, нельзя: в выплате
+# останется id несуществующего сотрудника, и «сколько мы платим Петровой»
+# начнёт врать. Такие записи архивируются — связь при этом продолжает
+# работать, потому что join по архиву не фильтрует.
+
+ARCHIVABLE = {"memory_facts", "clients", "documents"}
+
+
+def set_archived(table, entity_id, business_id, on=True):
+    """Убрать запись из работы или вернуть обратно. Данные не трогаем."""
+    if table not in ARCHIVABLE:
+        return False
+    when = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S") if on else None
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE {table} SET archived_at = ? WHERE id = ? AND business_id = ?",
+            (when, int(entity_id), business_id),
+        )
+    return True
+
+
+def is_archived(table, entity_id, business_id):
+    if table not in ARCHIVABLE:
+        return False
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT archived_at FROM {table} WHERE id = ? AND business_id = ?",
+            (int(entity_id), business_id),
+        ).fetchone()
+    return bool(row and row["archived_at"])
+
+
+# На что ссылаются деньги: поле операции -> что в нём лежит.
+FINANCE_REFS = {"employee_id": "memory_facts", "supplier_id": "memory_facts",
+                "client_id": "clients", "order_id": "orders"}
+
+
+def finance_ref_count(business_id, field, entity_id):
+    """Сколько денежных операций ссылается на эту запись."""
+    if field not in FINANCE_REFS:
+        return 0
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS n FROM finance_entries "
+            f"WHERE business_id = ? AND {field} = ?",
+            (business_id, int(entity_id)),
+        ).fetchone()
+    return int(row["n"] or 0)
+
+
+def orders_of_client_count(business_id, client_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM orders WHERE business_id = ? AND client_id = ?",
+            (business_id, int(client_id)),
+        ).fetchone()
+    return int(row["n"] or 0)
+
+
+def delete_client(client_id, business_id):
+    """Удалить клиента — только своего и только без заказов (иначе архив)."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT name FROM clients WHERE id = ? AND business_id = ?",
+            (client_id, business_id),
+        ).fetchone()
+        conn.execute("DELETE FROM clients WHERE id = ? AND business_id = ?",
+                     (client_id, business_id))
+    if row:
+        log_event(business_id, "client", f"Клиент удалён: {row['name'] or 'без имени'}")
+
+
+def delete_order(order_id, business_id):
+    """Удалить заявку — только свою."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM orders WHERE id = ? AND business_id = ?",
+                     (order_id, business_id))
 
 
 # ---------- REFRESH-ТОКЕНЫ (JWT-сессии) ----------
@@ -1303,6 +1404,14 @@ def delete_business(business_id):
         conn.execute("DELETE FROM category_rules  WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM finance_imports WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM messages WHERE business_id = ?", (business_id,))
+        # Входящие материалы и цепочка «источник → запись» — тоже данные бизнеса.
+        # Без этого от удалённой компании оставался бы её журнал происхождения.
+        for tbl in ("memory_links", "inbox_decisions", "inbox_results",
+                    "inbox_blobs", "inbox_items", "module_state", "connections"):
+            try:
+                conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
+            except Exception:
+                pass          # таблицы может не быть в старой базе
         conn.execute("DELETE FROM orders   WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM clients  WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
@@ -2523,10 +2632,12 @@ def _segment_having(segment):
     return "", []
 
 
-def list_clients(business_id, query=None, limit=50, offset=0, segment="all"):
+def list_clients(business_id, query=None, limit=50, offset=0, segment="all",
+                 archived=False):
     """Клиенты бизнеса + число заказов, сумма покупок, дата последнего заказа.
     Поддерживает поиск по имени/телефону, срез базы и постраничную загрузку."""
-    where = "c.business_id = ?"
+    where = "c.business_id = ?" + (" AND c.archived_at IS NOT NULL" if archived
+                                   else " AND c.archived_at IS NULL")
     params = [business_id]
     if query:
         where += " AND (LOWER(c.name) LIKE ? OR c.phone LIKE ?)"
@@ -2554,7 +2665,7 @@ def list_clients(business_id, query=None, limit=50, offset=0, segment="all"):
 
 def count_segment(business_id, query=None, segment="all"):
     """Сколько клиентов в срезе — для счётчика на чипе и постраничной загрузки."""
-    where = "c.business_id = ?"
+    where = "c.business_id = ? AND c.archived_at IS NULL"
     params = [business_id]
     if query:
         where += " AND (LOWER(c.name) LIKE ? OR c.phone LIKE ?)"
@@ -2579,9 +2690,10 @@ def count_segment(business_id, query=None, segment="all"):
         ).fetchone()["n"]
 
 
-def count_clients(business_id, query=None):
+def count_clients(business_id, query=None, archived=False):
     """Сколько всего клиентов подходит под фильтр — для пагинации."""
-    where = "business_id = ?"
+    where = "business_id = ?" + (" AND archived_at IS NOT NULL" if archived
+                                 else " AND archived_at IS NULL")
     params = [business_id]
     if query:
         where += " AND (LOWER(name) LIKE ? OR phone LIKE ?)"
@@ -2620,7 +2732,7 @@ def active_clients(business_id, days=30):
 
 def clients_overview(business_id, query=None):
     """Итоги по клиентам под фильтр: всего, с телефоном, суммарно заказов."""
-    where = "business_id = ?"
+    where = "business_id = ? AND archived_at IS NULL"
     params = [business_id]
     if query:
         where += " AND (LOWER(name) LIKE ? OR phone LIKE ?)"
@@ -2891,11 +3003,13 @@ def all_finance_entries(business_id):
         return [dict(r) for r in rows]
 
 
-def list_documents(business_id):
+def list_documents(business_id, archived=False):
     """Загруженные документы бизнеса (имя, число чанков, дата)."""
+    where = "business_id = ?" + (" AND archived_at IS NOT NULL" if archived
+                                 else " AND archived_at IS NULL")
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM documents WHERE business_id = ? ORDER BY id DESC",
+            f"SELECT * FROM documents WHERE {where} ORDER BY id DESC",
             (business_id,),
         ).fetchall()
         return [dict(r) for r in rows]
@@ -2917,10 +3031,12 @@ def rename_document(doc_id, business_id, filename):
         )
 
 
-def count_documents(business_id):
+def count_documents(business_id, archived=False):
+    where = "business_id = ?" + (" AND archived_at IS NOT NULL" if archived
+                                 else " AND archived_at IS NULL")
     with _connect() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM documents WHERE business_id = ?", (business_id,)
+            f"SELECT COUNT(*) AS n FROM documents WHERE {where}", (business_id,)
         ).fetchone()
     return int(row["n"] or 0)
 
@@ -2941,8 +3057,13 @@ def search_chunks(business_id, query, k=4):
     if not words:
         return []
     with _connect() as conn:
+        # Архивный документ не отвечает на вопросы: если владелец убрал
+        # старый прайс, ядро не должно цитировать его цены.
         rows = conn.execute(
-            "SELECT content FROM doc_chunks WHERE business_id = ?", (business_id,)
+            """SELECT ch.content FROM doc_chunks ch
+                 JOIN documents d ON d.id = ch.doc_id AND d.business_id = ch.business_id
+                WHERE ch.business_id = ? AND d.archived_at IS NULL""",
+            (business_id,),
         ).fetchall()
     scored = []
     for r in rows:

@@ -27,6 +27,10 @@ DEPENDENCIES = {
     "client":   ("board", "briefing", "opportunities"),
     "document": ("board", "briefing", "risks"),
     "goal":     ("board", "briefing"),
+    # Знания о бизнесе тоже данные: поправили цену услуги или убрали в архив
+    # уволенного мастера — Директор и брифинг должны пересобраться, а не
+    # советовать по вчерашней картинке.
+    "memory":   ("board", "briefing", "opportunities"),
     "plan":     ("board", "briefing"),
 }
 

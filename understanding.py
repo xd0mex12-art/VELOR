@@ -381,13 +381,26 @@ def _norm_name(s):
     return re.sub(r"[^а-яёa-z]", "", (s or "").lower())
 
 
+# Окончания, которые русский язык меняет: «Петрова» в тексте станет
+# «Петровой», «Петрову», «Петровы». Основу берём без них, иначе система
+# узнаёт только те имена, которые стоят в именительном падеже.
+_NAME_TAIL = "аяеийоуыьюё"
+
+
+def _stem_name(word: str) -> str:
+    st = _norm_name(word)
+    while len(st) > 4 and st[-1] in _NAME_TAIL:
+        st = st[:-1]
+    return st
+
+
 def _name_match(known: str, text_low: str):
     """
-    Узнать в тексте знакомое имя. Русские падежи («Иванову», «Иванова»)
+    Узнать в тексте знакомое имя. Русские падежи («Иванову», «Петровой»)
     ловим по основе: сравниваем начало слова, а не слово целиком.
     """
     for word in re.split(r"[\s,;]+", known or ""):
-        stem = _norm_name(word)
+        stem = _stem_name(word)
         if len(stem) < 4:
             continue          # инициалы и предлоги совпадут с чем угодно
         if re.search(r"\b" + re.escape(stem) + r"[а-яё]{0,3}\b", text_low):

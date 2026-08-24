@@ -89,6 +89,17 @@
     font-weight:var(--fw-semi); padding:2px 8px; border-radius:var(--r-pill);
     background:var(--surface-2); color:var(--ash); }
   .entry .tag.who{ background:rgba(128,82,255,.16); color:var(--ink-iris); }
+  /* Кто записал операцию. Цвет — не единственный признак: слово стоит рядом. */
+  .entry .tag.ai{ background:rgba(193,179,255,.14); color:var(--ink-iris); }
+  .entry .tag.hand{ color:var(--ash); }
+
+  /* «ИИ предложил — вы поправили» */
+  .fx{ display:flex; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap;
+    padding:var(--sp-2) 0; border-bottom:1px solid var(--hairline); font-size:var(--fs-sm); }
+  .fx:last-child{ border-bottom:none; }
+  .fx .k{ color:var(--ash); }
+  .fx .was{ color:var(--ash); text-decoration:line-through; }
+  .fx .now{ color:var(--saffron); }
   .entry .open{ background:none; border:none; color:inherit; text-align:left;
     display:flex; align-items:center; gap:var(--sp-4); flex:1; min-width:0;
     min-height:48px; padding:0; }
@@ -362,6 +373,16 @@ function paintForm(){
   box.innerHTML = FIELDS.map(f => fieldHTML(Object.assign({}, f, {value: ''}), 'a')).join('');
 }
 
+// Метка происхождения. «VELOR 90%» и «вручную» — разные основания доверять
+// цифре, и владелец должен видеть разницу, не открывая карточку.
+function originTag(o){
+  if (!o || !o.by) return '';
+  const cf = o.confidence != null ? ' · ' + Math.round(o.confidence * 100) + '%' : '';
+  if (o.by === 'velor') return `<span class="tag ai">VELOR${cf}</span>`;
+  if (o.by === 'confirmed') return `<span class="tag ai">VELOR → вы${cf}</span>`;
+  return '<span class="tag hand">вручную</span>';
+}
+
 function paintList(rows){
   const list = document.getElementById('list');
   document.getElementById('cnt').textContent = rows.length ? rows.length : '';
@@ -376,6 +397,7 @@ function paintList(rows){
     if (r.who) tags.push(`<span class="tag who">${esc(r.who)}</span>`);
     if (r.doc_type_ru) tags.push(`<span class="tag">${esc(r.doc_type_ru)}</span>`);
     if (r.op_date) tags.push(`<span class="tag">${esc(r.op_date)}</span>`);
+    const ot = originTag(r.origin); if (ot) tags.push(ot);
     return `
     <div class="entry" data-id="${r.id}">
       <button class="open" type="button" aria-label="Открыть операцию ${esc(r.category || 'без категории')}">
@@ -488,11 +510,31 @@ function storyHTML(history){
         → <b>${esc(v.now == null ? '—' : v.now)}</b></div>`).join('');
     return `<div class="ev e-${esc(h.event)}"><span class="pin"></span><div class="b">
       <div class="t">${esc(EVENT_RU[h.event] || h.event)}${h.note ? ' — ' + esc(h.note) : ''}</div>
-      <div class="w">${esc(ACTOR_RU[h.actor] || h.actor || '')} · ${esc(when(h.created_at))}</div>
+      <div class="w">${esc(h.event === 'created' && h.by_ru ? h.by_ru
+                             : (ACTOR_RU[h.actor] || h.actor || ''))} · ${esc(when(h.created_at))}</div>
       ${chg ? `<div class="chg">${chg}</div>` : ''}
     </div></div>`;
   }).join('');
   return `<div class="story"><h3>История операции</h3>${rows}</div>`;
+}
+
+// Исправление ИИ не стирается: рядом с живым значением остаётся то, что он
+// предлагал. Иначе нельзя сказать, где он ошибается.
+function fixHTML(d){
+  if (!d.corrections || !d.corrections.length) return '';
+  const rows = d.corrections.map(c => `
+    <div class="fx"><span class="k">${esc(c.label)}</span>
+      <span><span class="was">${esc(c.ai === null || c.ai === '' ? '—' : c.ai)}</span>
+        → <span class="now">${esc(c.now === null || c.now === '' ? '—' : c.now)}</span></span>
+    </div>`).join('');
+  return `<div class="story"><h3>ИИ предложил — вы поправили</h3>${rows}</div>`;
+}
+
+function originLine(o){
+  if (!o || !o.by) return '';
+  const cf = o.confidence != null && o.by !== 'manual'
+    ? ', уверенность ' + Math.round(o.confidence * 100) + '%' : '';
+  return (o.by_ru || '') + cf + (o.item ? ' · ' + o.item : '');
 }
 
 function paintOp(d){
@@ -501,11 +543,12 @@ function paintOp(d){
   document.getElementById('opTitle').textContent =
     (e.kind === 'expense' ? 'Расход ' : 'Доход ') + money(e.amount);
   document.getElementById('opMeta').textContent =
-    [e.category || 'без категории', e.who, e.doc_type_ru, e.op_date].filter(Boolean).join(' · ');
+    [e.category || 'без категории', e.who, e.doc_type_ru, e.op_date,
+     originLine(d.origin)].filter(Boolean).join(' · ');
   opEdit.innerHTML = d.schema.fields
     .map(f => fieldHTML(Object.assign({}, f, {value: d.values[f.name]}), 'o')).join('');
   markDirty(opEdit, 'Было: ');
-  document.getElementById('opStory').innerHTML = storyHTML(d.history);
+  document.getElementById('opStory').innerHTML = fixHTML(d) + storyHTML(d.history);
 }
 
 async function openOp(id){
@@ -544,7 +587,8 @@ document.getElementById('opSave').addEventListener('click', async e => {
     const n = Object.keys(d.changes || {}).length;
     toast(n ? 'Сохранено — ' + n + ' ' + plural(n, 'правка', 'правки', 'правок')
             : 'Ничего не изменилось');
-    paintOp(Object.assign({}, OP, {values: d.values, entry: d.entry, history: d.history}));
+    paintOp(Object.assign({}, OP, {values: d.values, entry: d.entry, history: d.history,
+                                   corrections: d.corrections, ai: d.ai}));
     await load();
   }catch{ toast('Нет связи с сервером'); }
   btn.disabled = false; btn.textContent = was;
