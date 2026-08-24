@@ -559,6 +559,28 @@ def init_db():
                    updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
                )"""
         )
+        # Что VELOR понял про материал. Отдельной таблицей, а не колонками в
+        # inbox_items: разборов у одного материала бывает несколько (модель
+        # ответила плохо → переразобрали), и прошлые ответы стирать нельзя —
+        # по ним видно, ошибается ли ИИ и в какую сторону.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS inbox_results (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   item_id      INTEGER NOT NULL,
+                   type         TEXT NOT NULL DEFAULT 'UNKNOWN',
+                   confidence   REAL DEFAULT 0,
+                   level        TEXT DEFAULT 'LOW',      -- HIGH | MEDIUM | LOW
+                   summary      TEXT,
+                   extracted    TEXT,      -- JSON: что удалось вытащить
+                   actions      TEXT,      -- JSON: предложенные действия
+                   engine       TEXT,      -- llm | rules
+                   model        TEXT,      -- какой провайдер ответил
+                   error        TEXT,
+                   applied      TEXT,      -- JSON: что уже применено
+                   created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
         # Оригиналы для backend'а "db" (Render: диск эфемерный, база — нет).
         conn.execute(
             """CREATE TABLE IF NOT EXISTS inbox_blobs (
@@ -679,6 +701,7 @@ def init_db():
             ("idx_inbox_biz",            "inbox_items",     "business_id, id"),
             ("idx_inbox_biz_status",     "inbox_items",     "business_id, status"),
             ("idx_inbox_blobs_biz",      "inbox_blobs",     "business_id"),
+            ("idx_inbox_results_item",   "inbox_results",   "business_id, item_id"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -3108,6 +3131,90 @@ def delete_inbox_item(item_id, business_id):
         cur = conn.execute(
             "DELETE FROM inbox_items WHERE id = ? AND business_id = ?",
             (item_id, business_id),
+        )
+        return cur.rowcount > 0
+
+
+# ---------- что VELOR понял про материал ----------
+
+def save_inbox_result(business_id, item_id, result):
+    """
+    Сохранить разбор. Прошлые НЕ трогаем — история ответов модели это тоже
+    данные: по ней видно, где ИИ систематически ошибается.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO inbox_results
+               (business_id, item_id, type, confidence, level, summary,
+                extracted, actions, engine, model, error, applied)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (business_id, item_id,
+             result.get("type") or "UNKNOWN",
+             float(result.get("confidence") or 0),
+             result.get("level") or "LOW",
+             result.get("summary"),
+             _json.dumps(result.get("extracted_data") or {}, ensure_ascii=False),
+             _json.dumps(result.get("suggested_actions") or [], ensure_ascii=False),
+             result.get("engine"), result.get("model"), result.get("error"),
+             _json.dumps(result.get("applied") or [], ensure_ascii=False)),
+        )
+        return cur.lastrowid
+
+
+def _result_row(row):
+    """Строка таблицы → тот же вид, в каком разбор живёт в коде и в API."""
+    if not row:
+        return None
+    d = dict(row)
+    for src, dst in (("extracted", "extracted_data"), ("actions", "suggested_actions"),
+                     ("applied", "applied")):
+        try:
+            d[dst] = _json.loads(d.get(src) or ("[]" if src != "extracted" else "{}"))
+        except (ValueError, TypeError):
+            d[dst] = [] if src != "extracted" else {}
+    d.pop("extracted", None)
+    d.pop("actions", None)
+    return d
+
+
+def get_inbox_result(business_id, item_id):
+    """Последний разбор материала — его и показываем."""
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT * FROM inbox_results
+                WHERE business_id = ? AND item_id = ?
+                ORDER BY id DESC LIMIT 1""",
+            (business_id, item_id),
+        ).fetchone()
+    return _result_row(row)
+
+
+def get_inbox_results(business_id, item_ids):
+    """Разборы сразу для пачки материалов — чтобы лента не делала N запросов."""
+    ids = [int(i) for i in item_ids]
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM inbox_results
+                 WHERE business_id = ? AND item_id IN ({ph})
+                 ORDER BY id ASC""",
+            (business_id, *ids),
+        ).fetchall()
+    out = {}
+    for r in rows:                      # последний по каждому материалу победит
+        d = _result_row(r)
+        out[d["item_id"]] = d
+    return out
+
+
+def mark_result_applied(result_id, business_id, applied):
+    """Отметить, какие предложенные действия уже выполнены."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE inbox_results SET applied = ? WHERE id = ? AND business_id = ?",
+            (_json.dumps(applied, ensure_ascii=False), result_id, business_id),
         )
         return cur.rowcount > 0
 

@@ -36,6 +36,7 @@ import connectors
 import trial
 import identity
 import storage
+import understanding
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -2831,6 +2832,10 @@ INBOX_TYPES = {
     # текст и данные
     "txt": "text/plain", "md": "text/markdown", "json": "application/json",
     "xml": "application/xml", "zip": "application/zip",
+    # голосовые: расшифровки пока нет, но принять и сохранить обязаны —
+    # иначе тип VOICE_INFORMATION недостижим, а материал теряется
+    "ogg": "audio/ogg", "oga": "audio/ogg", "mp3": "audio/mpeg",
+    "m4a": "audio/mp4", "wav": "audio/wav", "amr": "audio/amr",
 }
 
 # Показать в браузере можно только то, что браузер не исполнит. SVG сюда не
@@ -2883,6 +2888,52 @@ def _inbox_disposition(kind: str, filename: str) -> str:
             + "; filename*=UTF-8''" + quoted)
 
 
+def _inbox_understand(bid: int, item_id: int) -> None:
+    """
+    Запустить разбор материала.
+
+    В обычной работе — отдельным потоком: чтение PDF и ответ модели занимают
+    секунды, а форма приёма должна отпускать человека сразу. В тестах и при
+    отключённых фоновых задачах считаем на месте, чтобы поведение было
+    предсказуемым, а не «когда-нибудь потом».
+    """
+    if _os.getenv("DISABLE_SYNC_WORKER"):
+        try:
+            understanding.process(bid, item_id)
+        except Exception:
+            logging.exception("Inbox: разбор упал (biz %s, материал %s)", bid, item_id)
+        return
+    import threading
+    threading.Thread(target=_understand_safely, args=(bid, item_id),
+                     name=f"velor-inbox-{item_id}", daemon=True).start()
+
+
+def _understand_safely(bid: int, item_id: int) -> None:
+    """Фоновый разбор: упасть он может, а уронить сервер — нет."""
+    try:
+        understanding.process(bid, item_id)
+    except Exception:
+        logging.exception("Inbox: разбор упал (biz %s, материал %s)", bid, item_id)
+        try:
+            database.set_inbox_status(item_id, bid, "FAILED", "Разбор не удался")
+        except Exception:
+            pass
+
+
+def _inbox_result_public(res: dict | None) -> dict | None:
+    """Разбор наружу: добавляем человеческие подписи, чтобы их не собирал фронт."""
+    if not res:
+        return None
+    out = {k: res.get(k) for k in
+           ("id", "item_id", "type", "confidence", "level", "summary",
+            "extracted_data", "suggested_actions", "engine", "model", "error",
+            "applied", "created_at")}
+    out["type_ru"] = understanding.TYPE_RU.get(res.get("type"), "Не разобрал")
+    out["level_ru"] = understanding.LEVEL_RU.get(res.get("level"), "низкая")
+    out["needs"] = understanding.NEEDS_RU.get(res.get("level"), "нужно уточнение")
+    return out
+
+
 def _inbox_public(item: dict) -> dict:
     """Что отдаём наружу. storage_key наружу не уходит: это внутреннее имя
     в хранилище, и знать его клиенту незачем — файл отдаётся по id записи."""
@@ -2903,8 +2954,16 @@ def api_inbox_list(business_id: int = 0, status: str = "", archived: int = 0,
     arch = bool(archived)
     items = database.list_inbox(bid, status=status, archived=arch,
                                limit=limit, offset=offset)
+    # Разборы забираем одним запросом на всю страницу: иначе лента из тридцати
+    # материалов сделала бы тридцать походов в базу.
+    results = database.get_inbox_results(bid, [i["id"] for i in items])
+    out = []
+    for i in items:
+        row = _inbox_public(i)
+        row["result"] = _inbox_result_public(results.get(i["id"]))
+        out.append(row)
     return {
-        "items": [_inbox_public(i) for i in items],
+        "items": out,
         "total": database.count_inbox(bid, status=status, archived=arch),
         "overview": database.inbox_overview(bid),
         "statuses": list(database.INBOX_STATUSES),
@@ -2936,7 +2995,10 @@ def api_inbox_note(body: InboxNote, x_auth: str = Header(default="")):
     item_id = database.add_inbox_item(
         bid, kind="text", title=title, body=text,
         size=len(text.encode("utf-8")), source=body.source)
-    return {"ok": True, "item": _inbox_public(database.get_inbox_item(item_id, bid))}
+    _inbox_understand(bid, item_id)
+    item = _inbox_public(database.get_inbox_item(item_id, bid))
+    item["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id))
+    return {"ok": True, "item": item}
 
 
 @app.post("/api/inbox/upload")
@@ -2988,7 +3050,10 @@ async def api_inbox_upload(files: list[UploadFile] = File(...),
         item_id = database.add_inbox_item(
             bid, kind="file", title=name, filename=name, mime=mime,
             size=len(data), storage_key=key, source=source)
-        saved.append(_inbox_public(database.get_inbox_item(item_id, bid)))
+        _inbox_understand(bid, item_id)
+        row = _inbox_public(database.get_inbox_item(item_id, bid))
+        row["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id))
+        saved.append(row)
 
     return {"ok": bool(saved), "saved": saved, "failed": failed}
 
@@ -3000,7 +3065,8 @@ def api_inbox_item(item_id: int, business_id: int = 0, x_auth: str = Header(defa
     item = database.get_inbox_item(item_id, bid)
     if not item:
         raise HTTPException(status_code=404, detail="Материал не найден.")
-    return {"item": _inbox_public(item)}
+    return {"item": _inbox_public(item),
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id))}
 
 
 @app.get("/api/inbox/{item_id}/file")
@@ -3040,6 +3106,81 @@ def api_inbox_file(item_id: int, business_id: int = 0, download: int = 0,
             "Cache-Control": "private, max-age=60",
         },
     )
+
+
+@app.get("/api/inbox/{item_id}/result")
+def api_inbox_result(item_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """Что VELOR понял про материал (последний разбор)."""
+    bid = _resolve_bid(x_auth, business_id)
+    if not database.get_inbox_item(item_id, bid):
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    return {"result": _inbox_result_public(database.get_inbox_result(bid, item_id))}
+
+
+@app.post("/api/inbox/{item_id}/process")
+def api_inbox_process(item_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Разобрать заново. Нужен, когда модель была недоступна в момент приёма или
+    ответила мимо: прошлый разбор при этом сохраняется, а не затирается.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    if not database.get_inbox_item(item_id, bid):
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    try:
+        understanding.process(bid, item_id)
+    except Exception:
+        logging.exception("Inbox: повторный разбор упал (biz %s, материал %s)", bid, item_id)
+        database.set_inbox_status(item_id, bid, "FAILED", "Разбор не удался")
+        raise HTTPException(status_code=502, detail="Не удалось разобрать материал.")
+    return {"ok": True,
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id)),
+            "item": _inbox_public(database.get_inbox_item(item_id, bid))}
+
+
+class InboxAction(BaseModel):
+    action: str
+    business_id: int = 0
+
+
+@app.post("/api/inbox/{item_id}/action")
+def api_inbox_action(item_id: int, body: InboxAction, x_auth: str = Header(default="")):
+    """
+    Выполнить предложенное действие — по нажатию человека.
+
+    Именно здесь проходит граница безопасности: расход и доход попадают в
+    финансы ТОЛЬКО отсюда. Сам VELOR такие действия не выполняет ни при какой
+    уверенности (см. understanding.apply_action, auto=True).
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    res = database.get_inbox_result(bid, item_id)
+    if not res:
+        raise HTTPException(status_code=409, detail="Материал ещё не разобран.")
+    already = {a.get("action") for a in (res.get("applied") or [])}
+    if body.action in already:
+        raise HTTPException(status_code=409, detail="Это действие уже выполнено.")
+    offered = {a.get("action") for a in (res.get("suggested_actions") or [])}
+    if body.action not in offered:
+        # Выполнять можно только предложенное: иначе через этот эндпоинт можно
+        # было бы провести любую операцию, сославшись на чужой разбор.
+        raise HTTPException(status_code=400, detail="Такое действие для этого материала не предлагалось.")
+    try:
+        detail = understanding.apply_action(bid, item_id, body.action, res, auto=False)
+    except understanding.ActionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logging.exception("Inbox: действие не выполнено (biz %s, материал %s)", bid, item_id)
+        raise HTTPException(status_code=502, detail="Не удалось выполнить действие.")
+
+    applied = list(res.get("applied") or [])
+    applied.append({"action": body.action, "auto": False, "detail": detail})
+    database.mark_result_applied(res["id"], bid, applied)
+    if body.action != "ask_user":
+        database.set_inbox_status(item_id, bid, "PROCESSED")
+    return {"ok": True, "detail": detail,
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id)),
+            "item": _inbox_public(database.get_inbox_item(item_id, bid))}
 
 
 @app.post("/api/inbox/{item_id}/archive")

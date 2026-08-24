@@ -93,6 +93,56 @@
   .st-NEEDS_REVIEW{ color:var(--saffron); }
   .st-FAILED{ color:var(--ink-coral); }
 
+  /* ── «VELOR понял» ── */
+  .got-card{ margin-top:var(--sp-5); border:1px solid rgba(128,82,255,.28);
+    background:linear-gradient(150deg,rgba(128,82,255,.12),rgba(255,255,255,.02));
+    border-radius:var(--r-lg); padding:var(--sp-5); }
+  .got-card .cap{ display:flex; align-items:center; gap:var(--sp-3);
+    flex-wrap:wrap; margin-bottom:var(--sp-3); }
+  .got-card .cap b{ font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--lilac); }
+  .got-card .what{ font-size:var(--fs-lead); font-weight:var(--fw-reg); letter-spacing:-.02em; }
+  .got-card .why{ margin-top:var(--sp-2); font-size:var(--fs-body);
+    font-weight:var(--fw-thin); color:var(--silver); line-height:1.5; }
+
+  /* уверенность — полосой и словом сразу: цвет один смысл не несёт */
+  .conf{ display:flex; align-items:center; gap:var(--sp-3); margin-top:var(--sp-4); }
+  .conf .bar{ flex:1; height:6px; border-radius:3px; background:var(--surface-2); overflow:hidden; }
+  .conf .bar span{ display:block; height:100%; border-radius:3px;
+    transition:width .6s var(--ease); }
+  .conf .val{ font-size:var(--fs-sm); color:var(--silver); white-space:nowrap;
+    font-variant-numeric:tabular-nums; }
+  .lv-HIGH .bar span{ background:var(--verdant); }
+  .lv-MEDIUM .bar span{ background:var(--saffron); }
+  .lv-LOW .bar span{ background:var(--ink-coral); }
+
+  .facts{ margin-top:var(--sp-4); display:grid; gap:var(--sp-2); }
+  .fact{ display:flex; justify-content:space-between; gap:var(--sp-4);
+    padding:var(--sp-2) 0; border-bottom:1px solid var(--hairline); }
+  .fact:last-child{ border-bottom:none; }
+  .fact .k{ font-size:var(--fs-sm); color:var(--ash); }
+  .fact .v{ font-size:var(--fs-body); text-align:right; font-variant-numeric:tabular-nums;
+    word-break:break-word; }
+
+  .doing{ margin-top:var(--sp-4); padding-top:var(--sp-4);
+    border-top:1px solid rgba(128,82,255,.2); }
+  .doing .lead{ font-size:var(--fs-sm); color:var(--ash); margin-bottom:var(--sp-3); }
+  .doing .btns{ display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+  .doing .done{ display:flex; align-items:center; gap:var(--sp-2);
+    font-size:var(--fs-body); color:var(--verdant); padding:var(--sp-2) 0; }
+  .doing .note{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--saffron); }
+
+  /* строка разбора в ленте */
+  .got-line{ margin-top:var(--sp-2); display:flex; align-items:center;
+    gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); color:var(--silver); }
+  .got-line .tag{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px;
+    border-radius:var(--r-pill); background:rgba(128,82,255,.16); color:var(--ink-iris);
+    font-size:10px; font-weight:var(--fw-semi); letter-spacing:.08em; text-transform:uppercase; }
+  .got-line .dot{ width:6px; height:6px; border-radius:50%; flex:none; }
+  .got-line.lv-HIGH .dot{ background:var(--verdant); }
+  .got-line.lv-MEDIUM .dot{ background:var(--saffron); }
+  .got-line.lv-LOW .dot{ background:var(--ink-coral); }
+
   /* ── просмотр материала ── */
   .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
     justify-content:center; padding:var(--sp-5); background:rgba(0,0,0,.75);
@@ -107,8 +157,6 @@
   .modal .view img{ max-width:100%; border-radius:var(--r-lg); display:block; }
   .modal .view pre{ white-space:pre-wrap; word-break:break-word; font-family:inherit;
     font-weight:var(--fw-thin); font-size:var(--fs-body); line-height:1.6; color:var(--silver); }
-  .modal .view embed{ width:100%; height:min(60vh,560px); border-radius:var(--r-lg);
-    border:1px solid var(--hairline); background:#fff; }
   .modal .foot{ margin-top:var(--sp-6); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
   .modal .foot .close{ margin-left:auto; }
 
@@ -231,6 +279,25 @@ function ago(iso){
   const dd = Math.round(h / 24);
   return dd + ' ' + plural(dd, 'день', 'дня', 'дней') + ' назад';
 }
+// Поля извлечённых данных по-русски. Чего здесь нет — показываем как есть:
+// молча прятать найденное хуже, чем показать техническим именем.
+const FIELD_RU = {
+  amount: 'Сумма', currency: 'Валюта', category: 'Категория',
+  direction: 'Направление', counterparty: 'Кому/от кого', date: 'Дата',
+  items_count: 'Позиций', amounts_found: 'Сумм в документе',
+  amount_unverified: 'Сумма не проверена по тексту',
+};
+const DIRECTION_RU = { expense: 'расход', income: 'доход' };
+const CUR = { RUB: '₽', USD: '$', EUR: '€', KZT: '₸' };
+
+function fieldValue(k, v){
+  if (k === 'direction') return DIRECTION_RU[v] || v;
+  if (k === 'amount_unverified') return v ? 'да' : 'нет';
+  if (k === 'amount') return Number(v).toLocaleString('ru-RU');
+  if (k === 'currency') return (CUR[v] || v) + ' (' + v + ')';
+  return String(v);
+}
+
 const STATUS_RU = {
   RECEIVED: 'Принято', PROCESSING: 'В разборе', PROCESSED: 'Разобрано',
   NEEDS_REVIEW: 'Нужен взгляд', FAILED: 'Сбой',
@@ -249,6 +316,21 @@ const moreEl = document.getElementById('more');
 const failEl = document.getElementById('failZone');
 const queueEl = document.getElementById('queue');
 let filter = '', offset = 0, total = 0, loading = false, limits = { max_mb: 25, max_files: 10, accept: [] };
+
+// Дозагрузка на время разбора. Разбор идёт в фоне на сервере: ответ на
+// загрузку приходит раньше, чем VELOR успевает понять материал. Пока в ленте
+// есть «в разборе» — перечитываем список несколько раз с растущей паузой и
+// замолкаем. Постоянного опроса нет: он бы жёг батарею ради тишины.
+let waitTimer = null;
+function waitForParsing(attempt = 0){
+  clearTimeout(waitTimer);
+  if (attempt > 6) return;
+  if (!document.querySelector('.item .st-PROCESSING')) return;
+  waitTimer = setTimeout(async () => {
+    if (document.hidden){ waitForParsing(attempt); return; }   // вкладка не на виду
+    await load(true, attempt + 1);
+  }, 900 + attempt * 700);
+}
 
 // ── состояние ящика ──
 function paintState(o){
@@ -303,6 +385,7 @@ function itemHTML(it){
         <div class="d">${st} <span>${esc(meta)}</span></div>
         ${it.kind === 'text' && it.body ? `<div class="preview">${esc(it.body)}</div>` : ''}
         ${it.status === 'FAILED' && it.error ? `<div class="preview" style="color:var(--ink-coral)">${esc(it.error)}</div>` : ''}
+        ${gotLine(it.result)}
       </div>
       <div class="acts">
         <button class="open" type="button" title="Открыть" aria-label="Открыть «${esc(it.title || 'материал')}»">👁</button>
@@ -313,6 +396,79 @@ function itemHTML(it){
     </div>`;
 }
 
+// ── «VELOR понял»: что нашёл, насколько уверен, что предлагает ──
+function gotCard(it, res){
+  if (!res){
+    return `<div class="got-card"><div class="cap"><b>VELOR понял</b></div>
+      <div class="why">Материал ещё не разобран. Нажмите «Разобрать» — VELOR посмотрит,
+      что это, и предложит, что с ним делать.</div>
+      <div class="doing"><div class="btns">
+        <button class="v-btn process" type="button">Разобрать</button>
+      </div></div></div>`;
+  }
+  const pct = Math.round((res.confidence || 0) * 100);
+  const facts = Object.entries(res.extracted_data || {})
+    .filter(([, v]) => v !== null && v !== '' && v !== false);
+
+  const applied = (res.applied || []);
+  const doneNames = new Set(applied.map(a => a.action));
+  const left = (res.suggested_actions || []).filter(a => !doneNames.has(a.action));
+
+  const doneHTML = applied.map(a =>
+    `<div class="done">✓ ${esc(a.detail || a.action)}${a.auto ? ' — VELOR сделал сам' : ''}</div>`).join('');
+
+  // При низкой уверенности кнопок действий не даём вовсе: сначала надо
+  // понять, что это, а не нажимать наугад.
+  const btnsHTML = (res.level === 'LOW')
+    ? `<button class="v-btn ghost process" type="button">Разобрать заново</button>`
+    : left.map(a => `<button class="v-btn ${a.safe ? 'ghost' : ''} act" data-a="${esc(a.action)}"
+         type="button">${esc(a.title)}</button>`).join('')
+      + `<button class="v-btn ghost process" type="button">Разобрать заново</button>`;
+
+  return `
+    <div class="got-card lv-${esc(res.level)}">
+      <div class="cap"><b>VELOR понял</b>
+        <span class="st-tag st-${esc(res.level === 'HIGH' ? 'PROCESSED' : 'NEEDS_REVIEW')}">
+          <i></i>${esc(res.needs || '')}</span></div>
+      <div class="what">${esc(res.type_ru || '')}</div>
+      ${res.summary ? `<div class="why">${esc(res.summary)}</div>` : ''}
+
+      <div class="conf">
+        <span class="val">Уверенность ${esc(res.level_ru || '')}</span>
+        <span class="bar"><span style="width:${pct}%"></span></span>
+        <span class="val">${pct}%</span>
+      </div>
+
+      ${facts.length ? `<div class="facts">${facts.map(([k, v]) =>
+        `<div class="fact"><span class="k">${esc(FIELD_RU[k] || k)}</span>
+          <span class="v">${esc(fieldValue(k, v))}</span></div>`).join('')}</div>` : ''}
+
+      <div class="doing">
+        <div class="lead">${res.level === 'LOW'
+          ? 'Уверенности мало — действия не предлагаю, чтобы не сделать лишнего.'
+          : (res.level === 'MEDIUM' ? 'Проверьте и подтвердите — сам я этого не делаю.'
+                                    : 'Можно применить одним нажатием.')}</div>
+        ${doneHTML}
+        <div class="btns">${btnsHTML}</div>
+        ${res.error ? `<div class="note">${esc(res.error)}</div>` : ''}
+      </div>
+    </div>`;
+}
+
+function gotLine(res){
+  if (!res) return '';
+  const pct = Math.round((res.confidence || 0) * 100);
+  // Если действие уже выполнено, «нужно подтверждение» — вчерашняя новость.
+  // Строка должна говорить, что с материалом СЕЙЧАС, а не что предлагалось.
+  const done = (res.applied || []);
+  const tail = done.length
+    ? done.map(a => esc(a.detail || a.action)).join(' · ')
+    : esc(res.needs || '');
+  return `<div class="got-line lv-${done.length ? 'HIGH' : esc(res.level)}"><span class="dot"></span>
+    <span class="tag">${esc(res.type_ru || '')}</span>
+    <span>${pct}% · ${tail}</span></div>`;
+}
+
 function paintFail(){
   failEl.innerHTML = `<div class="v-fail"><div><div class="t">Входящие не загрузились</div>
     <div class="d">Сервер не ответил. Уже принятые материалы целы — попробуйте ещё раз.</div></div>
@@ -320,7 +476,7 @@ function paintFail(){
   document.getElementById('retry').addEventListener('click', () => { failEl.innerHTML = ''; load(true); });
 }
 
-async function load(reset){
+async function load(reset, waitAttempt = 0){
   if (loading) return;
   loading = true;
   if (reset){
@@ -355,6 +511,7 @@ async function load(reset){
     (d.items || []).forEach(it => listEl.insertAdjacentHTML('beforeend', itemHTML(it)));
     offset += (d.items || []).length;
     moreEl.style.display = offset < total ? 'block' : 'none';
+    waitForParsing(waitAttempt);
   }catch{
     if (reset){ listEl.innerHTML = ''; paintFail(); }
     else toast('Не удалось загрузить ещё');
@@ -503,6 +660,59 @@ async function fileBlob(id){
   return blobUrl;
 }
 
+// Кнопки внутри «VELOR понял». Действия выполняет сервер — здесь только
+// нажатие и честный показ того, что вышло.
+function wireGot(box, it){
+  const card = box.querySelector('.got-card');
+  if (!card) return;
+
+  const proc = card.querySelector('.process');
+  if (proc) proc.addEventListener('click', async () => {
+    proc.disabled = true; proc.textContent = 'Разбираю…';
+    try{
+      const r = await fetch('/api/inbox/' + it.id + '/process', { method: 'POST' });
+      if (!r.ok){
+        let why = 'Не удалось разобрать';
+        try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
+        toast(why); proc.disabled = false; proc.textContent = 'Разобрать заново';
+        return;
+      }
+      const d = await r.json();
+      const shell = document.createElement('div');
+      shell.innerHTML = gotCard(d.item, d.result);
+      card.replaceWith(shell.firstElementChild);
+      wireGot(box, it);
+      await load(true);
+    }catch{
+      toast('Нет связи с сервером'); proc.disabled = false; proc.textContent = 'Разобрать заново';
+    }
+  });
+
+  card.querySelectorAll('.act').forEach(btn => btn.addEventListener('click', async () => {
+    const was = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Выполняю…';
+    try{
+      const r = await fetch('/api/inbox/' + it.id + '/action', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: btn.dataset.a })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok){
+        toast(d.detail || 'Не получилось выполнить'); btn.disabled = false; btn.textContent = was;
+        return;
+      }
+      toast(d.detail || 'Готово');
+      const shell = document.createElement('div');
+      shell.innerHTML = gotCard(d.item, d.result);
+      card.replaceWith(shell.firstElementChild);
+      wireGot(box, it);
+      await load(true);
+    }catch{
+      toast('Нет связи с сервером'); btn.disabled = false; btn.textContent = was;
+    }
+  }));
+}
+
 async function download(it){
   try{
     const r = await fetch('/api/inbox/' + it.id + '/file?download=1');
@@ -520,7 +730,10 @@ async function download(it){
 function closeModal(){
   modal.classList.remove('on');
   document.getElementById('vBody').innerHTML = '';   // снимаем нагрузку с вкладки
-  dropBlob();
+  // Ссылку отпускаем с задержкой: PDF мог быть открыт в соседней вкладке,
+  // и мгновенный revoke оставил бы там пустую страницу.
+  const url = blobUrl; blobUrl = null;
+  if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.classList.contains('on')) closeModal(); });
@@ -537,7 +750,9 @@ async function openItem(id){
   try{
     const r = await fetch('/api/inbox/' + id);
     if (!r.ok) throw 0;
-    const it = (await r.json()).item;
+    const got = await r.json();
+    const it = got.item;
+    const res = got.result;
     document.getElementById('vTitle').textContent = it.title || it.filename || 'Материал';
     document.getElementById('vMeta').textContent = [
       STATUS_RU[it.status] || it.status,
@@ -555,25 +770,46 @@ async function openItem(id){
     const getBtn = foot.querySelector('.get');
     if (getBtn) getBtn.addEventListener('click', () => download(it));
 
+    // Сначала «VELOR понял» — ради этого блока экран и открывают,
+    // а сам материал человек и так помнит.
+    const shell = document.createElement('div');
+    shell.innerHTML = gotCard(it, res);
+    body.innerHTML = '';
+    body.appendChild(shell.firstElementChild);
+    wireGot(body, it);
+
+    const view = document.createElement('div');
+    view.style.marginTop = 'var(--sp-5)';
+    body.appendChild(view);
+
     if (it.kind === 'text'){
-      body.innerHTML = '<pre></pre>';
-      body.querySelector('pre').textContent = it.body || '';
+      view.innerHTML = '<pre></pre>';
+      view.querySelector('pre').textContent = it.body || '';
       return;
     }
     if (!it.can_preview){
-      body.innerHTML = `<div class="v-empty"><strong>Показать здесь не получится</strong>
+      view.innerHTML = `<div class="v-empty"><strong>Показать здесь не получится</strong>
         Такой файл браузер не откроет на месте — скачайте оригинал, он сохранён целиком.</div>`;
       return;
     }
-    body.innerHTML = '<div class="v-sk row"></div>';
+    view.innerHTML = '<div class="v-sk row"></div>';
     try{
       const url = await fileBlob(it.id);
-      body.innerHTML = (it.mime === 'application/pdf')
-        ? '<embed type="application/pdf">'
-        : `<img alt="${esc(it.filename || '')}">`;
-      body.firstElementChild.src = url;
+      if (it.mime === 'application/pdf'){
+        // Встроить PDF нельзя: кабинет запрещает плагины (object-src 'none'),
+        // и это правильный запрет — ослаблять его ради предпросмотра не стоит.
+        // Открываем в отдельной вкладке той же ссылкой, полученной с токеном.
+        view.innerHTML = `<div class="v-empty"><strong>PDF открывается отдельной вкладкой</strong>
+          Встроенный просмотр PDF в кабинете отключён из соображений безопасности.
+          Оригинал сохранён целиком.</div>
+          <button class="v-btn pdf-open" type="button" style="margin-top:var(--sp-3)">Открыть PDF</button>`;
+        view.querySelector('.pdf-open').addEventListener('click', () => window.open(url, '_blank'));
+        return;
+      }
+      view.innerHTML = `<img alt="${esc(it.filename || '')}">`;
+      view.firstElementChild.src = url;
     }catch(err){
-      body.innerHTML = err.message === 'lost'
+      view.innerHTML = err.message === 'lost'
         ? `<div class="v-fail"><div><div class="t">Оригинал потерян</div>
             <div class="d">Запись осталась, а файла в хранилище нет. Материал помечен как «Сбой».</div></div></div>`
         : `<div class="v-fail"><div><div class="t">Файл не открылся</div>

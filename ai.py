@@ -560,6 +560,118 @@ def competitor_analysis(business: dict, competitor_text: str) -> str:
     return _ask(system, [{"role": "user", "content": competitor_text[:3000]}], max_tokens=800).strip()
 
 
+# ============================================================
+#  Понимание входящего материала
+# ============================================================
+
+_UNDERSTAND_TYPES = (
+    "EXPENSE_DOCUMENT, BANK_TRANSACTION, BUSINESS_RULES, SERVICES_OR_PRODUCTS, "
+    "PRICE_LIST, CONTRACT, FINANCIAL_TRANSACTION, VOICE_INFORMATION, UNKNOWN"
+)
+
+
+def _vision_message(text: str, image) -> list[dict]:
+    """
+    Сообщение с картинкой для мультимодального провайдера.
+
+    Смотреть картинку умеет только Gemini через OpenAI-совместимый вход
+    (content — список частей). GigaChat и Claude здесь получили бы список
+    вместо строки и упали, поэтому картинку показываем ТОЛЬКО когда Gemini
+    доступен; иначе разбираем по тексту и имени файла с меньшей уверенностью.
+    """
+    import base64
+    mime, data = image
+    return [{"role": "user", "content": [
+        {"type": "text", "text": text},
+        {"type": "image_url", "image_url": {
+            "url": "data:%s;base64,%s" % (mime, base64.b64encode(data).decode("ascii"))}},
+    ]}]
+
+
+def understand_material(business: dict, text: str = "", filename: str = "",
+                        mime: str = "", kind: str = "file", image=None) -> dict | None:
+    """
+    Понять, ЧТО прислал владелец. Возвращает
+    {type, confidence, summary, extracted_data, provider} или None.
+
+    Модель не решает, что делать с материалом, — только называет его и
+    вытаскивает факты. Решение о действии принимается снаружи, где известны
+    пороги уверенности и правило «деньги сами не двигаются».
+    """
+    system = (
+        f"Ты разбираешь входящие материалы бизнеса {_biz_who(business)}. "
+        "Тебе дают текст материала (или его картинку) и имя файла. "
+        "Определи, ЧТО это, и вытащи факты.\n"
+        f"Тип — ровно одно значение из списка: {_UNDERSTAND_TYPES}.\n"
+        "Правила, которые важнее красоты ответа:\n"
+        "• не уверен — ставь UNKNOWN и низкую confidence, это нормальный ответ;\n"
+        "• НИКОГДА не придумывай суммы, даты и названия: пиши только то, что "
+        "буквально видишь в материале;\n"
+        "• если суммы не видно — не указывай amount вовсе;\n"
+        "• summary — одна короткая фраза по-русски, о чём материал;\n"
+        "• confidence — честное число от 0 до 1.\n"
+        "extracted_data заполняй только известными полями: amount (число без "
+        "пробелов), currency (RUB/USD/EUR/KZT), category (одно слово), "
+        "direction (expense или income), counterparty, date (ГГГГ-ММ-ДД), "
+        "items_count.\n"
+        "Ответь ТОЛЬКО объектом JSON:\n"
+        '{"type":"EXPENSE_DOCUMENT","confidence":0.9,"summary":"кратко",'
+        '"extracted_data":{"amount":1850,"currency":"RUB","category":"доставка"}}'
+    )
+
+    head = []
+    if filename:
+        head.append("Имя файла: " + str(filename)[:180])
+    if mime:
+        head.append("Тип файла: " + str(mime)[:60])
+    head.append("Вид: " + ("заметка владельца" if kind == "text" else "файл"))
+    body = "\n".join(head) + "\n\nСодержимое:\n" + (text or "(текст извлечь не удалось)")
+
+    provider = None
+    if image and GEMINI_API_KEY:
+        # Картинку показываем только Gemini и без запасных провайдеров: для
+        # остальных такое сообщение — гарантированная ошибка формата.
+        raw = _gemini_chat(system, _vision_message(body[:4000], image), max_tokens=700)
+        provider = "gemini-vision"
+    else:
+        raw = _ask(system, [{"role": "user", "content": body[:6000]}], max_tokens=700)
+        provider = _active
+
+    raw = (raw or "").strip()
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        got = json.loads(raw[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(got, dict):
+        return None
+
+    try:
+        conf = float(got.get("confidence") or 0)
+    except (TypeError, ValueError):
+        conf = 0.0
+    data = got.get("extracted_data")
+    if not isinstance(data, dict):
+        data = {}
+    # Сумму приводим к числу здесь же: «1 850 ₽» строкой сломало бы финансы.
+    if "amount" in data:
+        try:
+            data["amount"] = int(round(float(str(data["amount"]).replace(" ", "")
+                                             .replace("\u00a0", "").replace(",", "."))))
+        except (TypeError, ValueError):
+            data.pop("amount", None)
+
+    return {
+        "type": str(got.get("type") or "UNKNOWN").strip().upper()[:40],
+        "confidence": min(1.0, max(0.0, conf)),
+        "summary": str(got.get("summary") or "").strip()[:300],
+        "extracted_data": data,
+        "provider": provider,
+    }
+
+
 def finance_insights(business: dict, summary_text: str) -> str:
     """AI-финансист: по цифрам доходов/расходов даёт 2–3 конкретных вывода и рекомендации."""
     name = business.get("name") or "компания"
