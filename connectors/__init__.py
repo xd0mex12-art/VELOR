@@ -15,7 +15,7 @@ import threading
 import database
 import secretbox
 import signals
-from connectors.base import ConnectorError, patient
+from connectors.base import AuthError, ConnectorError, patient
 
 from connectors import (amocrm, bitrix24, cloudpayments, hubspot, ozon, shopify,
                         slack, stripe, wildberries, woocommerce, yookassa)
@@ -71,7 +71,8 @@ def _creds(conn_row: dict) -> dict:
         return {}
 
 
-def connect(business_id: int, provider: str, creds: dict) -> dict:
+def connect(business_id: int, provider: str, creds: dict,
+            permissions=None) -> dict:
     """
     Подключить сервис: проверяем ключи ЖИВЫМ запросом и только потом сохраняем.
 
@@ -100,7 +101,13 @@ def connect(business_id: int, provider: str, creds: dict) -> dict:
 
     meta = m.check(creds, (existing or {}).get("meta") or {}) or {}
     blob = secretbox.seal(json.dumps(creds, ensure_ascii=False))
-    database.save_connection(business_id, provider, blob, meta)
+    # Открытая часть настройки — всё, что не секрет: номер магазина, домен,
+    # адрес портала. Владелец должен видеть, с чем именно работает подключение,
+    # а ключ остаётся зашифрованным и наружу не выходит никогда.
+    config = {f["label"]: creds.get(f["key"]) for f in m.FIELDS
+              if not f.get("secret") and (creds.get(f["key"]) or "").strip()}
+    database.save_connection(business_id, provider, blob, meta,
+                             permissions=permissions, config=config)
     return database.get_connection(business_id, provider)
 
 
@@ -130,6 +137,12 @@ def sync(business_id: int, provider: str) -> dict:
             with patient():
                 added, cursor = m.sync(business_id, _creds(row), row.get("meta") or {},
                                        row.get("cursor"))
+        except AuthError as e:
+            # Ключ отозвали или ему не хватает прав. Это не сбой — это просьба
+            # переподключиться, и владелец должен видеть именно её.
+            database.mark_connection_synced(business_id, provider, error=str(e),
+                                            needs_auth=True)
+            return {"ok": False, "added": 0, "error": str(e), "needs_auth": True}
         except ConnectorError as e:
             database.mark_connection_synced(business_id, provider, error=str(e))
             return {"ok": False, "added": 0, "error": str(e)}
@@ -159,6 +172,18 @@ def sync(business_id: int, provider: str) -> dict:
                            "Новые данные уже учтены в аналитике и советах",
                            once_key=f"sync:{provider}")
     return {"ok": True, "added": added, "error": None}
+
+
+def is_syncing(business_id: int, provider: str) -> bool:
+    """
+    Идёт ли прямо сейчас выгрузка.
+
+    Статус SYNCING берём из живого факта — из набора работающих прогонов, — а
+    не из отдельной колонки в базе. Колонку можно забыть погасить при падении
+    процесса, и подключение навсегда останется «синхронизируется».
+    """
+    with _busy_lock:
+        return (int(business_id), provider) in _busy
 
 
 def sync_all(business_id: int) -> dict:

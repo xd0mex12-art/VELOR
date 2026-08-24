@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Подключения</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Раздел отвечает на один вопрос: откуда VELOR берёт данные и куда говорит.
+     Поэтому первое, что видно в карточке, — состояние, а не логотип сервиса.
+     Пять состояний названы словом и продублированы цветом: цвет один смысла
+     не несёт. Всё, чего ещё нет, честно стоит как «Не подключено» с причиной —
+     ложная галочка стоит дороже пустого места.
+     Скелет, кнопки и токены — из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  body main{ padding-top:104px; padding-bottom:80px; }
+  section{ margin-bottom:var(--sp-8); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
+  .sec-note{ font-size:var(--fs-sm); color:var(--ash); margin-bottom:var(--sp-4); }
+
+  /* легенда состояний */
+  .legend{ display:flex; gap:var(--sp-3); flex-wrap:wrap; margin-bottom:var(--sp-6);
+    border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-4); }
+  .legend .l{ display:flex; align-items:baseline; gap:8px; font-size:var(--fs-caption);
+    color:var(--ash); }
+  .legend .l b{ font-weight:var(--fw-reg); color:var(--silver); }
+
+  .dot{ width:8px; height:8px; border-radius:50%; flex:none; display:inline-block;
+    background:var(--ash); }
+  .dot.good{ background:var(--verdant); }
+  .dot.warn{ background:var(--saffron); }
+  .dot.bad{ background:var(--coral); }
+  .dot.busy{ background:var(--lilac); animation:pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{ opacity:.45 } 50%{ opacity:1 } }
+
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
+    gap:var(--sp-4); }
+  .card{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5); display:flex; flex-direction:column;
+    gap:var(--sp-3); }
+  .card.off{ background:transparent; border-style:dashed; }
+  .card .top{ display:flex; align-items:baseline; gap:var(--sp-3); }
+  .card .nm{ font-size:var(--fs-lead); letter-spacing:-.02em; flex:1; min-width:0; }
+  .card .st{ display:inline-flex; align-items:center; gap:7px; flex:none;
+    font-size:var(--fs-caption); color:var(--silver); padding:5px 11px;
+    border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--hairline); }
+  .card .gives{ font-size:var(--fs-sm); color:var(--silver); line-height:1.5; }
+  .card .grp{ font-size:var(--fs-caption); color:var(--ash); letter-spacing:.1em;
+    text-transform:uppercase; }
+  .kv{ display:flex; justify-content:space-between; gap:var(--sp-3);
+    font-size:var(--fs-sm); padding:5px 0; border-bottom:1px solid var(--hairline); }
+  .kv:last-child{ border-bottom:none; }
+  .kv .k{ color:var(--ash); }
+  .kv .v{ text-align:right; word-break:break-word; }
+  .perm{ display:flex; flex-wrap:wrap; gap:6px; }
+  .perm span{ font-size:var(--fs-caption); color:var(--silver); padding:4px 10px;
+    border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--hairline); }
+  .why{ font-size:var(--fs-sm); color:var(--ash); line-height:1.5; }
+  .err{ font-size:var(--fs-sm); color:var(--ink-coral); line-height:1.5;
+    border-left:2px solid rgba(255,107,107,.5); padding-left:var(--sp-3); }
+  .acts{ display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-top:auto; padding-top:var(--sp-2); }
+
+  /* модалка подключения */
+  .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
+    justify-content:center; padding:24px; background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }
+  .modal.on{ display:flex; }
+  .modal .box{ width:min(94vw,560px); max-height:90vh; overflow:auto; background:var(--sheet);
+    border:1px solid var(--hairline-2); border-radius:var(--r-xl); padding:var(--sp-8); }
+  .modal h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .modal .sub{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); line-height:1.5; }
+  .fld{ margin-top:var(--sp-4); }
+  .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
+  .fld input{ width:100%; min-height:48px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
+    color:var(--bone); font-family:inherit; font-size:16px; }
+  .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
+  .foot{ margin-top:var(--sp-6); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+  .foot .close{ margin-left:auto; }
+
+  #toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,20px);
+    background:#141414; border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    padding:12px 22px; font-size:var(--fs-sm); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); z-index:120; max-width:92vw; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:560px){
+    .grid{ grid-template-columns:1fr; }
+    .modal{ padding:12px; }
+    .modal .box{ padding:var(--sp-6); }
+    .foot .close{ margin-left:0; width:100%; }
+  }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Подключения</h1>
+      <p class="v-lead">Откуда VELOR берёт данные и по каким каналам говорит с клиентами.
+        «Подключено» появляется только после того, как доступ проверен живым запросом:
+        галочку авансом мы не ставим.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Смотрю, что подключено…</span>
+      </div>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+
+  <div class="legend" id="legend"></div>
+  <div id="cats">
+    <div class="v-sk panel"></div><div class="v-sk panel"></div>
+  </div>
+</main>
+
+<div class="modal" id="connModal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="box">
+    <h2 id="mTitle">Подключение</h2>
+    <p class="sub" id="mSub"></p>
+    <form id="mForm" autocomplete="off"></form>
+    <div class="foot">
+      <button class="v-btn" type="button" id="mGo">Подключить</button>
+      <button class="v-btn ghost close" type="button" id="mClose">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+function when(iso){
+  if (!iso) return '';
+  const d = new Date(String(iso).replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3600);
+}
+
+let CAT = null;      // последний каталог
+let CUR = null;      // подключение, которое настраиваем
+
+function paintFail(msg){
+  document.getElementById('failZone').innerHTML = `
+    <div class="v-fail"><div><div class="t">Подключения не загрузились</div>
+      <div class="d">${esc(msg)}</div></div>
+      <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => {
+    document.getElementById('failZone').innerHTML = ''; load();
+  });
+}
+
+function paintState(d){
+  const s = d.summary;
+  const box = document.getElementById('state');
+  const bits = [];
+  if (s.trouble) bits.push(`${s.trouble} ${plural(s.trouble, 'требует', 'требуют', 'требуют')} внимания`);
+  bits.push(`${s.planned} ${plural(s.planned, 'ещё не написана', 'ещё не написаны', 'ещё не написаны')}`);
+  const tone = s.trouble ? 'warn' : (s.connected ? 'good' : 'calm');
+  box.innerHTML = `<span class="v-badge ${tone}"><i></i>Подключено ${s.connected} из ${s.available}</span>
+    <span>${esc(bits.join(' · '))}</span>`;
+}
+
+function paintLegend(d){
+  document.getElementById('legend').innerHTML = d.statuses.map(s => `
+    <span class="l"><span class="dot ${esc(s.tone)}"></span>
+      <b>${esc(s.label)}</b> — ${esc(s.means)}</span>`).join('');
+}
+
+function cardHTML(i){
+  const rows = [];
+  if (i.connected_at) rows.push(['Подключено', when(i.connected_at)]);
+  if (i.last_sync)    rows.push([i.kind === 'file' ? 'Последняя загрузка' : 'Синхронизация',
+                                 when(i.last_sync)]);
+  if (i.items_total)  rows.push(['Записей получено', String(i.items_total)]);
+  Object.entries(i.configuration || {}).forEach(([k, v]) => rows.push([k, String(v)]));
+
+  const acts = [];
+  if (i.can_connect) acts.push(`<button class="v-btn sm" type="button" data-act="connect" data-p="${esc(i.provider)}">${
+    i.status === 'CONNECTED' || i.status === 'ERROR' || i.status === 'REQUIRES_AUTH' ? 'Переподключить' : 'Подключить'}</button>`);
+  if (i.can_sync) acts.push(`<button class="v-btn ghost sm" type="button" data-act="sync" data-p="${esc(i.provider)}">Обновить</button>`);
+  if (i.can_disconnect) acts.push(`<button class="v-btn ghost sm" type="button" data-act="off" data-p="${esc(i.provider)}">Отключить</button>`);
+  if (i.manage_href) acts.push(`<a class="v-btn ghost sm" href="${esc(i.manage_href)}">Открыть раздел</a>`);
+
+  return `<div class="card${i.status === 'CONNECTED' ? '' : ' off'}">
+    <div class="top">
+      <span class="nm">${esc(i.name)}</span>
+      <span class="st" title="${esc(i.status_means)}">
+        <span class="dot ${esc(i.status_tone)}"></span>${esc(i.status_label)}</span>
+    </div>
+    <div class="grp">${esc(i.group)}</div>
+    <div class="gives">${esc(i.gives)}</div>
+    ${i.permissions && i.permissions.length ? `<div class="perm">${
+      i.permissions.map(p => `<span>${esc(p)}</span>`).join('')}</div>` : ''}
+    ${rows.length ? `<div>${rows.map(([k, v]) =>
+      `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>` : ''}
+    ${i.error ? `<div class="err">${esc(i.error)}</div>` : ''}
+    ${!i.implemented ? `<div class="why">${esc(i.note || 'Интеграции пока нет.')}</div>`
+                     : (i.note ? `<div class="why">${esc(i.note)}</div>` : '')}
+    ${acts.length ? `<div class="acts">${acts.join('')}</div>` : ''}
+  </div>`;
+}
+
+function paintCats(d){
+  document.getElementById('cats').innerHTML = d.categories.map(c => `
+    <section>
+      <div class="sec-h">${esc(c.title)} <span class="n num">${c.connected}/${c.total}</span></div>
+      <p class="sec-note">${esc(c.note)}</p>
+      <div class="grid">${c.items.map(cardHTML).join('')}</div>
+    </section>`).join('');
+}
+
+// ── подключение ────────────────────────────────────────────────────────────
+const modal = document.getElementById('connModal');
+function closeModal(){ modal.classList.remove('on'); document.body.style.overflow = ''; CUR = null; }
+document.getElementById('mClose').addEventListener('click', closeModal);
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && modal.classList.contains('on')) closeModal();
+});
+
+function openConnect(item){
+  CUR = item;
+  document.getElementById('mTitle').textContent = item.name;
+  document.getElementById('mSub').textContent =
+    (item.howto || '') + (item.permissions.length
+      ? ' Запрашиваем: ' + item.permissions.join(', ') + '.' : '');
+  document.getElementById('mForm').innerHTML = (item.fields || []).map(f => `
+    <div class="fld">
+      <label for="f-${esc(f.key)}">${esc(f.label)}${f.required ? ' *' : ''}</label>
+      <input id="f-${esc(f.key)}" name="${esc(f.key)}" type="${f.secret ? 'password' : 'text'}"
+             placeholder="${esc(f.placeholder || '')}" autocomplete="off">
+      ${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
+    </div>`).join('') || '<p class="sub">Дополнительных полей не нужно.</p>';
+  modal.classList.add('on');
+  document.body.style.overflow = 'hidden';
+  const first = document.querySelector('#mForm input');
+  if (first) first.focus();
+}
+
+document.getElementById('mGo').addEventListener('click', async e => {
+  if (!CUR) return;
+  const btn = e.currentTarget;
+  const config = {};
+  document.querySelectorAll('#mForm input').forEach(el => { config[el.name] = el.value.trim(); });
+  btn.disabled = true; btn.textContent = 'Проверяю доступ…';
+  try{
+    const r = await fetch('/api/connections/' + encodeURIComponent(CUR.provider) + '/connect', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ config })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не удалось подключить'); }
+    else { toast('Подключено — доступ проверен'); closeModal(); await load(); }
+  }catch{ toast('Нет связи с сервером'); }
+  btn.disabled = false; btn.textContent = 'Подключить';
+});
+
+document.getElementById('cats').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn) return;
+  const item = (CAT.categories.flatMap(c => c.items) || []).find(i => i.provider === btn.dataset.p);
+  if (!item) return;
+  const act = btn.dataset.act;
+
+  if (act === 'connect'){ openConnect(item); return; }
+
+  if (act === 'off'){
+    // Отключение необратимо для доступа (данные остаются) — спрашиваем дважды.
+    if (btn.dataset.sure !== '1'){
+      btn.dataset.sure = '1'; btn.textContent = 'Точно отключить?';
+      return;
+    }
+  }
+  btn.disabled = true;
+  const was = btn.textContent;
+  btn.textContent = act === 'sync' ? 'Обновляю…' : 'Отключаю…';
+  try{
+    const url = '/api/connections/' + encodeURIComponent(item.provider)
+              + (act === 'sync' ? '/sync' : '/disconnect');
+    const r = await fetch(url, { method:'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не получилось'); }
+    else if (act === 'sync'){
+      const res = d.result || d;
+      toast(res.error ? res.error
+                      : (res.added ? 'Загружено новых записей: ' + res.added
+                                   : 'Новых записей нет'));
+    } else toast('Отключено. Загруженные данные остались.');
+    await load();
+  }catch{ toast('Нет связи с сервером'); }
+  btn.disabled = false; btn.textContent = was; btn.dataset.sure = '';
+});
+
+// ── загрузка ───────────────────────────────────────────────────────────────
+async function load(){
+  try{
+    const r = await fetch('/api/connections/catalog');
+    if (!r.ok) throw new Error('http');
+    CAT = await r.json();
+  }catch{
+    paintFail('Сервер не ответил на запрос подключений.');
+    document.getElementById('cats').innerHTML = '';
+    return;
+  }
+  document.getElementById('failZone').innerHTML = '';
+  paintState(CAT); paintLegend(CAT); paintCats(CAT);
+}
+
+load();
+</script>
+</body>
+</html>

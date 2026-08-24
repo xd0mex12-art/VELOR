@@ -322,6 +322,12 @@ def _migrate_columns(conn):
         # Почему VELOR решил, что операция относится к этой заявке. Догадка без
         # объяснения непроверяема, а значит, ей нельзя доверять.
         ("inbox_results", "relations", "TEXT"),
+        # Паспорт подключения: когда подключили, какие права запрошены и с
+        # какой настройкой работает. Секреты сюда не попадают никогда — они
+        # лежат отдельно и зашифрованными.
+        ("connections", "connected_at", "TEXT"),
+        ("connections", "permissions", "TEXT"),   # JSON: что именно разрешено
+        ("connections", "config", "TEXT"),        # JSON: настройка без секретов
         ("clients", "archived_at", "TEXT"),
         ("documents", "archived_at", "TEXT"),
     ]
@@ -4326,6 +4332,39 @@ def delete_blob(business_id, storage_key):
 import json as _json
 
 
+def last_import(business_id):
+    """
+    Последняя загрузка выписки или таблицы.
+
+    Для источников, которые приходят файлом, это и есть «последняя
+    синхронизация»: другого способа получить оттуда данные у нас нет, и
+    показывать пустое поле было бы неправдой — загрузка ведь была.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT * FROM finance_imports WHERE business_id = ?
+                ORDER BY id DESC LIMIT 1""", (business_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def last_message_at(business_id):
+    """Когда бот в последний раз получал сообщение клиента."""
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT MAX(created_at) AS t FROM messages
+                WHERE business_id = ? AND role = 'user'""", (business_id,)).fetchone()
+    return row["t"] if row else None
+
+
+def count_client_messages_all(business_id):
+    """Сколько всего обращений пришло — счётчик работы канала."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM messages WHERE business_id = ? AND role = 'user'",
+            (business_id,)).fetchone()
+    return int((row["n"] if row else 0) or 0)
+
+
 def list_connections(business_id):
     """Все подключения бизнеса. Секреты НЕ отдаём — только статус и метаданные."""
     with _connect() as conn:
@@ -4333,16 +4372,7 @@ def list_connections(business_id):
             "SELECT * FROM connections WHERE business_id = ? ORDER BY provider",
             (business_id,),
         ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        d.pop("credentials", None)
-        try:
-            d["meta"] = _json.loads(d.get("meta") or "{}")
-        except (ValueError, TypeError):
-            d["meta"] = {}
-        out.append(d)
-    return out
+    return [_connection_row(r) for r in rows]
 
 
 def get_connection(business_id, provider, with_secrets=False):
@@ -4354,51 +4384,78 @@ def get_connection(business_id, provider, with_secrets=False):
         ).fetchone()
     if not row:
         return None
+    return _connection_row(row, with_secrets)
+
+
+def _connection_row(row, with_secrets=False):
+    """Строка подключения наружу: JSON разложен, секреты убраны."""
     d = dict(row)
-    try:
-        d["meta"] = _json.loads(d.get("meta") or "{}")
-    except (ValueError, TypeError):
-        d["meta"] = {}
+    for key, empty in (("meta", {}), ("permissions", []), ("config", {})):
+        try:
+            d[key] = _json.loads(d.get(key) or ("[]" if empty == [] else "{}"))
+        except (ValueError, TypeError):
+            d[key] = empty
     if not with_secrets:
         d.pop("credentials", None)
     return d
 
 
-def save_connection(business_id, provider, credentials_blob=None, meta=None, status="connected"):
-    """Создать или обновить подключение. credentials_blob уже зашифрован (secretbox)."""
+def save_connection(business_id, provider, credentials_blob=None, meta=None,
+                    status="connected", permissions=None, config=None):
+    """
+    Создать или обновить подключение. credentials_blob уже зашифрован (secretbox).
+
+    permissions и config — открытая часть паспорта: что разрешено и как
+    настроено. Их видно владельцу целиком, поэтому секретам здесь не место.
+    """
     meta_json = _json.dumps(meta or {}, ensure_ascii=False)
+    perm_json = _json.dumps(permissions or [], ensure_ascii=False)
+    conf_json = _json.dumps(config or {}, ensure_ascii=False)
     exists = get_connection(business_id, provider)
     with _connect() as conn:
         if exists:
             if credentials_blob is None:      # секреты не меняли — не затираем
                 conn.execute(
-                    "UPDATE connections SET meta = ?, status = ?, last_error = NULL "
-                    "WHERE business_id = ? AND provider = ?",
-                    (meta_json, status, business_id, provider))
+                    "UPDATE connections SET meta = ?, status = ?, last_error = NULL, "
+                    "permissions = ?, config = ? WHERE business_id = ? AND provider = ?",
+                    (meta_json, status, perm_json, conf_json, business_id, provider))
             else:
                 conn.execute(
-                    "UPDATE connections SET credentials = ?, meta = ?, status = ?, last_error = NULL "
+                    "UPDATE connections SET credentials = ?, meta = ?, status = ?, "
+                    "last_error = NULL, permissions = ?, config = ? "
                     "WHERE business_id = ? AND provider = ?",
-                    (credentials_blob, meta_json, status, business_id, provider))
+                    (credentials_blob, meta_json, status, perm_json, conf_json,
+                     business_id, provider))
         else:
+            # Дата подключения ставится один раз: это факт из прошлого, и
+            # переподключение его не отменяет.
             conn.execute(
-                "INSERT INTO connections (business_id, provider, credentials, meta, status) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (business_id, provider, credentials_blob, meta_json, status))
+                "INSERT INTO connections (business_id, provider, credentials, meta, status, "
+                "connected_at, permissions, config) VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)",
+                (business_id, provider, credentials_blob, meta_json, status,
+                 perm_json, conf_json))
     if not exists:
         log_event(business_id, "integration", "Подключён источник: " + provider,
                   "VELOR начнёт забирать оттуда данные автоматически")
     return get_connection(business_id, provider)
 
 
-def mark_connection_synced(business_id, provider, added=0, cursor=None, error=None):
-    """Записать итог синхронизации: когда, сколько нового, была ли ошибка."""
+def mark_connection_synced(business_id, provider, added=0, cursor=None, error=None,
+                           needs_auth=False):
+    """
+    Записать итог синхронизации: когда, сколько нового, была ли ошибка.
+
+    needs_auth — сервис отверг ключ. Это не поломка на нашей стороне, а
+    просьба переподключиться, и статус для неё отдельный: владелец должен
+    видеть разницу между «сервис лежит» и «нужен новый доступ».
+    """
     with _connect() as conn:
         if error:
             conn.execute(
-                "UPDATE connections SET status = 'error', last_error = ?, "
+                "UPDATE connections SET status = ?, last_error = ?, "
                 "last_sync_at = datetime('now') WHERE business_id = ? AND provider = ?",
-                (str(error)[:400], business_id, provider))
+                ("requires_auth" if needs_auth else "error",
+                 str(error)[:400], business_id, provider))
         else:
             conn.execute(
                 "UPDATE connections SET status = 'connected', last_error = NULL, "

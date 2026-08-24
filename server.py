@@ -40,6 +40,7 @@ import understanding
 import entities
 import graph
 import director
+import connections
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -2370,6 +2371,79 @@ def api_tool_run(tool_id: int | str, business_id: int = 0,
 class ConnectIn(BaseModel):
     credentials: dict = {}
     business_id: int = 0
+
+
+class ConnectConfigIn(BaseModel):
+    config: dict = {}
+    business_id: int = 0
+
+
+@app.get("/api/connections/catalog")
+def api_connections_catalog(business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Весь раздел «Подключения»: категории, карточки, статусы, права.
+
+    Состояние собирается из фактов при каждом запросе: есть ли ключ, не упала
+    ли последняя синхронизация, идёт ли выгрузка прямо сейчас. Хранимого
+    флажка «подключено» не существует — его невозможно забыть погасить.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    return connections.catalog(bid)
+
+
+@app.get("/api/connections/state/{provider}")
+def api_connection_state(provider: str, business_id: int = 0,
+                         x_auth: str = Header(default="")):
+    """Паспорт одного подключения."""
+    bid = _resolve_bid(x_auth, business_id)
+    try:
+        return connections.state(bid, provider)
+    except connections.NotAvailable as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/connections/{provider}/connect")
+def api_connection_connect(provider: str, body: ConnectConfigIn,
+                           x_auth: str = Header(default="")):
+    """
+    Подключить через единый интерфейс.
+
+    Ключи проверяются живым запросом к сервису — «подключено» появляется
+    только после того, как данные действительно пришли. Интеграция, которой
+    ещё нет, отвечает отказом с объяснением, а не молчаливой галочкой.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    config = {k: (str(v) if v is not None else "") for k, v in (body.config or {}).items()}
+    try:
+        st = connections.connect(bid, provider, config)
+    except connections.NotAvailable as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except connectors.ConnectorError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Первую порцию данных забираем в фоне: ключ уже проверен, держать
+    # человека перед крутящейся кнопкой незачем.
+    if st.get("can_sync"):
+        if _os.getenv("DISABLE_SYNC_WORKER"):
+            connectors.sync(bid, provider)
+            st = connections.state(bid, provider)
+        else:
+            import threading
+            threading.Thread(target=connectors.sync, args=(bid, provider),
+                             name=f"velor-first-sync-{provider}", daemon=True).start()
+    return {"ok": True, "state": st}
+
+
+@app.post("/api/connections/{provider}/disconnect")
+def api_connection_disconnect(provider: str, business_id: int = 0,
+                              x_auth: str = Header(default="")):
+    """Отключить. Загруженные данные остаются — они принадлежат бизнесу."""
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    try:
+        return {"ok": True, "state": connections.disconnect(bid, provider)}
+    except connections.NotAvailable as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 @app.get("/api/connections")

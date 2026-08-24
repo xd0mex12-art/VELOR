@@ -47,6 +47,7 @@
     { t: 'Настройки', h: 'settings.html', kids: [
       { t: 'Настройки',       h: 'settings.html' },
       { t: 'Тариф',           h: 'plans.html' },
+      { t: 'Подключения',      h: 'connections.html' },
       { t: 'Источники знаний', h: 'integrations.html' },
       { t: 'Бот в Telegram',  h: 'guide.html' },
     ] },
