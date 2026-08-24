@@ -58,13 +58,41 @@
   .form .hint{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-2); }
   .form .go{ margin-top:var(--sp-4); }
 
+  /* поля формы и правки — общий вид на весь экран */
+  .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
+  .fld label .req{ color:var(--ink-coral); margin-left:4px; }
+  .fld input, .fld select{ width:100%; min-height:48px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:16px; }
+  .fld input.dirty, .fld select.dirty{ border-color:var(--saffron); }
+  .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
+  .fld .was{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--saffron); }
+  .fields{ display:grid; grid-template-columns:repeat(2,1fr); gap:var(--sp-3); }
+  /* Второй ряд полей — сотрудник, поставщик, клиент, заявка. Нужны не всегда,
+     поэтому свёрнуты: форма из одиннадцати полей отпугивает сильнее, чем
+     помогает. */
+  .fields .fld.extra{ display:none; }
+  .fields.wide .fld.extra{ display:block; }
+  .form.wide .more{ display:none; }
+
   /* записи */
   .entry{ display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-3) 0;
     border-bottom:1px solid var(--hairline); min-height:56px; }
   .entry:last-child{ border-bottom:none; }
   .entry .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
   .dot.income{ background:var(--verdant); } .dot.expense{ background:var(--coral); }
+  .entry .body{ min-width:0; }
   .entry .cat-nm{ font-weight:var(--fw-reg); font-size:var(--fs-body); }
+  .entry .tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+  .entry .tag{ font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+    font-weight:var(--fw-semi); padding:2px 8px; border-radius:var(--r-pill);
+    background:var(--surface-2); color:var(--ash); }
+  .entry .tag.who{ background:rgba(128,82,255,.16); color:var(--ink-iris); }
+  .entry .open{ background:none; border:none; color:inherit; text-align:left;
+    display:flex; align-items:center; gap:var(--sp-4); flex:1; min-width:0;
+    min-height:48px; padding:0; }
+  .entry .open:hover .cat-nm{ color:var(--lilac); }
   .entry .note{ font-size:var(--fs-sm); color:var(--ash); margin-top:2px; }
   .entry .amt{ margin-left:auto; font-weight:var(--fw-reg); font-size:var(--fs-base);
     white-space:nowrap; font-variant-numeric:tabular-nums; }
@@ -97,6 +125,30 @@
   .import-cta .s{ grid-column:1; font-size:var(--fs-sm); color:var(--ash); }
   .import-cta .go{ grid-row:1/3; grid-column:2; font-size:22px; color:var(--lilac); }
 
+  /* карточка операции */
+  .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
+    justify-content:center; padding:24px; background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }
+  .modal.on{ display:flex; }
+  .modal .box{ width:min(94vw,680px); max-height:90vh; overflow:auto; background:var(--sheet);
+    border:1px solid var(--hairline-2); border-radius:var(--r-xl); padding:var(--sp-8); }
+  .modal h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .modal .meta{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); }
+  .modal .foot{ margin-top:var(--sp-6); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+  .modal .foot .close{ margin-left:auto; }
+  .story{ margin-top:var(--sp-6); }
+  .story > h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
+  .ev{ display:flex; gap:var(--sp-3); padding:var(--sp-3) 0; border-bottom:1px solid var(--hairline); }
+  .ev:last-child{ border-bottom:none; }
+  .ev .pin{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:7px; background:var(--lilac); }
+  .ev.e-edited .pin{ background:var(--saffron); }
+  .ev .b{ flex:1; min-width:0; }
+  .ev .t{ font-size:var(--fs-body); }
+  .ev .w{ font-size:var(--fs-caption); color:var(--ash); margin-top:3px; }
+  .ev .chg{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--silver); }
+  .ev .chg s{ color:var(--ash); }
+  .ev .chg b{ color:var(--saffron); font-weight:var(--fw-reg); }
+
   #toast{ position:fixed; bottom:var(--sp-8); left:50%; transform:translate(-50%,20px); z-index:120;
     background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone);
     font-weight:var(--fw-reg); font-size:var(--fs-body); padding:14px 28px;
@@ -106,7 +158,10 @@
 
   @media(max-width:620px){
     body main{ padding-top:92px; }
-    .grid{ grid-template-columns:1fr; }
+    .grid, .fields{ grid-template-columns:1fr; }
+    .modal{ padding:12px; }
+    .modal .box{ padding:var(--sp-6); }
+    .modal .foot .close{ margin-left:0; width:100%; }
     .import-cta{ grid-template-columns:1fr; }
     .import-cta .go{ display:none; }
     .form .go{ width:100%; }
@@ -137,8 +192,8 @@
 
   <!-- сколько денег -->
   <section>
-    <div class="v-kpi three" id="kpi" aria-live="polite">
-      <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
+    <div class="v-kpi" id="kpi" aria-live="polite">
+      <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
     </div>
   </section>
 
@@ -168,20 +223,14 @@
         <button type="button" class="kind" data-kind="income" aria-pressed="true">Доход</button>
         <button type="button" class="kind" data-kind="expense" aria-pressed="false">Расход</button>
       </div>
-      <div class="grid">
-        <div>
-          <label for="fCategory">Категория</label>
-          <input id="fCategory" maxlength="80" placeholder="продажи, аренда, реклама…">
-        </div>
-        <div>
-          <label for="fAmount">Сумма, ₽</label>
-          <input id="fAmount" type="number" min="1" inputmode="numeric" placeholder="0">
-        </div>
-      </div>
-      <label for="fNote">Заметка</label>
-      <input id="fNote" maxlength="160" placeholder="Необязательно — что это было">
+      <form class="fields" id="addFields">
+        <div class="v-sk line"></div><div class="v-sk line"></div>
+      </form>
       <div class="hint">Категория нужна, чтобы разбивка выше показывала правду. Без неё запись попадёт в «Без категории».</div>
-      <button class="v-btn go" id="addBtn">Добавить</button>
+      <div class="btns" style="display:flex; gap:var(--sp-2); flex-wrap:wrap">
+        <button class="v-btn go" id="addBtn" type="button">Добавить</button>
+        <button class="v-btn ghost sm more" id="moreBtn" type="button">Все поля</button>
+      </div>
     </div>
   </section>
 
@@ -198,10 +247,25 @@
   </section>
 </main>
 
+<div class="modal" id="opModal" role="dialog" aria-modal="true" aria-labelledby="opTitle">
+  <div class="box">
+    <h2 id="opTitle">Операция</h2>
+    <div class="meta" id="opMeta"></div>
+    <form class="fields wide" id="opEdit" style="margin-top:var(--sp-5)"></form>
+    <div id="opStory"></div>
+    <div class="foot">
+      <button class="v-btn" type="button" id="opSave">Сохранить</button>
+      <button class="v-btn danger" type="button" id="opDelete">Удалить</button>
+      <button class="v-btn ghost close" type="button" id="opClose">Закрыть</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
+<script src="velor-form.js"></script>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = n => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽';
@@ -241,14 +305,24 @@ function paintState(s, entries){
 }
 
 function paintKpi(s){
+  // Проценты приходят с сервера посчитанными. Считать их ещё раз здесь значило
+  // бы завести вторую формулу маржи — и однажды она разойдётся с первой.
+  const margin = s.margin;
   const cards = [
     ['Выручка · всё время', money(s.income), 'income',
      s.income ? '' : 'доходов пока не вносили'],
     ['Расходы · всё время', money(s.expense), 'expense',
      s.expense ? (s.income ? Math.round(s.expense / s.income * 100) + '% от выручки' : '') : 'расходов пока не вносили'],
     ['Прибыль · всё время', money(s.profit), s.profit < 0 ? 'minus' : '',
-     s.income ? (s.profit > 0 ? 'остаётся ' + Math.round(s.profit / s.income * 100) + '% выручки'
+     s.income ? (s.profit > 0 ? 'выручка минус расходы'
               : (s.profit < 0 ? 'расходы больше доходов' : 'расходы съели всю выручку')) : ''],
+    // Маржи при нулевой выручке НЕ существует. Показать «0%» там, где делить
+    // не на что, — соврать владельцу.
+    ['Маржа', margin === null || margin === undefined ? '—' : margin + '%',
+     margin === null || margin === undefined ? '' : (margin < 0 ? 'minus' : ''),
+     margin === null || margin === undefined
+       ? 'посчитаем, когда будет выручка'
+       : 'прибыль от выручки'],
   ];
   document.getElementById('kpi').innerHTML = cards.map(([k, v, cls, sub]) => `
     <div class="v-kpi-card">
@@ -280,6 +354,14 @@ function paintCats(s){
     </div>`).join('');
 }
 
+// ── форма ввода собирается из описания сервера ──
+let FIELDS = [];
+
+function paintForm(){
+  const box = document.getElementById('addFields');
+  box.innerHTML = FIELDS.map(f => fieldHTML(Object.assign({}, f, {value: ''}), 'a')).join('');
+}
+
 function paintList(rows){
   const list = document.getElementById('list');
   document.getElementById('cnt').textContent = rows.length ? rows.length : '';
@@ -289,16 +371,25 @@ function paintList(rows){
       и VELOR разложит операции сам.</div>`;
     return;
   }
-  list.innerHTML = rows.map(r => `
+  list.innerHTML = rows.map(r => {
+    const tags = [];
+    if (r.who) tags.push(`<span class="tag who">${esc(r.who)}</span>`);
+    if (r.doc_type_ru) tags.push(`<span class="tag">${esc(r.doc_type_ru)}</span>`);
+    if (r.op_date) tags.push(`<span class="tag">${esc(r.op_date)}</span>`);
+    return `
     <div class="entry" data-id="${r.id}">
-      <span class="dot ${r.kind === 'expense' ? 'expense' : 'income'}"></span>
-      <div>
-        <div class="cat-nm">${esc(r.category || 'Без категории')}</div>
-        ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
-      </div>
-      <div class="amt ${r.kind === 'expense' ? 'expense' : 'income'}">${r.kind === 'expense' ? '−' : '+'}${money(r.amount)}</div>
+      <button class="open" type="button" aria-label="Открыть операцию ${esc(r.category || 'без категории')}">
+        <span class="dot ${r.kind === 'expense' ? 'expense' : 'income'}"></span>
+        <span class="body">
+          <span class="cat-nm">${esc(r.category || 'Без категории')}</span>
+          ${r.note ? `<span class="note">${esc(r.note)}</span>` : ''}
+          ${tags.length ? `<span class="tags">${tags.join('')}</span>` : ''}
+        </span>
+        <span class="amt ${r.kind === 'expense' ? 'expense' : 'income'}">${r.kind === 'expense' ? '−' : '+'}${money(r.amount)}</span>
+      </button>
       <button class="del" type="button" aria-label="Удалить запись «${esc(r.category || 'без категории')}»">×</button>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function paintFail(){
@@ -318,6 +409,7 @@ async function load(){
     const d = await r.json();
     const s = d.summary || {}, rows = d.entries || [];
     document.getElementById('failZone').innerHTML = '';
+    if (!FIELDS.length && (d.fields || []).length){ FIELDS = d.fields; paintForm(); }
     paintState(s, rows); paintKpi(s); paintCats(s); paintList(rows);
   }catch{
     paintFail();
@@ -327,34 +419,162 @@ async function load(){
   }
 }
 
+document.getElementById('moreBtn').addEventListener('click', () => {
+  document.getElementById('addFields').classList.add('wide');
+  document.querySelector('.form').classList.add('wide');
+});
+
 document.getElementById('addBtn').addEventListener('click', async e => {
-  const amount = parseInt(document.getElementById('fAmount').value, 10);
-  if(!amount || amount <= 0){ toast('Впишите сумму больше нуля'); document.getElementById('fAmount').focus(); return; }
+  const form = document.getElementById('addFields');
+  const data = formValues(form);
+  if (!parseInt(String(data.amount || '').replace(/\s/g, ''), 10)){
+    toast('Впишите сумму больше нуля');
+    form.querySelector('[name="amount"]').focus();
+    return;
+  }
   const btn = e.currentTarget, was = btn.textContent;
   btn.disabled = true; btn.textContent = 'Сохраняю…';
   try{
     const r = await fetch('/api/finance', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        kind: selectedKind,
-        category: document.getElementById('fCategory').value.trim(),
-        amount, note: document.getElementById('fNote').value.trim()
-      })
+      body: JSON.stringify({ kind: selectedKind, amount: 0, data })
     });
-    if (!r.ok) throw 0;
-    document.getElementById('fCategory').value = '';
-    document.getElementById('fAmount').value = '';
-    document.getElementById('fNote').value = '';
-    toast(selectedKind === 'income' ? 'Доход записан' : 'Расход записан');
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){
+      toast(d.detail || 'Не сохранилось');
+      btn.disabled = false; btn.textContent = was;
+      return;
+    }
+    paintForm();
+    toast(d.detail || (selectedKind === 'income' ? 'Доход записан' : 'Расход записан'));
     await load();
   }catch{ toast('Не сохранилось — проверьте связь с сервером'); }
   btn.disabled = false; btn.textContent = was;
+});
+
+// ── карточка операции: правка и история ──
+const opModal = document.getElementById('opModal');
+const opEdit  = document.getElementById('opEdit');
+let OP = null;
+
+function closeOp(){
+  opModal.classList.remove('on');
+  document.body.style.overflow = '';
+  OP = null;
+}
+document.getElementById('opClose').addEventListener('click', closeOp);
+opModal.addEventListener('click', e => { if (e.target === opModal) closeOp(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && opModal.classList.contains('on')) closeOp();
+});
+
+const EVENT_RU = { created: 'Записано', edited: 'Изменено', removed: 'Удалено' };
+const ACTOR_RU = { business: 'вы', owner: 'поддержка VELOR', velor: 'VELOR' };
+const FIELD_RU = { amount:'Сумма', category:'Категория', note:'Описание', op_date:'Дата',
+  counterparty:'Контрагент', employee_id:'Сотрудник', order_id:'Заявка',
+  supplier_id:'Поставщик', client_id:'Клиент', doc_type:'Документ', source:'Источник' };
+
+function when(iso){
+  const d = new Date(String(iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+
+function storyHTML(history){
+  if (!history || !history.length) return '';
+  const rows = history.slice().reverse().map(h => {
+    const chg = Object.entries(h.changes || {}).map(([k, v]) =>
+      `<div>${esc(FIELD_RU[k] || k)}: <s>${esc(v.was == null ? '—' : v.was)}</s>
+        → <b>${esc(v.now == null ? '—' : v.now)}</b></div>`).join('');
+    return `<div class="ev e-${esc(h.event)}"><span class="pin"></span><div class="b">
+      <div class="t">${esc(EVENT_RU[h.event] || h.event)}${h.note ? ' — ' + esc(h.note) : ''}</div>
+      <div class="w">${esc(ACTOR_RU[h.actor] || h.actor || '')} · ${esc(when(h.created_at))}</div>
+      ${chg ? `<div class="chg">${chg}</div>` : ''}
+    </div></div>`;
+  }).join('');
+  return `<div class="story"><h3>История операции</h3>${rows}</div>`;
+}
+
+function paintOp(d){
+  OP = d;
+  const e = d.entry || {};
+  document.getElementById('opTitle').textContent =
+    (e.kind === 'expense' ? 'Расход ' : 'Доход ') + money(e.amount);
+  document.getElementById('opMeta').textContent =
+    [e.category || 'без категории', e.who, e.doc_type_ru, e.op_date].filter(Boolean).join(' · ');
+  opEdit.innerHTML = d.schema.fields
+    .map(f => fieldHTML(Object.assign({}, f, {value: d.values[f.name]}), 'o')).join('');
+  markDirty(opEdit, 'Было: ');
+  document.getElementById('opStory').innerHTML = storyHTML(d.history);
+}
+
+async function openOp(id){
+  opModal.classList.add('on');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('opTitle').textContent = 'Открываю…';
+  document.getElementById('opMeta').textContent = '';
+  opEdit.innerHTML = '<div class="v-sk line"></div><div class="v-sk line"></div>';
+  document.getElementById('opStory').innerHTML = '';
+  try{
+    const r = await fetch('/api/finance/' + id);
+    if (!r.ok) throw 0;
+    paintOp(await r.json());
+  }catch{
+    document.getElementById('opTitle').textContent = 'Не открылось';
+    opEdit.innerHTML = '<div class="v-empty"><strong>Операция не загрузилась</strong>' +
+      'Возможно, её удалили или пропала связь.</div>';
+  }
+}
+
+document.getElementById('opSave').addEventListener('click', async e => {
+  if (!OP) return;
+  const btn = e.currentTarget, was = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Сохраняю…';
+  try{
+    const r = await fetch('/api/finance/' + OP.id, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ data: formValues(opEdit) })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){
+      toast(d.detail || 'Не сохранилось');
+      btn.disabled = false; btn.textContent = was;
+      return;
+    }
+    const n = Object.keys(d.changes || {}).length;
+    toast(n ? 'Сохранено — ' + n + ' ' + plural(n, 'правка', 'правки', 'правок')
+            : 'Ничего не изменилось');
+    paintOp(Object.assign({}, OP, {values: d.values, entry: d.entry, history: d.history}));
+    await load();
+  }catch{ toast('Нет связи с сервером'); }
+  btn.disabled = false; btn.textContent = was;
+});
+
+document.getElementById('opDelete').addEventListener('click', async e => {
+  if (!OP) return;
+  const btn = e.currentTarget;
+  if (btn.dataset.sure !== '1'){
+    btn.dataset.sure = '1'; btn.textContent = 'Точно удалить?';
+    return;
+  }
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/finance/' + OP.id + '/delete', {method:'POST'});
+    if (!r.ok) throw 0;
+    toast('Операция удалена');
+    closeOp(); await load();
+  }catch{ toast('Не удалилось — попробуйте ещё раз'); }
+  btn.disabled = false; btn.dataset.sure = ''; btn.textContent = 'Удалить';
 });
 
 // Удаление — необратимо, поэтому спрашиваем прямо в строке.
 document.getElementById('list').addEventListener('click', async e => {
   const row = e.target.closest('.entry'); if (!row) return;
 
+  if (e.target.closest('.open')){
+    openOp(row.dataset.id);
+    return;
+  }
   if (e.target.closest('.del')){
     if (row.classList.contains('confirm')) return;
     row.classList.add('confirm');

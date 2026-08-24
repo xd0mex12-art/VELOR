@@ -146,6 +146,11 @@
   .confirm-form input.dirty{ border-color:var(--saffron); }
   .confirm-form .was{ display:block; margin-top:5px; font-size:var(--fs-caption);
     color:var(--saffron); }
+  /* второй ряд полей: связи с людьми и заявками. Нужны редко, поэтому
+     по умолчанию свёрнуты — карточка остаётся про сумму. */
+  .confirm-form .fld.extra{ display:none; }
+  .confirm-form.wide .fld.extra{ display:block; }
+  .confirm-form.wide .more{ display:none; }
 
   .what-is{ margin-top:var(--sp-3); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
 
@@ -291,6 +296,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
+<script src="velor-form.js"></script>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plural = (n, one, few, many) => {
@@ -321,16 +327,27 @@ function ago(iso){
 const FIELD_RU = {
   amount: 'Сумма', currency: 'Валюта', category: 'Категория',
   direction: 'Направление', counterparty: 'Кому/от кого', date: 'Дата',
+  op_date: 'Дата операции', doc_type: 'Документ',
   items_count: 'Позиций', amounts_found: 'Сумм в документе',
   amount_unverified: 'Сумма не проверена по тексту',
+  person: 'Кто', role: 'Должность', phone: 'Телефон', salary: 'Оклад',
+  target: 'Цель', metric: 'Показатель', supplier: 'Поставщик',
+  inn: 'ИНН', kpp: 'КПП', ogrn: 'ОГРН', address: 'Адрес',
 };
+const DOC_RU = { receipt:'чек', bank:'банковская операция', invoice:'счёт',
+  waybill:'накладная', salary:'зарплата', refund:'возврат',
+  income:'документ о доходе', import:'выписка', manual:'без документа' };
+// Ссылки на записи (employee_id и прочие) человеку показывать незачем: рядом
+// уже стоит имя, а голое число — это внутренность базы, а не факт о документе.
+const HIDDEN_FACTS = new Set(['employee_id', 'supplier_id', 'client_id', 'order_id']);
 const DIRECTION_RU = { expense: 'расход', income: 'доход' };
 const CUR = { RUB: '₽', USD: '$', EUR: '€', KZT: '₸' };
 
 function fieldValue(k, v){
   if (k === 'direction') return DIRECTION_RU[v] || v;
   if (k === 'amount_unverified') return v ? 'да' : 'нет';
-  if (k === 'amount') return Number(v).toLocaleString('ru-RU');
+  if (k === 'amount' || k === 'target' || k === 'salary') return Number(v).toLocaleString('ru-RU');
+  if (k === 'doc_type') return DOC_RU[v] || v;
   if (k === 'currency') return (CUR[v] || v) + ' (' + v + ')';
   return String(v);
 }
@@ -434,6 +451,7 @@ function itemHTML(it){
 }
 
 // ── «VELOR понял»: что нашёл, насколько уверен, что предлагает ──
+
 function gotCard(it, res){
   // «Разбирается сейчас» и «разбора нет» — разные состояния. Первое проходит
   // само, и предлагать кнопку «Разобрать» значило бы звать человека делать
@@ -453,7 +471,7 @@ function gotCard(it, res){
   }
   const pct = Math.round((res.confidence || 0) * 100);
   const facts = Object.entries(res.extracted_data || {})
-    .filter(([, v]) => v !== null && v !== '' && v !== false);
+    .filter(([k, v]) => v !== null && v !== '' && v !== false && !HIDDEN_FACTS.has(k));
 
   const applied = (res.applied || []);
   const doneNames = new Set(applied.map(a => a.action));
@@ -498,28 +516,14 @@ function gotCard(it, res){
     <div class="offer" data-a="${esc(a.action)}">
       ${left.length > 1 ? `<div class="lead">${esc(a.entity_title || a.title)}</div>` : ''}
       <div class="btns">
-        <button class="v-btn ok" type="button">${i === 0 ? 'Подтвердить' : esc(a.title)}</button>
+        <button class="v-btn ok" type="button">${esc(a.confirm_title
+          || (i === 0 ? 'Подтвердить' : a.title))}</button>
         <button class="v-btn ghost edit" type="button">Изменить</button>
       </div>
       <form class="confirm-form" style="display:none">${
-        (a.fields || []).map(f => `
-          <div class="fld">
-            <label for="f-${esc(a.action)}-${esc(f.name)}">${esc(f.label)}${f.required
-              ? '<span class="req" title="обязательное">*</span>' : ''}</label>
-            ${(f.options || []).length
-              ? `<select id="f-${esc(a.action)}-${esc(f.name)}" name="${esc(f.name)}">${
-                  f.options.map(o => `<option value="${esc(o)}"${
-                    String(f.value) === String(o) ? ' selected' : ''}>${esc(o)}</option>`).join('')
-                }</select>`
-              : `<input id="f-${esc(a.action)}-${esc(f.name)}" name="${esc(f.name)}"
-                   type="${f.type === 'int' ? 'text' : 'text'}"
-                   inputmode="${f.type === 'int' ? 'numeric' : 'text'}"
-                   value="${esc(f.value === null || f.value === undefined ? '' : f.value)}"
-                   data-was="${esc(f.value === null || f.value === undefined ? '' : f.value)}">`}
-            ${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
-            <span class="was" style="display:none"></span>
-          </div>`).join('')
-      }
+        (a.fields || []).map(fl => fieldHTML(fl, 'f-' + a.action)).join('')
+      }${(a.fields || []).some(fl => fl.main === false)
+        ? `<button class="v-btn ghost sm more" type="button">Все поля</button>` : ''}
         <div class="btns">
           <button class="v-btn save" type="button">Сохранить и подтвердить</button>
           <button class="v-btn ghost cancel" type="button">Отмена</button>
@@ -878,7 +882,7 @@ function wireGot(box, it){
     });
 
     // Пометка изменённых полей: правку видно до нажатия, а не только в истории.
-    form.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+    form.querySelectorAll('input, select').forEach(inp => inp.addEventListener('input', () => {
       const changed = String(inp.value) !== String(inp.dataset.was || '');
       inp.classList.toggle('dirty', changed);
       const was = inp.closest('.fld').querySelector('.was');
@@ -887,6 +891,12 @@ function wireGot(box, it){
         ? 'VELOR предлагал: ' + (inp.dataset.was || '(пусто)')
         : '';
     }));
+
+    const more = form.querySelector('.more');
+    if (more) more.addEventListener('click', () => {
+      form.classList.add('wide');
+      form.querySelector('.fld.extra input, .fld.extra select')?.focus();
+    });
 
     form.querySelector('.cancel').addEventListener('click', () => {
       form.querySelectorAll('input').forEach(inp => {

@@ -292,6 +292,14 @@ def _migrate_columns(conn):
         ("finance_entries", "source", "TEXT"),           # ручной ввод | csv | xlsx | pdf | банк
         ("finance_entries", "confidence", "REAL DEFAULT 1"),
         ("finance_entries", "import_id", "INTEGER"),
+        # С кем была операция. Ссылки, а не текст: имя сотрудника меняется, а
+        # связь остаётся, и «сколько мы платим Петровой» считается запросом, а
+        # не сравнением строк.
+        ("finance_entries", "doc_type", "TEXT"),       # чек | банк | счёт | накладная | зарплата | возврат | вручную
+        ("finance_entries", "employee_id", "INTEGER"), # memory_facts, kind='employee'
+        ("finance_entries", "supplier_id", "INTEGER"), # memory_facts, kind='supplier'
+        ("finance_entries", "client_id", "INTEGER"),   # clients
+        ("finance_entries", "order_id", "INTEGER"),    # orders
         # ── Trial / подписка (централизованный TrialService) ──
         ("businesses", "trial_start", "TEXT"),
         ("businesses", "trial_end", "TEXT"),
@@ -762,6 +770,7 @@ def init_db():
             ("idx_inbox_decisions_item", "inbox_decisions", "business_id, item_id"),
             ("idx_mem_links_entity",     "memory_links",    "business_id, entity_type, entity_id"),
             ("idx_mem_links_item",       "memory_links",    "business_id, item_id"),
+            ("idx_finance_biz_kind",     "finance_entries", "business_id, kind"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -3112,19 +3121,93 @@ def update_order_status(order_id, status, business_id):
 
 # ---------- ФИНАНСЫ (модуль AI-директор) ----------
 
-def add_finance_entry(business_id, kind, category, amount, note=None):
-    """Записать доход или расход. kind = 'income' | 'expense'. Возвращает id."""
+# Из какого документа выросла операция. Не украшение: по нему видно, чем
+# подтверждена цифра, и в разборе «покажи все зарплаты» это первый фильтр.
+DOC_TYPES = {
+    "receipt":  "Чек",
+    "bank":     "Банковская операция",
+    "invoice":  "Счёт",
+    "waybill":  "Накладная",
+    "salary":   "Зарплата",
+    "refund":   "Возврат",
+    "income":   "Документ о доходе",
+    "manual":   "Внесено вручную",
+    "import":   "Из выписки",
+}
+
+FINANCE_EXTRA = ("op_date", "counterparty", "source", "doc_type", "confidence",
+                 "employee_id", "supplier_id", "client_id", "order_id", "external_id")
+
+
+def add_finance_entry(business_id, kind, category, amount, note=None, **extra):
+    """
+    Записать доход или расход. kind = 'income' | 'expense'. Возвращает id.
+
+    Дополнительные поля (дата операции, контрагент, источник, сотрудник,
+    поставщик, клиент, заявка) приходят именованными — так одна и та же дверь
+    годится и для ручного ввода, и для подтверждённого разбора, и для выписки.
+    """
+    cols = ["business_id", "kind", "category", "amount", "note"]
+    vals = [business_id, kind, category, int(amount or 0), note]
+    for key in FINANCE_EXTRA:
+        if extra.get(key) not in (None, ""):
+            cols.append(key)
+            vals.append(extra[key])
+    ph = ", ".join("?" * len(cols))
     with _connect() as conn:
         cur = conn.execute(
-            """INSERT INTO finance_entries (business_id, kind, category, amount, note)
-               VALUES (?, ?, ?, ?, ?)""",
-            (business_id, kind, category, int(amount or 0), note),
+            f"INSERT INTO finance_entries ({', '.join(cols)}) VALUES ({ph})", tuple(vals)
         )
         entry_id = cur.lastrowid
     log_event(business_id, "finance",
               ("Доход" if kind == "income" else "Расход") + f": {category}",
               f"{int(amount or 0)} ₽" + (f" · {note}" if note else ""))
     return entry_id
+
+
+def _finance_join(where_extra="", args=()):
+    """
+    Операции вместе с именами тех, с кем они были.
+
+    Имена берём join'ом, а не копией в самой операции: сотрудник переименован —
+    и во всех прошлых выплатах он тоже переименован, потому что это один и тот
+    же человек, а не строка, записанная когда-то.
+    """
+    return (
+        """SELECT f.*,
+                  emp.title  AS employee_name,
+                  sup.title  AS supplier_name,
+                  cl.name    AS client_name,
+                  o.text     AS order_text
+             FROM finance_entries f
+             LEFT JOIN memory_facts emp ON emp.id = f.employee_id AND emp.business_id = f.business_id
+             LEFT JOIN memory_facts sup ON sup.id = f.supplier_id AND sup.business_id = f.business_id
+             LEFT JOIN clients      cl  ON cl.id  = f.client_id   AND cl.business_id  = f.business_id
+             LEFT JOIN orders       o   ON o.id   = f.order_id    AND o.business_id   = f.business_id
+            WHERE f.business_id = ? """ + where_extra)
+
+
+def finance_rows(business_id, limit=100, offset=0, kind=None, doc_type=None):
+    """Лента операций для экрана финансов — с людьми, а не с одними цифрами."""
+    sql = _finance_join()
+    args = [business_id]
+    if kind in ("income", "expense"):
+        sql += " AND f.kind = ?"
+        args.append(kind)
+    if doc_type:
+        sql += " AND f.doc_type = ?"
+        args.append(doc_type)
+    sql += " ORDER BY f.id DESC LIMIT ? OFFSET ?"
+    args += [int(limit), int(offset)]
+    with _connect() as conn:
+        return [dict(r) for r in conn.execute(sql, tuple(args)).fetchall()]
+
+
+def finance_row(entry_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(_finance_join(" AND f.id = ?"),
+                           (business_id, entry_id)).fetchone()
+    return dict(row) if row else None
 
 
 def get_finance_entry(entry_id, business_id):
@@ -3137,8 +3220,10 @@ def get_finance_entry(entry_id, business_id):
 
 
 def update_finance_entry(entry_id, business_id, **fields):
-    """Правка операции. Меняем только разрешённые поля — сумму, категорию, заметку."""
-    allowed = {"kind", "category", "amount", "note", "op_date", "counterparty"}
+    """Правка операции. Меняем только разрешённые поля."""
+    allowed = {"kind", "category", "amount", "note", "op_date", "counterparty",
+               "source", "doc_type", "employee_id", "supplier_id", "client_id",
+               "order_id"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return
@@ -3190,8 +3275,13 @@ def delete_finance_entry(entry_id, business_id):
 
 def finance_summary(business_id):
     """
-    Сводка по деньгам: выручка, расходы, прибыль и разбивка по категориям.
-    by_category — для аналитики «на что уходят деньги».
+    Сводка по деньгам: выручка, расходы, прибыль, маржа и разбивка.
+
+    Два правила, которые нельзя нарушать ни при каких данных:
+        прибыль = выручка − расходы
+        маржа   = прибыль / выручка
+    Маржа при нулевой выручке НЕ равна нулю — её просто нет, и говорить
+    «0%» там, где делить не на что, значит соврать. В таком случае None.
     """
     with _connect() as conn:
         income = conn.execute(
@@ -3209,10 +3299,32 @@ def finance_summary(business_id):
                ORDER BY total DESC""",
             (business_id,),
         ).fetchall()
+        refunds = conn.execute(
+            """SELECT COALESCE(SUM(amount),0) AS s FROM finance_entries
+                WHERE business_id = ? AND doc_type = 'refund'""",
+            (business_id,),
+        ).fetchone()["s"]
+        salary = conn.execute(
+            """SELECT COALESCE(SUM(amount),0) AS s FROM finance_entries
+                WHERE business_id = ? AND doc_type = 'salary'""",
+            (business_id,),
+        ).fetchone()["s"]
+        n = conn.execute(
+            "SELECT COUNT(*) AS n FROM finance_entries WHERE business_id = ?",
+            (business_id,),
+        ).fetchone()["n"]
+    income, expense = int(income or 0), int(expense or 0)
+    profit = income - expense
     return {
         "income": income,
         "expense": expense,
-        "profit": income - expense,
+        "profit": profit,
+        # Проценты считаем ОДИН раз здесь, а не на каждой странице: две разные
+        # формулы маржи в двух местах — это два разных ответа владельцу.
+        "margin": round(profit * 100 / income, 1) if income else None,
+        "refunds": int(refunds or 0),
+        "salary": int(salary or 0),
+        "entries": int(n or 0),
         "by_category": [dict(r) for r in cats],
     }
 

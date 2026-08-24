@@ -2969,7 +2969,9 @@ def _inbox_result_public(res: dict | None, item: dict | None = None) -> dict | N
         entity = understanding.ENTITY_BY_ACTION.get(a.get("action"))
         if entity:
             try:
-                sch = entities.schema(entity)
+                # Схему собираем ПОД БИЗНЕС: списки сотрудников, поставщиков и
+                # заявок у каждого свои, и подставить чужие было бы утечкой.
+                sch = entities.schema(entity, (item or {}).get("business_id"))
             except entities.EntityError:
                 sch = None
             if sch:
@@ -3623,39 +3625,91 @@ class FinanceIn(BaseModel):
     category: str | None = None
     amount: int = 0
     note: str | None = None
+    # Остальные поля операции приходят одним словарём: их набор описан в
+    # entities.py, и дублировать его здесь значило бы завести второе описание,
+    # которое рано или поздно разойдётся с первым.
+    data: dict | None = None
     business_id: int = 0
 
 
+def _finance_public(row: dict) -> dict:
+    """Операция наружу: с именами тех, с кем она была, и с понятным документом."""
+    out = dict(row)
+    out["doc_type_ru"] = database.DOC_TYPES.get(row.get("doc_type") or "", "")
+    out["who"] = (row.get("employee_name") or row.get("supplier_name")
+                  or row.get("client_name") or row.get("counterparty") or "")
+    return out
+
+
 @app.get("/api/finance")
-def api_finance(business_id: int = 0, x_auth: str = Header(default="")):
-    """Сводка по деньгам + последние записи доходов/расходов."""
+def api_finance(business_id: int = 0, limit: int = 100, kind: str = "",
+                doc_type: str = "", x_auth: str = Header(default="")):
+    """
+    Сводка по деньгам, последние операции и справочники для формы.
+
+    Проценты (маржа, доля расходов) считает база, а не страница: одна формула
+    на весь продукт — один ответ владельцу.
+    """
     bid = _resolve_bid(x_auth, business_id)
+    rows = database.finance_rows(bid, limit=max(1, min(int(limit or 100), 500)),
+                                 kind=kind or None, doc_type=doc_type or None)
     return {"summary": database.finance_summary(bid),
-            "entries": database.list_finance_entries(bid)}
+            "entries": [_finance_public(r) for r in rows],
+            "fields": entities.schema("expense", bid)["fields"],
+            "docs": database.DOC_TYPES}
 
 
 @app.post("/api/finance")
 def api_finance_add(body: FinanceIn, x_auth: str = Header(default="")):
-    """Добавить доход или расход."""
+    """
+    Добавить доход или расход руками.
+
+    Идёт той же дорогой, что и подтверждённый разбор: entities.create проверит
+    поля, приведёт типы и создаст ОДНУ запись в finance_entries.
+    """
     bid = _resolve_bid(x_auth, body.business_id)
     require_active(bid)
     kind = body.kind if body.kind in ("income", "expense") else "expense"
-    eid = database.add_finance_entry(bid, kind, (body.category or "").strip() or None,
-                                     body.amount, (body.note or "").strip() or None)
+    values = dict(body.data or {})
+    # Короткая форма (kind/category/amount/note) остаётся рабочей: ею
+    # пользуются старые экраны и бот.
+    if body.amount:
+        values.setdefault("amount", body.amount)
+    if body.category is not None:
+        values.setdefault("category", (body.category or "").strip())
+    if body.note is not None:
+        values.setdefault("note", (body.note or "").strip())
+    values.setdefault("source", "manual")
+    try:
+        eid, detail, clean = entities.create(bid, kind, values)
+    except entities.EntityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     actor, actor_id = _actor(x_auth, bid)
     database.add_memory_link(bid, kind, eid, event="created", source_kind="manual",
                              confidence=1.0, actor=actor, actor_id=actor_id,
-                             note="Внесено вручную")
-    return {"ok": True, "id": eid}
+                             note=detail)
+    return {"ok": True, "id": eid, "detail": detail, "entry": _finance_public(
+        database.finance_row(eid, bid) or {}), "summary": database.finance_summary(bid)}
 
 
 @app.post("/api/finance/{entry_id}/delete")
 def api_finance_delete(entry_id: int, business_id: int = 0,
                        x_auth: str = Header(default="")):
-    """Удалить запись — только свою."""
+    """Удалить запись — только свою. След в истории остаётся."""
     bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    row = database.get_finance_entry(entry_id, bid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Операция не найдена.")
     database.delete_finance_entry(entry_id, bid)
-    return {"ok": True}
+    actor, actor_id = _actor(x_auth, bid)
+    # Операции больше нет, но того, что она была и кто её убрал, из истории
+    # не вычеркнуть: деньги — это то место, где «удалил и забыл» недопустимо.
+    database.add_memory_link(bid, row["kind"], entry_id, event="removed",
+                             source_kind="manual", actor=actor, actor_id=actor_id,
+                             note="Удалено: {} ₽ · {}".format(
+                                 row.get("amount"), row.get("category") or "без категории"))
+    return {"ok": True, "summary": database.finance_summary(bid)}
 
 
 @app.get("/api/finance/insights")
@@ -3679,6 +3733,62 @@ def api_finance_insights(business_id: int = 0, x_auth: str = Header(default=""))
         return {"ok": True, "answer": ai.finance_insights(business, summary_text)}
     except Exception:
         return {"ok": False, "answer": None}
+
+
+class FinanceEdit(BaseModel):
+    data: dict
+    business_id: int = 0
+
+
+def _finance_kind(bid: int, entry_id: int) -> str:
+    row = database.get_finance_entry(entry_id, bid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Операция не найдена.")
+    return "income" if row.get("kind") == "income" else "expense"
+
+
+@app.get("/api/finance/{entry_id}")
+def api_finance_entry(entry_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """Одна операция целиком: поля, связи и вся её история."""
+    bid = _resolve_bid(x_auth, business_id)
+    kind = _finance_kind(bid, entry_id)
+    values = entities.read(bid, kind, entry_id)
+    if values is None:
+        raise HTTPException(status_code=404, detail="Операция не найдена.")
+    return {"kind": kind, "id": entry_id, "values": values,
+            "schema": entities.schema(kind, bid),
+            "entry": _finance_public(database.finance_row(entry_id, bid) or {}),
+            "history": [_memory_link_public(l)
+                        for l in database.memory_links(bid, kind, entry_id)]}
+
+
+@app.post("/api/finance/{entry_id}")
+def api_finance_edit(entry_id: int, body: FinanceEdit, x_auth: str = Header(default="")):
+    """
+    Изменить операцию. Сумма, дата, категория, контрагент, описание,
+    сотрудник, заявка, источник — всё правится здесь, и всё попадает в
+    историю: по деньгам должно быть видно, кто и что поменял.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    kind = _finance_kind(bid, entry_id)
+    try:
+        detail, now, before = entities.update(bid, kind, entry_id, body.data or {})
+    except entities.EntityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logging.exception("Финансы: правка не удалась (biz %s, запись %s)", bid, entry_id)
+        raise HTTPException(status_code=502, detail="Не удалось сохранить правку.")
+    changes = understanding.diff(before, now)
+    if changes:
+        actor, actor_id = _actor(x_auth, bid)
+        database.add_memory_link(bid, kind, entry_id, event="edited", source_kind="manual",
+                                 changes=changes, actor=actor, actor_id=actor_id, note=detail)
+    return {"ok": True, "detail": detail, "changes": changes, "values": now,
+            "entry": _finance_public(database.finance_row(entry_id, bid) or {}),
+            "summary": database.finance_summary(bid),
+            "history": [_memory_link_public(l)
+                        for l in database.memory_links(bid, kind, entry_id)]}
 
 
 # ---------- GROWTH (AI-маркетолог / контент) ----------

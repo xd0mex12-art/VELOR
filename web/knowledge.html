@@ -118,6 +118,7 @@
   .edit input.dirty{ border-color:var(--saffron); }
   .edit .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
   .edit .was{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--saffron); }
+  .edit select{ appearance:none; background-image:none; }
 
   /* история */
   .ev{ display:flex; gap:var(--sp-3); padding:var(--sp-3) 0;
@@ -206,6 +207,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
+<script src="velor-form.js"></script>
 <script src="core-live.js?v=11"></script>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -460,26 +462,14 @@ function historyHTML(history){
   return `<div class="blk"><h3>История</h3>${rows}</div>`;
 }
 
+
 function editHTML(d){
   if (!d.schema.can_edit) return '';
-  const flds = d.schema.fields.map(f => {
-    const val = d.values[f.name] == null ? '' : d.values[f.name];
-    const id = 'e-' + f.name;
-    const input = (f.options || []).length
-      ? `<select id="${id}" name="${esc(f.name)}">${f.options.map(o =>
-          `<option value="${esc(o)}"${String(val) === String(o) ? ' selected' : ''}>${esc(o)}</option>`
-        ).join('')}</select>`
-      : `<input id="${id}" name="${esc(f.name)}" type="text"
-             inputmode="${f.type === 'int' ? 'numeric' : 'text'}"
-             value="${esc(val)}" data-was="${esc(val)}">`;
-    return `<div class="fld">
-      <label for="${id}">${esc(f.label)}${f.required
-        ? '<span class="req" title="обязательное">*</span>' : ''}</label>
-      ${input}
-      ${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
-      <span class="was" style="display:none"></span>
-    </div>`;
-  }).join('');
+  // В памяти показываем ВСЕ поля: сюда приходят именно затем, чтобы
+  // проверить и поправить запись целиком.
+  const flds = d.schema.fields
+    .map(f => fieldHTML(Object.assign({}, f, {value: d.values[f.name]}), 'e'))
+    .join('');
   return `<div class="blk"><h3>Что записано</h3><form class="edit" id="editForm">${flds}</form></div>`;
 }
 
@@ -496,7 +486,7 @@ function paintCard(d){
   cSource.disabled = false; cSource.textContent = 'Открыть источник';
 
   // Помечаем изменённое поле сразу: правку видно до нажатия, а не только потом.
-  cBody.querySelectorAll('.edit input').forEach(inp => inp.addEventListener('input', () => {
+  cBody.querySelectorAll('.edit input, .edit select').forEach(inp => inp.addEventListener('input', () => {
     const changed = String(inp.value) !== String(inp.dataset.was || '');
     inp.classList.toggle('dirty', changed);
     const was = inp.closest('.fld').querySelector('.was');

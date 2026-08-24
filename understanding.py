@@ -28,7 +28,12 @@ import database
 # Список закрытый: всё, чего здесь нет, называется UNKNOWN. Придумывать новые
 # типы на ходу нельзя — иначе интерфейс и будущая автоматика разойдутся.
 TYPES = (
-    "EXPENSE_DOCUMENT",       # чек, счёт, накладная — подтверждение траты
+    "EXPENSE_DOCUMENT",       # чек — подтверждение траты
+    "INVOICE",                # счёт на оплату
+    "WAYBILL",                # накладная
+    "SALARY_PAYMENT",         # ведомость, расчётный листок, выплата сотруднику
+    "REFUND",                 # возврат денег
+    "INCOME_DOCUMENT",        # подтверждение поступления
     "BANK_TRANSACTION",       # выписка или скрин операции по счёту
     "BUSINESS_RULES",         # регламент, условия работы, политика
     "SERVICES_OR_PRODUCTS",   # меню, ассортимент, перечень услуг
@@ -45,6 +50,11 @@ TYPES = (
 
 TYPE_RU = {
     "EXPENSE_DOCUMENT":      "Документ о расходе",
+    "INVOICE":               "Счёт на оплату",
+    "WAYBILL":               "Накладная",
+    "SALARY_PAYMENT":        "Выплата зарплаты",
+    "REFUND":                "Возврат денег",
+    "INCOME_DOCUMENT":       "Документ о доходе",
     "BANK_TRANSACTION":      "Банковская операция",
     "BUSINESS_RULES":        "Правила работы",
     "SERVICES_OR_PRODUCTS":  "Услуги или товары",
@@ -188,13 +198,39 @@ MARKERS = {
     "EXPENSE_DOCUMENT": [
         (r"кассовый чек", 3), (r"\bчек[аиов]{0,2}\b", 2), (r"товарный чек", 3),
         (r"итого к оплате", 3), (r"сумма к оплате", 2), (r"\bндс\b", 1),
-        (r"\bинн\b", 1), (r"кассир", 2), (r"фискальн", 3), (r"накладная", 2),
-        (r"счёт на оплату|счет на оплату", 3),
+        (r"\bинн\b", 1), (r"кассир", 2), (r"фискальн", 3),
+    ],
+    # Счёт и накладная раньше считались чеком. Разница не косметическая: чек —
+    # это уже потраченные деньги, счёт — ещё не потраченные, а накладная — про
+    # товар. Владельцу важно различать, что из этого уже ушло со счёта.
+    "INVOICE": [
+        (r"счёт на оплату|счет на оплату", 5), (r"счёт №|счет №", 4),
+        (r"выставлен счёт|выставлен счет", 4), (r"получатель платежа", 3),
+        (r"плательщик", 2), (r"счёт-фактура|счет-фактура", 4),
+    ],
+    "WAYBILL": [
+        (r"товарная накладная", 5), (r"\bторг-?\s?12\b", 5), (r"накладная", 4),
+        (r"грузополучател", 4), (r"грузоотправител", 4), (r"отпустил", 2),
+    ],
+    "SALARY_PAYMENT": [
+        (r"расч[ёе]тный листок", 5), (r"платёжная ведомость|платежная ведомость", 5),
+        (r"ведомость на выплату", 5), (r"выплата (зарплаты|заработной платы)", 4),
+        (r"начислено к выплате", 4), (r"аванс за", 3),
+    ],
+    "REFUND": [
+        (r"возврат средств", 5), (r"чек возврата", 5), (r"возврат[а-я]*", 4),
+        (r"вернули деньги", 4), (r"отмена заказа", 3), (r"рефанд", 3),
+    ],
+    "INCOME_DOCUMENT": [
+        (r"приходный (кассовый )?ордер", 5), (r"оплата от клиента", 4),
+        (r"оплачено клиентом", 4), (r"поступление средств", 4),
+        (r"акт выполненных работ", 3), (r"выручка за", 3),
     ],
     "BANK_TRANSACTION": [
         (r"выписка по счёт|выписка по счет", 3), (r"списание", 2), (r"зачисление", 2),
         (r"остаток по счёт|остаток по счет", 3), (r"\bсбп\b", 2), (r"перевод на карту", 2),
         (r"дата операции", 2), (r"назначение платежа", 3), (r"корр\.?\s*счёт|корр\.?\s*счет", 3),
+        (r"перевод\w*", 2),
         (r"\bбик\b", 2), (r"баланс карты", 2),
     ],
     "PRICE_LIST": [
@@ -253,6 +289,9 @@ INCOME_WORDS = re.compile(r"получил|получили|выручк|пос�
 # равных, а спор двух типов честно опускает уверенность до низкой.
 INTENT_WORDS = re.compile(r"хочу|хотим|планиру|цель|цели|нужно выйти|давай(те)? выйдем|"
                           r"к концу (месяца|года|квартала)|в планах", re.I)
+# Деньги двигают не только глаголом. «Перевод Иванову 70 000» — это операция,
+# хотя ни «заплатил», ни «получил» здесь нет.
+MONEY_NOUNS = re.compile(r"перевод|оплат|плат[её]ж|выплат|возврат|поступлен|списан", re.I)
 EXPENSE_WORDS = re.compile(r"заплатил|оплатил|потратил|перевёл|перевел|купил|закупил|списал", re.I)
 
 CATEGORY_WORDS = [
@@ -306,12 +345,85 @@ def find_money(text: str):
     return out
 
 
+# Дата в документе: «24.08.2026», «24.08.26», «2026-08-24». Без неё операция
+# ложится на день загрузки, а чек мог пролежать в кармане неделю.
+_DATE_RE = re.compile(r"\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})\b|\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def find_date(text: str):
+    """Первая правдоподобная дата из текста в виде ГГГГ-ММ-ДД. Нет — None."""
+    import datetime as _dt
+    for m in _DATE_RE.finditer(text or ""):
+        try:
+            if m.group(4):
+                y, mo, d = int(m.group(4)), int(m.group(5)), int(m.group(6))
+            else:
+                d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                if y < 100:
+                    y += 2000
+            if not (2000 <= y <= 2100):
+                continue
+            return _dt.date(y, mo, d).isoformat()
+        except ValueError:
+            continue          # 32.13.2026 — не дата, идём дальше
+    return None
+
+
 def guess_category(text: str):
     low = (text or "").lower()
     for name, pattern in CATEGORY_WORDS:
         if re.search(pattern, low):
             return name
     return None
+
+
+def _norm_name(s):
+    return re.sub(r"[^а-яёa-z]", "", (s or "").lower())
+
+
+def _name_match(known: str, text_low: str):
+    """
+    Узнать в тексте знакомое имя. Русские падежи («Иванову», «Иванова»)
+    ловим по основе: сравниваем начало слова, а не слово целиком.
+    """
+    for word in re.split(r"[\s,;]+", known or ""):
+        stem = _norm_name(word)
+        if len(stem) < 4:
+            continue          # инициалы и предлоги совпадут с чем угодно
+        if re.search(r"\b" + re.escape(stem) + r"[а-яё]{0,3}\b", text_low):
+            return True
+    return False
+
+
+def match_people(business_id, text, extracted):
+    """
+    Кто участвовал в операции — по памяти бизнеса.
+
+    Это и есть разница между «перевод 70 000» и «зарплата Иванову». Знание
+    берём из уже подтверждённых записей: сотрудников, поставщиков, клиентов.
+    Ничего не выдумываем — если совпадения нет, поле остаётся пустым.
+    """
+    hay = ((extracted.get("counterparty") or "") + " " + (text or "")).lower()
+    found = {}
+    try:
+        people = [("employee_id", r) for r in database.list_facts(business_id, "employee")]
+        people += [("supplier_id", r) for r in database.list_facts(business_id, "supplier")]
+        clients = [("client_id", r) for r in database.list_clients(business_id, limit=200)]
+    except Exception:
+        return found
+    for field, row in people:
+        if field in found:
+            continue
+        if _name_match(row.get("title") or "", hay):
+            found[field] = row["id"]
+            found["counterparty"] = row.get("title")
+    for field, row in clients:
+        if field in found or "employee_id" in found:
+            continue
+        if _name_match(row.get("name") or "", hay):
+            found[field] = row["id"]
+            found.setdefault("counterparty", row.get("name"))
+    return found
 
 
 def classify_by_rules(text: str, filename: str = "", mime: str = "", kind: str = "file"):
@@ -344,9 +456,10 @@ def classify_by_rules(text: str, filename: str = "", mime: str = "", kind: str =
         if money and intent:
             scores["GOAL_STATEMENT"] = scores.get("GOAL_STATEMENT", 0) + 4
             hits.setdefault("GOAL_STATEMENT", []).append("сумма и намерение, а не факт")
-        elif money and (EXPENSE_WORDS.search(text or "") or INCOME_WORDS.search(text or "")):
+        elif money and (EXPENSE_WORDS.search(text or "") or INCOME_WORDS.search(text or "")
+                        or MONEY_NOUNS.search(text or "")):
             scores["FINANCIAL_TRANSACTION"] = scores.get("FINANCIAL_TRANSACTION", 0) + 4
-            hits.setdefault("FINANCIAL_TRANSACTION", []).append("сумма и глагол о деньгах")
+            hits.setdefault("FINANCIAL_TRANSACTION", []).append("сумма и слово о деньгах")
 
     if not scores:
         return "UNKNOWN", 0.0, []
@@ -367,7 +480,7 @@ def extract_by_rules(kind_type: str, text: str, kind: str = "file"):
     """Что можно вытащить из текста наверняка: суммы, валюта, категория."""
     data = {}
     money = find_money(text)
-    if kind_type in ("FINANCIAL_TRANSACTION", "EXPENSE_DOCUMENT", "BANK_TRANSACTION") and money:
+    if kind_type in MONEY_TYPES and money:
         # В чеке итог обычно самая большая сумма; в заметке — единственная.
         top = max(money, key=lambda m: m["amount"])
         data["amount"] = top["amount"]
@@ -377,10 +490,16 @@ def extract_by_rules(kind_type: str, text: str, kind: str = "file"):
     # Категория расхода имеет смысл только для денег. В трудовом договоре слово
     # «оклад» тоже встречается, но приписывать сотруднику «категория: зарплата»
     # — значит засорять карточку смыслом, которого в ней нет.
-    if kind_type in ("FINANCIAL_TRANSACTION", "EXPENSE_DOCUMENT", "BANK_TRANSACTION"):
+    if kind_type in MONEY_TYPES:
         cat = guess_category(text)
         if cat:
             data["category"] = cat
+        doc = DOC_BY_TYPE.get(kind_type)
+        if doc:
+            data["doc_type"] = doc
+        when = find_date(text)
+        if when:
+            data["op_date"] = when
     if kind_type in ("FINANCIAL_TRANSACTION", "EXPENSE_DOCUMENT"):
         if EXPENSE_WORDS.search(text or ""):
             data["direction"] = "expense"
@@ -388,6 +507,16 @@ def extract_by_rules(kind_type: str, text: str, kind: str = "file"):
             data["direction"] = "income"
         elif kind_type == "EXPENSE_DOCUMENT":
             data["direction"] = "expense"
+    elif kind_type in ("INVOICE", "WAYBILL", "SALARY_PAYMENT"):
+        data["direction"] = "expense"
+    elif kind_type == "INCOME_DOCUMENT":
+        data["direction"] = "income"
+    elif kind_type == "REFUND":
+        data["direction"] = "income" if _REFUND_IN.search(text or "") else "expense"
+    if kind_type == "SALARY_PAYMENT":
+        data.setdefault("category", "зарплата")
+    if kind_type == "REFUND":
+        data["category"] = "возврат"
     # Кому платили — слово после глагола, если оно с большой буквы.
     m = re.search(r"(?:заплатил|оплатил|перевёл|перевел|отдал)\w*\s+([А-ЯЁ][\w-]+)", text or "")
     if m:
@@ -483,8 +612,35 @@ def _employee_fields(text):
     return out
 
 
+# Каким документом подтверждена операция. Тип материала → тип документа в
+# финансах: по нему потом видно, чем именно подтверждена цифра.
+DOC_BY_TYPE = {
+    "EXPENSE_DOCUMENT":      "receipt",
+    "BANK_TRANSACTION":      "bank",
+    "INVOICE":               "invoice",
+    "WAYBILL":               "waybill",
+    "SALARY_PAYMENT":        "salary",
+    "REFUND":                "refund",
+    "INCOME_DOCUMENT":       "income",
+    "FINANCIAL_TRANSACTION": None,
+}
+
+# Типы, у которых направление денег понятно из самого документа.
+MONEY_TYPES = ("EXPENSE_DOCUMENT", "BANK_TRANSACTION", "FINANCIAL_TRANSACTION",
+               "INVOICE", "WAYBILL", "SALARY_PAYMENT", "REFUND", "INCOME_DOCUMENT")
+
+# Возврат бывает в обе стороны: клиенту вернули мы (деньги ушли) или вернул нам
+# поставщик (деньги пришли). Решает формулировка, а не догадка.
+_REFUND_IN = re.compile(r"вернул\w*\s+нам|возврат от|поставщик вернул|нам вернули", re.I)
+
+
 ACTION_BY_TYPE = {
     "EXPENSE_DOCUMENT":      ["create_expense", "save_document"],
+    "INVOICE":               ["create_expense", "save_document"],
+    "WAYBILL":               ["create_expense", "save_document"],
+    "SALARY_PAYMENT":        ["create_expense"],
+    "REFUND":                ["create_expense"],
+    "INCOME_DOCUMENT":       ["create_expense", "save_document"],
     "BANK_TRANSACTION":      ["create_expense", "save_document"],
     "FINANCIAL_TRANSACTION": ["create_expense"],
     "PRICE_LIST":            ["add_price_list", "save_document"],
@@ -513,9 +669,20 @@ def suggest(kind_type: str, extracted: dict):
     out = []
     for n in names:
         meta = ACTIONS.get(n)
-        if meta:
-            out.append({"action": n, "title": meta["title"],
-                        "safe": meta["safe"], "auto": meta["auto"]})
+        if not meta:
+            continue
+        act = {"action": n, "title": meta["title"],
+               "safe": meta["safe"], "auto": meta["auto"]}
+        # Предложение по деньгам должно быть конкретным. «Записать расход» —
+        # это вопрос «какой?»; «Расход 70 000 ₽ · зарплата» — уже ответ, и
+        # человеку остаётся только согласиться или поправить.
+        if n in ("create_expense", "create_income") and extracted.get("amount"):
+            word = "Расход" if n == "create_expense" else "Доход"
+            money = "{:,}".format(int(extracted["amount"])).replace(",", " ") + " ₽"
+            tail = " · " + extracted["category"] if extracted.get("category") else ""
+            act["title"] = f"{word} {money}{tail}"
+            act["confirm_title"] = f"Подтвердить: {word.lower()} {money}{tail}"
+        out.append(act)
     return out
 
 
@@ -665,7 +832,24 @@ def process(business_id, item_id):
                 continue
             extracted.setdefault(k, v)
 
+    # Кто участвовал — из памяти бизнеса. Делаем это ПОСЛЕ модели: узнанный
+    # сотрудник надёжнее любой догадки, и он же уточняет категорию.
+    people = match_people(business_id, text, extracted)
+    if people:
+        extracted.update(people)
+        if people.get("employee_id") and not extracted.get("category"):
+            extracted["category"] = "зарплата"
+        if people.get("employee_id") and kind_type in ("BANK_TRANSACTION",
+                                                       "FINANCIAL_TRANSACTION"):
+            extracted.setdefault("doc_type", "salary")
+        if people.get("supplier_id") and not extracted.get("category"):
+            extracted["category"] = "закупка"
+
     conf = merged["confidence"]
+    if people and kind_type in MONEY_TYPES:
+        # Узнали человека по своей же памяти — это не догадка, а совпадение с
+        # подтверждённой записью. Небольшая, но честная прибавка к уверенности.
+        conf = min(0.95, conf + 0.10)
     if notes:
         conf = min(conf, 0.55)      # модель промахнулась по цифрам — доверия меньше
     if kind_type == "UNKNOWN":
@@ -745,7 +929,10 @@ def _summary_by_rules(kind_type, extracted, text):
     if extracted.get("category"):
         bits.append("категория: " + extracted["category"])
     if extracted.get("counterparty"):
-        bits.append("кому: " + extracted["counterparty"])
+        bits.append(("сотрудник: " if extracted.get("employee_id") else "кому: ")
+                    + str(extracted["counterparty"]))
+    if extracted.get("op_date"):
+        bits.append("дата: " + extracted["op_date"])
     return name + ((" — " + ", ".join(bits)) if bits else ".")
 
 
@@ -768,7 +955,15 @@ def prefill(action, result, item):
             out["amount"] = data["amount"]
         if data.get("category"):
             out["category"] = data["category"]
-        out["note"] = summary or title
+        for key in ("op_date", "counterparty", "doc_type",
+                    "employee_id", "supplier_id", "client_id"):
+            if data.get(key):
+                out[key] = data[key]
+        out["source"] = "inbox"
+        # Описанием берём то, что прислал человек (или имя файла), а не
+        # пересказ разбора: в ленте финансов рядом и так стоят сумма,
+        # категория и имя, и повторять их третий раз незачем.
+        out["note"] = title or summary
     elif entity in ("product", "service", "rule"):
         out["title"] = title
         out["body"] = summary

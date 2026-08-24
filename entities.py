@@ -29,6 +29,7 @@ documents — там, где были. Реестр только знает, г�
 из описания полей, которое приезжает вместе с разбором.
 """
 import datetime
+import math
 
 import database
 
@@ -43,7 +44,11 @@ class EntityError(Exception):
 def _as_int(v, label):
     try:
         s = str(v).replace(" ", "").replace(" ", "").replace(",", ".")
-        n = int(round(float(s)))
+        x = float(s)
+        # Округляем «половину» вверх, как считают люди: встроенный round()
+        # округляет 1850.5 до 1850 (к чётному), и в чеке это выглядит как
+        # потерянный рубль, который никто не может объяснить.
+        n = int(math.floor(x + 0.5)) if x >= 0 else int(math.ceil(x - 0.5))
     except (TypeError, ValueError):
         raise EntityError(f"«{label}»: нужно число.")
     if n < 0:
@@ -69,13 +74,35 @@ def _as_date(v, label):
     return s[:10]
 
 
-CAST = {"int": _as_int, "text": _as_text, "date": _as_date}
+def _as_ref(v, label):
+    """Ссылка на другую запись: сотрудника, клиента, заявку."""
+    if v in (None, "", "0", 0):
+        return None
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        raise EntityError(f"«{label}»: выберите из списка.")
+    return n if n > 0 else None
 
 
-def f(name, label, kind="text", required=False, hint="", options=None):
-    """Описание одного поля формы подтверждения."""
+CAST = {"int": _as_int, "text": _as_text, "date": _as_date, "ref": _as_ref}
+
+
+def f(name, label, kind="text", required=False, hint="", options=None,
+      options_of=None, main=True):
+    """
+    Описание одного поля формы.
+
+    options_of — список вариантов, который зависит от бизнеса (свои
+    сотрудники, свои заявки). Считается в момент показа формы: список
+    сотрудников меняется чаще, чем код.
+
+    main=False — поле второго ряда. Форма подтверждения во входящих должна
+    оставаться короткой: там человек проверяет сумму, а не заполняет карточку.
+    """
     return {"name": name, "label": label, "type": kind,
-            "required": required, "hint": hint, "options": options}
+            "required": required, "hint": hint, "options": options,
+            "options_of": options_of, "main": main}
 
 
 def _money(n):
@@ -162,24 +189,90 @@ def _fact_entity(kind, title, plural, word, group, fields, extra=(), where="memo
 
 # ── как создаётся каждый вид ───────────────────────────────────────────────
 
-def _money_note(data, fallback):
-    return _as_text(data.get("note") or fallback, "Заметка", 300)
+def _opt(value, label):
+    return {"value": value, "label": label}
 
 
-def _make_expense(bid, data):
-    amount = data["amount"]
-    eid = database.add_finance_entry(bid, "expense", data.get("category") or "без категории",
-                                     amount, _money_note(data, "Из входящих"))
-    return eid, f"Расход {amount:,} ₽".replace(",", " ") + \
-        (f" · {data['category']}" if data.get("category") else "")
+def _employee_options(bid):
+    return [_opt(r["id"], r["title"]) for r in database.list_facts(bid, "employee")]
 
 
-def _make_income(bid, data):
-    amount = data["amount"]
-    eid = database.add_finance_entry(bid, "income", data.get("category") or "без категории",
-                                     amount, _money_note(data, "Из входящих"))
-    return eid, f"Доход {amount:,} ₽".replace(",", " ") + \
-        (f" · {data['category']}" if data.get("category") else "")
+def _supplier_options(bid):
+    return [_opt(r["id"], r["title"]) for r in database.list_facts(bid, "supplier")]
+
+
+def _client_options(bid):
+    return [_opt(r["id"], r.get("name") or "без имени")
+            for r in database.list_clients(bid, limit=200)]
+
+
+def _order_options(bid):
+    return [_opt(r["id"], _short(r.get("text"), 60) or ("заявка №%s" % r["id"]))
+            for r in database.get_orders(bid, limit=100)]
+
+
+# Откуда пришла операция и каким документом подтверждена. Списки закрытые:
+# свободный текст здесь превратился бы в «банк», «Банк», «из банка».
+FINANCE_SOURCES = [_opt("manual", "Внесено вручную"), _opt("inbox", "Из входящих"),
+                   _opt("import", "Из выписки"), _opt("telegram", "Из Telegram")]
+FINANCE_DOCS = [_opt("manual", "Без документа"), _opt("receipt", "Чек"),
+                _opt("bank", "Банковская операция"), _opt("invoice", "Счёт"),
+                _opt("waybill", "Накладная"), _opt("salary", "Зарплата"),
+                _opt("refund", "Возврат"), _opt("income", "Документ о доходе"),
+                _opt("import", "Выписка")]
+
+
+def _money_fields(word_hint):
+    """
+    Поля денежной операции. Один набор на доход и расход: разница только в
+    направлении, и заводить два разных списка полей значило бы завести две
+    формы, которые начнут расходиться.
+    """
+    return [
+        f("amount", "Сумма", "int", True),
+        f("category", "Категория", "text", False, word_hint),
+        f("note", "Описание", "text", False, "что это было"),
+        f("op_date", "Дата операции", "date", False, "ГГГГ-ММ-ДД, пусто — сегодня"),
+        f("counterparty", "Контрагент", "text", False, "кому или от кого"),
+        f("employee_id", "Сотрудник", "ref", False, "если это выплата человеку",
+          options_of=_employee_options, main=False),
+        f("order_id", "Заявка", "ref", False, "если деньги по конкретному заказу",
+          options_of=_order_options, main=False),
+        f("supplier_id", "Поставщик", "ref", False, options_of=_supplier_options, main=False),
+        f("client_id", "Клиент", "ref", False, options_of=_client_options, main=False),
+        f("doc_type", "Документ", "text", False, "чем подтверждено",
+          options=FINANCE_DOCS, main=False),
+        f("source", "Источник", "text", False, options=FINANCE_SOURCES, main=False),
+    ]
+
+
+def _money_note(data, fallback=""):
+    """
+    Описание операции. Пусто — значит пусто: подставлять «Из входящих» в
+    запись, внесённую руками, — врать о её происхождении. Откуда она пришла,
+    и так записано в поле source.
+    """
+    return _as_text(data.get("note") or fallback, "Описание", 300) or None
+
+
+MONEY_EXTRA = ("op_date", "counterparty", "source", "doc_type",
+               "employee_id", "supplier_id", "client_id", "order_id")
+
+
+def _money_maker(kind, word):
+    def make(bid, data):
+        amount = data["amount"]
+        eid = database.add_finance_entry(
+            bid, kind, data.get("category") or "без категории", amount,
+            _money_note(data),
+            **{k: data.get(k) for k in MONEY_EXTRA})
+        return eid, f"{word} {_money(amount)}" + \
+            (f" · {data['category']}" if data.get("category") else "")
+    return make
+
+
+_make_expense = _money_maker("expense", "Расход")
+_make_income = _money_maker("income", "Доход")
 
 
 def _money_reader(kind):
@@ -187,9 +280,12 @@ def _money_reader(kind):
         row = database.get_finance_entry(eid, bid)
         if not row or row.get("kind") != kind:
             return None
-        return {"amount": int(row.get("amount") or 0),
-                "category": row.get("category") or "",
-                "note": row.get("note") or ""}
+        out = {"amount": int(row.get("amount") or 0),
+               "category": row.get("category") or "",
+               "note": row.get("note") or ""}
+        for key in MONEY_EXTRA:
+            out[key] = row.get(key) or ""
+        return out
     return read
 
 
@@ -198,9 +294,15 @@ def _money_updater(kind, word):
         row = database.get_finance_entry(eid, bid)
         if not row or row.get("kind") != kind:
             raise EntityError("Операция не найдена.")
-        database.update_finance_entry(eid, bid, amount=data["amount"],
-                                      category=data.get("category") or "без категории",
-                                      note=data.get("note") or None)
+        # Передаём ВСЕ поля, а не только заполненные: иначе очистить контрагента
+        # или отвязать сотрудника было бы нечем — пустое значение просто не
+        # доехало бы до базы, и человек решил бы, что правка не сохраняется.
+        fields = {"amount": data["amount"],
+                  "category": data.get("category") or "без категории",
+                  "note": data.get("note") or None}
+        for key in MONEY_EXTRA:
+            fields[key] = data.get(key) or None
+        database.update_finance_entry(eid, bid, **fields)
         return f"{word} {_money(data['amount'])}" + \
             (f" · {data['category']}" if data.get("category") else "")
     return update
@@ -208,6 +310,10 @@ def _money_updater(kind, word):
 
 def _money_labeler(row):
     bits = [row.get("category") or "без категории"]
+    who = (row.get("employee_name") or row.get("supplier_name")
+           or row.get("client_name") or row.get("counterparty"))
+    if who:
+        bits.append(str(who))
     if (row.get("note") or "").strip():
         bits.append(_short(row["note"], 60))
     return {"title": _money(row.get("amount")), "sub": " · ".join(bits)}
@@ -405,13 +511,11 @@ ENTITIES = {
     "expense": {
         "title": "Расход", "plural": "Расходы", "group": "money",
         "where": "finance.html",
-        "fields": [f("amount", "Сумма", "int", True),
-                   f("category", "Категория", "text", False, "аренда, реклама, закупка…"),
-                   f("note", "Заметка", "text")],
+        "fields": _money_fields("аренда, реклама, закупка…"),
         "make": _make_expense, "read": _money_reader("expense"),
         "update": _money_updater("expense", "Расход"),
-        "row": lambda bid, eid: database.get_finance_entry(eid, bid),
-        "list": lambda bid, limit, offset: database.list_finance_entries(
+        "row": lambda bid, eid: database.finance_row(eid, bid),
+        "list": lambda bid, limit, offset: database.finance_rows(
             bid, limit=limit, kind="expense", offset=offset),
         "count": lambda bid: database.count_finance_entries(bid, "expense"),
         "label": _money_labeler,
@@ -419,13 +523,11 @@ ENTITIES = {
     "income": {
         "title": "Доход", "plural": "Доходы", "group": "money",
         "where": "finance.html",
-        "fields": [f("amount", "Сумма", "int", True),
-                   f("category", "Категория", "text", False, "продажи, услуги…"),
-                   f("note", "Заметка", "text")],
+        "fields": _money_fields("продажи, услуги…"),
         "make": _make_income, "read": _money_reader("income"),
         "update": _money_updater("income", "Доход"),
-        "row": lambda bid, eid: database.get_finance_entry(eid, bid),
-        "list": lambda bid, limit, offset: database.list_finance_entries(
+        "row": lambda bid, eid: database.finance_row(eid, bid),
+        "list": lambda bid, limit, offset: database.finance_rows(
             bid, limit=limit, kind="income", offset=offset),
         "count": lambda bid: database.count_finance_entries(bid, "income"),
         "label": _money_labeler,
@@ -435,8 +537,9 @@ ENTITIES = {
         "where": "goals.html",
         "fields": [f("title", "Цель", "text", True),
                    f("target", "Сколько достичь", "int", True),
-                   f("metric", "Показатель", "text", False, "income, profit, clients, orders",
-                     list(GOAL_METRICS)),
+                   f("metric", "Показатель", "text", False, "что именно считаем",
+                     [_opt(m, database.GOAL_METRICS.get(m, {}).get("name", m))
+                      for m in GOAL_METRICS]),
                    f("deadline", "Срок", "date")],
         "make": _make_goal, "read": _read_goal, "update": _update_goal,
         "row": lambda bid, eid: database.get_goal(eid, bid),
@@ -484,13 +587,33 @@ def _entity(entity_type):
     return e
 
 
-def schema(entity_type):
+def _field_public(fl, business_id):
+    """
+    Поле наружу. Варианты приводим к одному виду {value, label}: интерфейс не
+    должен угадывать, список это строк или ссылок.
+    """
+    out = {k: fl[k] for k in ("name", "label", "type", "required", "hint", "main")}
+    opts = fl.get("options")
+    if fl.get("options_of") and business_id:
+        try:
+            opts = fl["options_of"](business_id)
+        except Exception:
+            opts = []
+    if opts:
+        out["options"] = [o if isinstance(o, dict) else {"value": o, "label": o}
+                          for o in opts]
+    else:
+        out["options"] = []
+    return out
+
+
+def schema(entity_type, business_id=None):
     """Описание полей вида — интерфейс собирает из него форму правки."""
     e = _entity(entity_type)
     return {"entity": entity_type, "title": e["title"], "plural": e["plural"],
             "group": e["group"], "where": e["where"],
             "can_create": bool(e.get("make")), "can_edit": bool(e.get("update")),
-            "fields": [dict(x) for x in e["fields"]]}
+            "fields": [_field_public(x, business_id) for x in e["fields"]]}
 
 
 def prepare(entity_type, data):
@@ -516,6 +639,25 @@ def prepare(entity_type, data):
     return clean
 
 
+def _check_refs(business_id, entity_type, clean):
+    """
+    Ссылка должна вести на СВОЮ запись.
+
+    Без этой проверки в операцию можно было бы вписать id чужого сотрудника:
+    в списке он не отобразился бы (join ограничен бизнесом), но в базе бы
+    лежал — а тихая ссылка на чужие данные хуже явной ошибки.
+    """
+    for fl in _entity(entity_type)["fields"]:
+        if fl["type"] != "ref" or not clean.get(fl["name"]):
+            continue
+        getter = fl.get("options_of")
+        if not getter:
+            continue
+        allowed = {str(o["value"]) for o in getter(business_id)}
+        if str(clean[fl["name"]]) not in allowed:
+            raise EntityError(f"«{fl['label']}»: такой записи у вас нет.")
+
+
 def create(business_id, entity_type, data):
     """
     Создать сущность. Возвращает (id, человеческое описание).
@@ -525,6 +667,7 @@ def create(business_id, entity_type, data):
     if not e.get("make"):
         raise EntityError(f"«{e['title']}» так не создаётся.")
     clean = prepare(entity_type, data)
+    _check_refs(business_id, entity_type, clean)
     entity_id, text = e["make"](business_id, clean)
     return entity_id, text, clean
 
@@ -555,6 +698,16 @@ def update(business_id, entity_type, entity_id, data):
     for k, v in (data or {}).items():
         merged[k] = v
     clean = prepare(entity_type, merged)
+    # Явная очистка: пустое значение, присланное СПЕЦИАЛЬНО, означает «убрать»,
+    # а не «оставить как было». Без этого различия отвязать сотрудника от
+    # выплаты или стереть неверного контрагента было бы невозможно.
+    for fl in e["fields"]:
+        name = fl["name"]
+        if fl["required"] or name not in (data or {}):
+            continue
+        if str(data.get(name) if data.get(name) is not None else "").strip() == "":
+            clean.pop(name, None)
+    _check_refs(business_id, entity_type, clean)
     text = e["update"](business_id, int(entity_id), clean)
     return text, clean, before
 
