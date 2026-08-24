@@ -303,6 +303,10 @@ def _migrate_columns(conn):
         ("businesses", "risk_score", "INTEGER DEFAULT 0"),   # сигнал абьюза (не блокировка)
         ("businesses", "tg_verify_code", "TEXT"),            # одноразовый код привязки владельца
         ("businesses", "owner_verified", "INTEGER DEFAULT 0"),  # личность владельца подтверждена
+        # Сотруднику и поставщику мало пары «название + текст»: у них есть
+        # должность, телефон, условия. Держим это структурой в JSON, а не
+        # склеенной строкой, — иначе правка теряет разбиение на поля.
+        ("memory_facts", "data", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -613,6 +617,36 @@ def init_db():
                    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
                )"""
         )
+        # ---------- ПАМЯТЬ БИЗНЕСА: откуда что известно ----------
+        # Знания живут в своих таблицах (memory_facts, clients, orders,
+        # finance_entries, goals, documents) — дублировать их здесь было бы
+        # ошибкой: появились бы две правды об одном и том же. Эта таблица
+        # хранит только ЦЕПОЧКУ: источник (материал во входящих) → что VELOR
+        # из него понял (разбор) → чем это подтвердили (решение) → какая
+        # запись из этого выросла. Плюс события правок: кто и что поменял.
+        #
+        # Подробности разбора и правок не копируем — на них стоят ссылки
+        # (result_id, decision_id). Копия рано или поздно разошлась бы с
+        # оригиналом, и было бы непонятно, какой из них верить.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS memory_links (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   entity_type  TEXT NOT NULL,    -- service|client|expense|rule|…
+                   entity_id    INTEGER NOT NULL,
+                   event        TEXT NOT NULL DEFAULT 'created',  -- created|edited|removed
+                   source_kind  TEXT DEFAULT 'manual',  -- inbox|manual|import|telegram|…
+                   item_id      INTEGER,          -- inbox_items.id: сам источник
+                   result_id    INTEGER,          -- inbox_results.id: что понял VELOR
+                   decision_id  INTEGER,          -- inbox_decisions.id: чем подтвердили
+                   confidence   REAL,
+                   changes      TEXT,             -- JSON, только для event='edited'
+                   actor        TEXT DEFAULT 'business',
+                   actor_id     INTEGER,
+                   note         TEXT,
+                   created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
         conn.execute(
             """CREATE TABLE IF NOT EXISTS doc_chunks (
                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -726,6 +760,8 @@ def init_db():
             ("idx_inbox_blobs_biz",      "inbox_blobs",     "business_id"),
             ("idx_inbox_results_item",   "inbox_results",   "business_id, item_id"),
             ("idx_inbox_decisions_item", "inbox_decisions", "business_id, item_id"),
+            ("idx_mem_links_entity",     "memory_links",    "business_id, entity_type, entity_id"),
+            ("idx_mem_links_item",       "memory_links",    "business_id, item_id"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -891,7 +927,9 @@ def add_goal(business_id, metric, title, target, deadline=None, started_on=None)
 
 
 def update_goal(goal_id, business_id, **fields):
-    allowed = {"title", "target", "deadline", "manual_value", "status"}
+    # metric правится тоже: если цель завели из разбора и показатель угадан
+    # неверно, чинить это должно быть можно там же, где смотрят цель.
+    allowed = {"title", "target", "deadline", "manual_value", "status", "metric"}
     sets = {k: v for k, v in fields.items() if k in allowed and v is not None}
     if not sets:
         return
@@ -903,6 +941,14 @@ def update_goal(goal_id, business_id, **fields):
         )
     if sets.get("status") == "done":
         log_event(business_id, "goal", "Цель достигнута")
+
+
+def get_goal(goal_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM goals WHERE id = ? AND business_id = ?", (goal_id, business_id)
+        ).fetchone()
+    return dict(row) if row else None
 
 
 def delete_goal(goal_id, business_id):
@@ -923,15 +969,18 @@ def save_goal_advice(goal_id, business_id, advice, day):
 FACT_KINDS = {
     "service": "УСЛУГИ",
     "product": "ТОВАРЫ",
-    "rule":    "ПРАВИЛА РАБОТЫ",
-    "goal":    "ЦЕЛИ БИЗНЕСА",
+    "rule":     "ПРАВИЛА РАБОТЫ",
+    "goal":     "ЦЕЛИ БИЗНЕСА",
+    "employee": "СОТРУДНИКИ",
+    "supplier": "ПОСТАВЩИКИ",
+    "company":  "О КОМПАНИИ",
 }
 
 
 def _facts_text(conn, business_id):
     """Услуги/товары/правила/цели одним текстом — так их читает ядро."""
     rows = conn.execute(
-        "SELECT kind, title, body FROM memory_facts WHERE business_id = ? ORDER BY kind, id",
+        "SELECT kind, title, body, data FROM memory_facts WHERE business_id = ? ORDER BY kind, id",
         (business_id,),
     ).fetchall()
     if not rows:
@@ -944,10 +993,63 @@ def _facts_text(conn, business_id):
         out.append(caption + ":")
         for r in items:
             line = "— " + (r["title"] or "")
+            # Структурные поля (должность, телефон, условия) — тоже знание, и
+            # ядру они нужны наравне с текстом. Иначе на вопрос «кто у вас
+            # мастер?» сотрудник знает имя, но не знает должности.
+            extra = _fact_extra(r)
+            if extra:
+                line += " (" + extra + ")"
             if (r["body"] or "").strip():
                 line += ": " + r["body"].strip()
             out.append(line)
     return "\n".join(out)
+
+
+def _fact_extra(row):
+    """Структурные поля факта одной строкой: «должность: мастер, тел.: …»."""
+    try:
+        data = _json.loads(row["data"] or "{}")
+    except (ValueError, TypeError, KeyError, IndexError):
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return ", ".join(f"{k}: {v}" for k, v in data.items() if str(v or "").strip())
+
+
+def _fact_row(row):
+    """Строка факта наружу: JSON разложен в словарь, а не отдан текстом."""
+    d = dict(row)
+    try:
+        d["data"] = _json.loads(d.get("data") or "{}")
+    except (ValueError, TypeError):
+        d["data"] = {}
+    if not isinstance(d["data"], dict):
+        d["data"] = {}
+    return d
+
+
+def get_fact(fact_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM memory_facts WHERE id = ? AND business_id = ?",
+            (fact_id, business_id),
+        ).fetchone()
+    return _fact_row(row) if row else None
+
+
+def count_facts(business_id, kind=None):
+    with _connect() as conn:
+        if kind:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM memory_facts WHERE business_id = ? AND kind = ?",
+                (business_id, kind),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM memory_facts WHERE business_id = ?",
+                (business_id,),
+            ).fetchone()
+    return int(row["n"] or 0)
 
 
 def list_facts(business_id, kind=None):
@@ -962,26 +1064,37 @@ def list_facts(business_id, kind=None):
                 "SELECT * FROM memory_facts WHERE business_id = ? ORDER BY kind, id DESC",
                 (business_id,),
             ).fetchall()
-        return [dict(r) for r in rows]
+        return [_fact_row(r) for r in rows]
 
 
-def add_fact(business_id, kind, title, body=None):
+def add_fact(business_id, kind, title, body=None, data=None):
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO memory_facts (business_id, kind, title, body) VALUES (?,?,?,?)",
-            (business_id, kind, title, body),
+            "INSERT INTO memory_facts (business_id, kind, title, body, data) VALUES (?,?,?,?,?)",
+            (business_id, kind, title, body,
+             _json.dumps(data or {}, ensure_ascii=False)),
         )
         fid = cur.lastrowid
     log_event(business_id, "memory", f"В память добавлено: {title}")
     return fid
 
 
-def update_fact(fact_id, business_id, title, body=None):
+def update_fact(fact_id, business_id, title, body=None, data=None):
+    # data=None означает «не трогать»: страница базы знаний правит только
+    # название и текст и не должна затирать поля, которых она не показывает.
     with _connect() as conn:
-        conn.execute(
-            "UPDATE memory_facts SET title = ?, body = ? WHERE id = ? AND business_id = ?",
-            (title, body, fact_id, business_id),
-        )
+        if data is None:
+            conn.execute(
+                "UPDATE memory_facts SET title = ?, body = ? WHERE id = ? AND business_id = ?",
+                (title, body, fact_id, business_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE memory_facts SET title = ?, body = ?, data = ? "
+                "WHERE id = ? AND business_id = ?",
+                (title, body, _json.dumps(data or {}, ensure_ascii=False),
+                 fact_id, business_id),
+            )
     log_event(business_id, "memory", f"В памяти изменено: {title}")
 
 
@@ -2779,6 +2892,30 @@ def list_documents(business_id):
         return [dict(r) for r in rows]
 
 
+def get_document(doc_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM documents WHERE id = ? AND business_id = ?", (doc_id, business_id)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def rename_document(doc_id, business_id, filename):
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE documents SET filename = ? WHERE id = ? AND business_id = ?",
+            (filename, doc_id, business_id),
+        )
+
+
+def count_documents(business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM documents WHERE business_id = ?", (business_id,)
+        ).fetchone()
+    return int(row["n"] or 0)
+
+
 def delete_document(doc_id, business_id):
     """Удалить документ вместе с его чанками — только свой."""
     with _connect() as conn:
@@ -2902,6 +3039,36 @@ def get_orders(business_id, limit=20, offset=0):
         return [dict(r) for r in rows]
 
 
+def get_order(order_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM orders WHERE id = ? AND business_id = ?",
+            (order_id, business_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_order(order_id, business_id, **fields):
+    allowed = {"text", "phone", "address", "date_wanted", "status", "amount"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return
+    cols = ", ".join(f"{k} = ?" for k in sets)
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE orders SET {cols} WHERE id = ? AND business_id = ?",
+            (*sets.values(), order_id, business_id),
+        )
+
+
+def count_orders(business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM orders WHERE business_id = ?", (business_id,)
+        ).fetchone()
+    return int(row["n"] or 0)
+
+
 def orders_overview(business_id):
     """Настоящие итоги по заказам: сколько всего, сколько новых, сколько сегодня
     и на какую сумму. Считается в базе через COUNT/SUM, а не длиной выборки —
@@ -2960,14 +3127,55 @@ def add_finance_entry(business_id, kind, category, amount, note=None):
     return entry_id
 
 
-def list_finance_entries(business_id, limit=100):
-    """Последние доходы/расходы бизнеса (новые сверху)."""
+def get_finance_entry(entry_id, business_id):
     with _connect() as conn:
-        rows = conn.execute(
-            """SELECT * FROM finance_entries WHERE business_id = ?
-               ORDER BY id DESC LIMIT ?""",
-            (business_id, limit),
-        ).fetchall()
+        row = conn.execute(
+            "SELECT * FROM finance_entries WHERE id = ? AND business_id = ?",
+            (entry_id, business_id),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def update_finance_entry(entry_id, business_id, **fields):
+    """Правка операции. Меняем только разрешённые поля — сумму, категорию, заметку."""
+    allowed = {"kind", "category", "amount", "note", "op_date", "counterparty"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return
+    cols = ", ".join(f"{k} = ?" for k in sets)
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE finance_entries SET {cols} WHERE id = ? AND business_id = ?",
+            (*sets.values(), entry_id, business_id),
+        )
+
+
+def count_finance_entries(business_id, kind=None):
+    with _connect() as conn:
+        if kind:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM finance_entries WHERE business_id = ? AND kind = ?",
+                (business_id, kind),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM finance_entries WHERE business_id = ?",
+                (business_id,),
+            ).fetchone()
+    return int(row["n"] or 0)
+
+
+def list_finance_entries(business_id, limit=100, kind=None, offset=0):
+    """Последние доходы/расходы бизнеса (новые сверху)."""
+    sql = "SELECT * FROM finance_entries WHERE business_id = ?"
+    args = [business_id]
+    if kind:
+        sql += " AND kind = ?"
+        args.append(kind)
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    args += [int(limit), int(offset)]
+    with _connect() as conn:
+        rows = conn.execute(sql, tuple(args)).fetchall()
         return [dict(r) for r in rows]
 
 
@@ -3319,6 +3527,167 @@ def inbox_correction_stats(business_id):
     human = sum(by.get(k, 0) for k in ("confirmed", "edited", "dismissed", "classified"))
     return {"by_decision": by, "human_total": human,
             "edited": by.get("edited", 0), "dismissed": by.get("dismissed", 0)}
+
+
+# ---------- ПАМЯТЬ БИЗНЕСА: цепочка «источник → знание» ----------
+
+def add_memory_link(business_id, entity_type, entity_id, event="created",
+                    source_kind="manual", item_id=None, result_id=None,
+                    decision_id=None, confidence=None, changes=None,
+                    actor="business", actor_id=None, note=None):
+    """
+    Записать событие о знании. Ничего не перезаписывает: правка — новая строка.
+    По этим строкам собирается и происхождение записи, и её история.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO memory_links
+               (business_id, entity_type, entity_id, event, source_kind, item_id,
+                result_id, decision_id, confidence, changes, actor, actor_id, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (business_id, entity_type, int(entity_id), event, source_kind, item_id,
+             result_id, decision_id, confidence,
+             _json.dumps(changes or {}, ensure_ascii=False), actor, actor_id, note),
+        )
+        return cur.lastrowid
+
+
+def _link_row(row):
+    d = dict(row)
+    try:
+        d["changes"] = _json.loads(d.get("changes") or "{}")
+    except (ValueError, TypeError):
+        d["changes"] = {}
+    return d
+
+
+def memory_links(business_id, entity_type, entity_id):
+    """
+    Вся история одной записи: как появилась, из какого материала, что правили.
+
+    Подтягиваем имя исходного файла и разбор — но не копией, а join'ом, чтобы
+    в памяти и во входящих не завелось двух разных правд об одном материале.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT l.*, i.title AS item_title, i.filename AS item_filename,
+                      i.kind AS item_kind, i.mime AS item_mime, i.archived_at AS item_archived,
+                      r.type AS result_type, r.confidence AS result_confidence,
+                      r.summary AS result_summary, r.extracted AS result_extracted,
+                      d.decision AS decision, d.original AS decision_original,
+                      d.corrected AS decision_corrected, d.changes AS decision_changes,
+                      d.action AS decision_action
+                 FROM memory_links l
+                 LEFT JOIN inbox_items     i ON i.id = l.item_id
+                 LEFT JOIN inbox_results   r ON r.id = l.result_id
+                 LEFT JOIN inbox_decisions d ON d.id = l.decision_id
+                WHERE l.business_id = ? AND l.entity_type = ? AND l.entity_id = ?
+                ORDER BY l.id ASC""",
+            (business_id, entity_type, int(entity_id)),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = _link_row(r)
+        for key in ("result_extracted", "decision_original",
+                    "decision_corrected", "decision_changes"):
+            try:
+                d[key] = _json.loads(d.get(key) or "{}")
+            except (ValueError, TypeError):
+                d[key] = {}
+        out.append(d)
+    return out
+
+
+def memory_origins(business_id, entity_type, entity_ids):
+    """
+    Происхождение сразу нескольких записей — чтобы список не делал N запросов.
+    Берём первое событие 'created' у каждой: именно оно отвечает «откуда это».
+    """
+    ids = [int(i) for i in entity_ids if i is not None]
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT l.*, i.title AS item_title, i.filename AS item_filename,
+                       i.kind AS item_kind, i.archived_at AS item_archived
+                  FROM memory_links l
+                  LEFT JOIN inbox_items i ON i.id = l.item_id
+                 WHERE l.business_id = ? AND l.entity_type = ?
+                   AND l.entity_id IN ({ph}) AND l.event = 'created'
+                 ORDER BY l.id ASC""",
+            (business_id, entity_type, *ids),
+        ).fetchall()
+    out = {}
+    for r in rows:
+        d = _link_row(r)
+        out.setdefault(d["entity_id"], d)      # первое создание, а не последнее
+    return out
+
+
+def memory_edit_counts(business_id, entity_type, entity_ids):
+    """Сколько раз каждую запись правили — список показывает это без N запросов."""
+    ids = [int(i) for i in entity_ids if i is not None]
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT entity_id, COUNT(*) AS n FROM memory_links
+                  WHERE business_id = ? AND entity_type = ? AND entity_id IN ({ph})
+                    AND event = 'edited'
+                  GROUP BY entity_id""",
+            (business_id, entity_type, *ids),
+        ).fetchall()
+    return {r["entity_id"]: r["n"] for r in rows}
+
+
+def memory_from_item(business_id, item_id):
+    """Что выросло из одного материала: обратный взгляд на ту же цепочку."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM memory_links
+                WHERE business_id = ? AND item_id = ? AND event = 'created'
+                ORDER BY id ASC""",
+            (business_id, item_id),
+        ).fetchall()
+    return [_link_row(r) for r in rows]
+
+
+def memory_sourced_counts(business_id):
+    """
+    Сколько записей каждого вида откуда взялись.
+
+    Два числа, а не одно: «есть запись о происхождении» и «подтверждено
+    документом». Смешивать их нельзя — знание, внесённое руками, проверить
+    нечем, и выдавать его за подкреплённое документом было бы неправдой.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT entity_type,
+                      COUNT(DISTINCT entity_id) AS linked,
+                      COUNT(DISTINCT CASE WHEN item_id IS NOT NULL THEN entity_id END) AS documented
+                 FROM memory_links
+                WHERE business_id = ? AND event = 'created'
+                GROUP BY entity_type""",
+            (business_id,),
+        ).fetchall()
+    return {r["entity_type"]: {"linked": int(r["linked"] or 0),
+                               "documented": int(r["documented"] or 0)} for r in rows}
+
+
+def memory_recent(business_id, limit=12):
+    """Последние события памяти — что VELOR узнал и что поправили."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT l.*, i.title AS item_title, i.filename AS item_filename
+                 FROM memory_links l
+                 LEFT JOIN inbox_items i ON i.id = l.item_id
+                WHERE l.business_id = ?
+                ORDER BY l.id DESC LIMIT ?""",
+            (business_id, int(limit)),
+        ).fetchall()
+    return [_link_row(r) for r in rows]
 
 
 # ---------- оригиналы файлов в базе (backend "db" из storage.py) ----------

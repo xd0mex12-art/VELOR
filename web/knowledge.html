@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Память бизнеса</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Память бизнеса отвечает на два вопроса и ни на один больше: что VELOR
+     знает о деле и откуда он это знает. Поэтому карта разделов стоит первой
+     и крупной, а у каждой строки списка справа — источник. Всё остальное
+     (форма правки, история) открывается по требованию, не занимая экран.
+     Скелет, кнопки, состояния и цвета — из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  body main{ padding-top:104px; padding-bottom:80px; }
+  section{ margin-bottom:var(--sp-8); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
+
+  /* карта памяти: разделы и виды знаний внутри них */
+  .map{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+    gap:var(--sp-4); }
+  .grp{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5); }
+  .grp > .gt{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
+  .kind{ width:100%; display:flex; align-items:baseline; gap:var(--sp-3);
+    padding:var(--sp-3) 0; border:none; border-bottom:1px solid var(--hairline);
+    background:none; color:inherit; text-align:left; min-height:48px;
+    transition:color var(--dur-fast); }
+  .kind:last-child{ border-bottom:none; }
+  .kind:hover .t, .kind:focus-visible .t{ color:var(--lilac); }
+  .kind .t{ flex:1; min-width:0; font-size:var(--fs-body); font-weight:var(--fw-thin); }
+  .kind .c{ font-size:var(--fs-base); font-weight:var(--fw-reg); }
+  .kind .c.zero{ color:var(--ash); }
+  .kind .src{ font-size:var(--fs-caption); color:var(--ash); flex-basis:100%; }
+  .kind .src b{ color:var(--ink-verdant); font-weight:var(--fw-reg); }
+
+  /* строка знания */
+  .know{ width:100%; display:flex; align-items:flex-start; gap:var(--sp-3);
+    padding:var(--sp-4) 0; border:none; border-bottom:1px solid var(--hairline);
+    background:none; color:inherit; text-align:left; min-height:56px;
+    transition:opacity var(--dur-fast); }
+  .know:last-child{ border-bottom:none; }
+  .know:hover .t, .know:focus-visible .t{ color:var(--lilac); }
+  .know .body{ flex:1; min-width:0; }
+  .know .t{ font-size:var(--fs-body); transition:color var(--dur-fast); }
+  .know .d{ font-size:var(--fs-sm); color:var(--ash); margin-top:3px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .know .from{ flex:none; text-align:right; max-width:44%; }
+
+  /* источник — самая важная приписка на экране */
+  .src-tag{ display:inline-flex; align-items:center; gap:6px; max-width:100%;
+    padding:5px 11px; border-radius:var(--r-pill); background:var(--surface-2);
+    border:1px solid var(--hairline); font-size:var(--fs-caption); color:var(--silver); }
+  .src-tag i{ width:6px; height:6px; border-radius:50%; background:var(--lilac); flex:none; }
+  .src-tag.doc i{ background:var(--ink-verdant); }
+  .src-tag.hand i{ background:var(--ash); }
+  .src-tag.none{ color:var(--ash); border-style:dashed; }
+  .src-tag .nm{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .src-tag .cf{ color:var(--ash); flex:none; }
+
+  /* карточка знания */
+  .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
+    justify-content:center; padding:24px; background:rgba(0,0,0,.72);
+    backdrop-filter:blur(6px); }
+  .modal.on{ display:flex; }
+  .modal .box{ width:min(94vw,720px); max-height:90vh; overflow:auto; background:var(--sheet);
+    border:1px solid var(--hairline-2); border-radius:var(--r-xl); padding:var(--sp-8); }
+  .modal h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .modal .kindline{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); }
+  .modal .foot{ margin-top:var(--sp-6); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+  .modal .foot .close{ margin-left:auto; }
+  @media(max-width:560px){ .modal .foot .close{ margin-left:0; width:100%; } }
+
+  .blk{ margin-top:var(--sp-6); }
+  .blk > h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
+
+  /* цепочка: источник → что извлекли → запись */
+  .chain{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5); }
+  .chain .step{ display:flex; gap:var(--sp-3); padding:var(--sp-3) 0;
+    border-bottom:1px solid var(--hairline); }
+  .chain .step:last-child{ border-bottom:none; padding-bottom:0; }
+  .chain .step:first-child{ padding-top:0; }
+  .chain .pin{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:7px;
+    background:var(--iris); }
+  .chain .step.got .pin{ background:var(--lilac); }
+  .chain .step.made .pin{ background:var(--ink-verdant); }
+  .chain .b{ flex:1; min-width:0; }
+  .chain .k{ font-size:var(--fs-caption); letter-spacing:.14em; text-transform:uppercase;
+    color:var(--ash); }
+  .chain .v{ font-size:var(--fs-body); margin-top:3px; word-break:break-word; }
+  .chain .w{ font-size:var(--fs-caption); color:var(--ash); margin-top:3px; }
+
+  .kv{ display:flex; justify-content:space-between; gap:var(--sp-4);
+    padding:var(--sp-2) 0; border-bottom:1px solid var(--hairline); }
+  .kv:last-child{ border-bottom:none; }
+  .kv .k{ color:var(--ash); font-size:var(--fs-sm); }
+  .kv .v{ font-size:var(--fs-body); text-align:right; word-break:break-word; }
+
+  /* форма правки — те же поля, что у настоящей записи */
+  .edit{ display:grid; gap:var(--sp-3); }
+  .edit .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
+  .edit .fld label .req{ color:var(--ink-coral); margin-left:4px; }
+  .edit input, .edit select{ width:100%; min-height:48px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:16px; }
+  .edit input.dirty{ border-color:var(--saffron); }
+  .edit .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
+  .edit .was{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--saffron); }
+
+  /* история */
+  .ev{ display:flex; gap:var(--sp-3); padding:var(--sp-3) 0;
+    border-bottom:1px solid var(--hairline); }
+  .ev:last-child{ border-bottom:none; }
+  .ev .pin{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:7px;
+    background:var(--lilac); }
+  .ev.e-edited .pin{ background:var(--saffron); }
+  .ev .b{ flex:1; min-width:0; }
+  .ev .t{ font-size:var(--fs-body); }
+  .ev .w{ font-size:var(--fs-caption); color:var(--ash); margin-top:3px; }
+  .ev .chg{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--silver); }
+  .ev .chg s{ color:var(--ash); }
+  .ev .chg b{ color:var(--saffron); font-weight:var(--fw-reg); }
+
+  #toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,20px);
+    background:#141414; border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    padding:12px 22px; font-size:var(--fs-sm); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); z-index:120; max-width:92vw; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:760px){
+    .map{ grid-template-columns:1fr; }
+    .know{ flex-wrap:wrap; }
+    .know .from{ max-width:100%; text-align:left; flex-basis:100%; }
+    .v-segs{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin:0 -18px; padding:0 18px; }
+    .v-segs::-webkit-scrollbar{ display:none; }
+    .v-seg{ flex:none; }
+    .modal{ padding:12px; }
+    .modal .box{ padding:var(--sp-6); }
+  }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Память бизнеса</h1>
+      <p class="v-lead">Всё, что VELOR знает о вашем деле, — и откуда он это знает.
+        Каждое знание можно открыть, сверить с оригиналом документа и поправить.
+        На эти же записи он опирается, когда отвечает клиентам и считает деньги.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Смотрю, что уже знаю…</span>
+      </div>
+    </div>
+    <div class="v-acts">
+      <a class="v-btn" href="inbox.html">Пополнить память</a>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+
+  <section>
+    <div class="sec-h">Карта знаний</div>
+    <div class="map" id="map">
+      <div class="v-sk panel"></div><div class="v-sk panel"></div><div class="v-sk panel"></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h">Записи <span class="n" id="listN"></span></div>
+    <div class="v-segs" id="segs" role="group" aria-label="Вид записей"></div>
+    <div class="v-panel" id="listBox" style="margin-top:var(--sp-4)">
+      <div class="v-sk row"></div><div class="v-sk row"></div><div class="v-sk row"></div>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="cardModal" role="dialog" aria-modal="true" aria-labelledby="cTitle">
+  <div class="box">
+    <h2 id="cTitle">Знание</h2>
+    <div class="kindline" id="cKind"></div>
+    <div id="cBody"></div>
+    <div class="foot">
+      <button class="v-btn" type="button" id="cSave">Сохранить</button>
+      <button class="v-btn ghost" type="button" id="cSource">Открыть источник</button>
+      <button class="v-btn ghost close" type="button" id="cClose">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=11"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+function when(iso){
+  const d = new Date(String(iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day: 'numeric', month: 'long',
+                                     hour: '2-digit', minute: '2-digit' });
+}
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+const FIELD_RU = { amount:'Сумма', category:'Категория', note:'Заметка', title:'Название',
+  body:'Описание', name:'Имя', phone:'Телефон', notes:'Заметка', text:'Что заказали',
+  date_wanted:'На какую дату', target:'Сколько достичь', metric:'Показатель',
+  deadline:'Срок', role:'Должность', contact:'Контакт', terms:'Условия',
+  filename:'Название', person:'Кто', supplier:'Поставщик', currency:'Валюта',
+  direction:'Направление', counterparty:'Кому', salary:'Оклад', address:'Адрес',
+  inn:'ИНН', kpp:'КПП', ogrn:'ОГРН', type:'Вид материала' };
+
+const SOURCE_RU = { inbox:'из входящих', manual:'внесено вручную',
+  telegram:'из Telegram', import:'из выписки' };
+
+let MAP = null;            // карта разделов
+let TYPE = '';             // какой вид сейчас смотрим
+let CURRENT = null;        // открытая карточка
+
+const failEl = document.getElementById('failZone');
+function paintFail(msg){
+  failEl.innerHTML = `
+    <div class="v-fail"><div><div class="t">Память не загрузилась</div>
+      <div class="d">${esc(msg)}</div></div>
+      <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => {
+    failEl.innerHTML = ''; boot();
+  });
+}
+
+// ── карта разделов ────────────────────────────────────────────────────────
+function paintState(m){
+  const box = document.getElementById('state');
+  if (!m){
+    box.innerHTML = '<span class="v-badge bad"><i></i>Не смог прочитать память</span>' +
+      '<span>сервер не ответил — цифры ниже могут быть неполными</span>';
+    return;
+  }
+  if (!m.total){
+    box.innerHTML = '<span class="v-badge warn"><i></i>Память пуста</span>' +
+      '<span>VELOR пока ничего не знает о деле — начните с прайса, правил или меню</span>';
+    return;
+  }
+  // Знание, подтверждённое документом, и знание, набранное руками, — разные
+  // вещи. Первое можно открыть и сверить, второе приходится принимать на веру,
+  // поэтому считаем их отдельно и не выдаём одно за другое.
+  const docs = m.documented || 0;
+  const hand = Math.max(0, m.total - docs);
+  const good = docs >= Math.ceil(m.total / 2);
+  box.innerHTML = `<span class="v-badge ${good ? 'good' : 'calm'}"><i></i>` +
+    `${m.total} ${plural(m.total, 'запись', 'записи', 'записей')}</span>` +
+    `<span>${docs} ${plural(docs, 'взята', 'взяты', 'взято')} ` +
+    `из присланных материалов${hand ? `, ${hand} — со слов владельца` : ''}</span>`;
+}
+
+function paintMap(m){
+  const box = document.getElementById('map');
+  if (!m.groups.length){
+    box.innerHTML = '<div class="v-empty"><strong>Разделов пока нет</strong>' +
+      'Это сбой конфигурации — сообщите нам.</div>';
+    return;
+  }
+  box.innerHTML = m.groups.map(g => `
+    <div class="grp">
+      <div class="gt">${esc(g.title)}</div>
+      ${g.types.map(t => `
+        <button class="kind" type="button" data-t="${esc(t.type)}"
+                aria-label="${esc(t.plural)}: ${t.count}">
+          <span class="t">${esc(t.plural)}</span>
+          <span class="c num${t.count ? '' : ' zero'}">${t.count}</span>
+          <span class="src">${t.count
+            ? (t.documented ? `<b>${t.documented}</b> из материалов`
+               : (t.linked ? 'внесены вручную' : 'источник не записан'))
+            : 'пока пусто'}</span>
+        </button>`).join('')}
+    </div>`).join('');
+  box.querySelectorAll('.kind').forEach(b =>
+    b.addEventListener('click', () => choose(b.dataset.t)));
+}
+
+function paintSegs(m){
+  const segs = document.getElementById('segs');
+  const all = [];
+  m.groups.forEach(g => g.types.forEach(t => all.push(t)));
+  segs.innerHTML = all.map(t => `
+    <button class="v-seg" type="button" data-t="${esc(t.type)}"
+            aria-pressed="${t.type === TYPE}">${esc(t.plural)} ${t.count}</button>`).join('');
+  segs.querySelectorAll('.v-seg').forEach(b =>
+    b.addEventListener('click', () => choose(b.dataset.t)));
+}
+
+function choose(type){
+  if (!type) return;
+  TYPE = type;
+  document.querySelectorAll('#segs .v-seg').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.t === type)));
+  loadList();
+}
+
+// ── список знаний одного вида ─────────────────────────────────────────────
+function srcTag(src, origin){
+  if (src && src.item){
+    const cf = src.confidence != null
+      ? `<span class="cf num">${Math.round(src.confidence * 100)}%</span>` : '';
+    return `<span class="src-tag doc" title="Источник: ${esc(src.item.title || '')}">
+      <i></i><span class="nm">${esc(src.item.title || src.item.filename || 'материал')}</span>${cf}</span>`;
+  }
+  if (src) return '<span class="src-tag hand"><i></i>' +
+    esc(SOURCE_RU[src.source_kind] || 'внесено вручную') + '</span>';
+  if (origin) return '<span class="src-tag hand"><i></i>' + esc(origin) + '</span>';
+  return '<span class="src-tag none">источник не записан</span>';
+}
+
+async function loadList(){
+  const box = document.getElementById('listBox');
+  box.innerHTML = '<div class="v-sk row"></div><div class="v-sk row"></div>';
+  let d;
+  try{
+    const r = await fetch('/api/memory/list?type=' + encodeURIComponent(TYPE) + '&limit=100');
+    if (!r.ok) throw new Error('http');
+    d = await r.json();
+  }catch{
+    box.innerHTML = '<div class="v-empty"><strong>Список не загрузился</strong>' +
+      'Проверьте связь и обновите страницу.</div>';
+    return;
+  }
+  document.getElementById('listN').textContent = d.total ? d.total : '';
+  if (!d.items.length){
+    box.innerHTML = `<div class="v-empty"><strong>${esc(d.plural)} — пока пусто</strong>
+      VELOR узнаёт о бизнесе из того, что вы ему присылаете.
+      Отправьте документ во <a href="inbox.html">Входящие</a> — он разберёт его и
+      предложит, что записать.</div>`;
+    return;
+  }
+  box.innerHTML = d.items.map(it => `
+    <button class="know" type="button" data-id="${it.id}">
+      <span class="body">
+        <span class="t">${esc(it.title)}</span>
+        ${it.sub ? `<span class="d">${esc(it.sub)}</span>` : ''}
+      </span>
+      <span class="from">${srcTag(it.source, it.origin)}
+        ${it.edits ? `<span class="d">правок: ${it.edits}</span>` : ''}</span>
+    </button>`).join('');
+  box.querySelectorAll('.know').forEach(b =>
+    b.addEventListener('click', () => openCard(TYPE, Number(b.dataset.id))));
+}
+
+// ── карточка знания ───────────────────────────────────────────────────────
+const modal   = document.getElementById('cardModal');
+const cTitle  = document.getElementById('cTitle');
+const cKind   = document.getElementById('cKind');
+const cBody   = document.getElementById('cBody');
+const cSave   = document.getElementById('cSave');
+const cSource = document.getElementById('cSource');
+let blobUrl = null;
+function dropBlob(){ if (blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl = null; } }
+
+function closeCard(){
+  modal.classList.remove('on');
+  document.body.style.overflow = '';
+  dropBlob();
+  CURRENT = null;
+}
+document.getElementById('cClose').addEventListener('click', closeCard);
+modal.addEventListener('click', e => { if (e.target === modal) closeCard(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && modal.classList.contains('on')) closeCard();
+});
+
+// Пересказ часто начинается с названия типа. Печатать «Договор — Договор с
+// такого-то» значит показать одно и то же дважды.
+function sumLine(res){
+  const t = String(res.type_ru || '').trim();
+  const sum = String(res.summary || '').trim();
+  if (!sum) return t;
+  if (!t) return sum;
+  return sum.toLowerCase().startsWith(t.toLowerCase()) ? sum : t + ' — ' + sum;
+}
+
+function chainHTML(d){
+  // Цепочка «источник → что извлекли → запись» — главный ответ страницы.
+  const s = d.source;
+  const steps = [];
+  if (s && s.item){
+    steps.push(`<div class="step"><span class="pin"></span><div class="b">
+      <div class="k">Источник</div>
+      <div class="v">${esc(s.item.title || s.item.filename || 'материал')}</div>
+      <div class="w">${esc(when(s.created_at))}${s.item.archived ? ' · в архиве' : ''}</div>
+    </div></div>`);
+  } else {
+    steps.push(`<div class="step"><span class="pin"></span><div class="b">
+      <div class="k">Источник</div>
+      <div class="v">${esc(s ? (SOURCE_RU[s.source_kind] || 'внесено вручную')
+                            : (d.origin || 'не записан'))}</div>
+      <div class="w">${d.created_at ? esc(when(d.created_at)) : 'дата неизвестна'}</div>
+    </div></div>`);
+  }
+  if (s && s.result){
+    const ex = s.decision && Object.keys(s.decision.original || {}).length
+      ? s.decision.original : (s.result.extracted || {});
+    const rows = Object.entries(ex).map(([k, v]) =>
+      `<div class="kv"><span class="k">${esc(FIELD_RU[k] || k)}</span>
+        <span class="v">${esc(v)}</span></div>`).join('');
+    steps.push(`<div class="step got"><span class="pin"></span><div class="b">
+      <div class="k">VELOR понял</div>
+      <div class="v">${esc(sumLine(s.result))}</div>
+      <div class="w">уверенность ${s.result.confidence != null
+        ? Math.round(s.result.confidence * 100) + '%' : 'не указана'}</div>
+      ${rows ? `<div style="margin-top:var(--sp-3)">${rows}</div>` : ''}
+    </div></div>`);
+  }
+  steps.push(`<div class="step made"><span class="pin"></span><div class="b">
+    <div class="k">Запись в памяти</div>
+    <div class="v">${esc(d.label.title)}${d.label.sub ? ' · ' + esc(d.label.sub) : ''}</div>
+    <div class="w">${esc(d.schema.title)}${s ? ' · записал ' + esc(s.actor_ru || '') : ''}</div>
+  </div></div>`);
+  return '<div class="chain">' + steps.join('') + '</div>';
+}
+
+const EVENT_RU = { created: 'Записано в память', edited: 'Изменено' };
+
+function historyHTML(history){
+  if (!history || !history.length) return '';
+  const rows = history.slice().reverse().map(h => {
+    const chg = Object.entries(h.changes || {}).map(([k, v]) =>
+      `<div>${esc(FIELD_RU[k] || k)}: <s>${esc(v.was == null ? '—' : v.was)}</s>
+        → <b>${esc(v.now == null ? '—' : v.now)}</b></div>`).join('');
+    return `<div class="ev e-${esc(h.event)}"><span class="pin"></span><div class="b">
+      <div class="t">${esc(EVENT_RU[h.event] || h.event)}${h.note ? ' — ' + esc(h.note) : ''}</div>
+      <div class="w">${esc(h.actor_ru || '')} · ${esc(when(h.created_at))}</div>
+      ${chg ? `<div class="chg">${chg}</div>` : ''}
+    </div></div>`;
+  }).join('');
+  return `<div class="blk"><h3>История</h3>${rows}</div>`;
+}
+
+function editHTML(d){
+  if (!d.schema.can_edit) return '';
+  const flds = d.schema.fields.map(f => {
+    const val = d.values[f.name] == null ? '' : d.values[f.name];
+    const id = 'e-' + f.name;
+    const input = (f.options || []).length
+      ? `<select id="${id}" name="${esc(f.name)}">${f.options.map(o =>
+          `<option value="${esc(o)}"${String(val) === String(o) ? ' selected' : ''}>${esc(o)}</option>`
+        ).join('')}</select>`
+      : `<input id="${id}" name="${esc(f.name)}" type="text"
+             inputmode="${f.type === 'int' ? 'numeric' : 'text'}"
+             value="${esc(val)}" data-was="${esc(val)}">`;
+    return `<div class="fld">
+      <label for="${id}">${esc(f.label)}${f.required
+        ? '<span class="req" title="обязательное">*</span>' : ''}</label>
+      ${input}
+      ${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
+      <span class="was" style="display:none"></span>
+    </div>`;
+  }).join('');
+  return `<div class="blk"><h3>Что записано</h3><form class="edit" id="editForm">${flds}</form></div>`;
+}
+
+function paintCard(d){
+  CURRENT = d;
+  cTitle.textContent = d.label.title || d.schema.title;
+  cKind.textContent = d.schema.title + (d.label.sub ? ' · ' + d.label.sub : '');
+  cBody.innerHTML = chainHTML(d) + editHTML(d) + historyHTML(d.history);
+
+  cSave.style.display = d.schema.can_edit ? '' : 'none';
+  cSave.disabled = false; cSave.textContent = 'Сохранить';
+  const hasFile = !!(d.source && d.source.item);
+  cSource.style.display = hasFile ? '' : 'none';
+  cSource.disabled = false; cSource.textContent = 'Открыть источник';
+
+  // Помечаем изменённое поле сразу: правку видно до нажатия, а не только потом.
+  cBody.querySelectorAll('.edit input').forEach(inp => inp.addEventListener('input', () => {
+    const changed = String(inp.value) !== String(inp.dataset.was || '');
+    inp.classList.toggle('dirty', changed);
+    const was = inp.closest('.fld').querySelector('.was');
+    was.style.display = changed ? 'block' : 'none';
+    was.textContent = changed ? 'Было: ' + (inp.dataset.was || '(пусто)') : '';
+  }));
+}
+
+async function openCard(type, id){
+  modal.classList.add('on');
+  document.body.style.overflow = 'hidden';
+  cTitle.textContent = 'Открываю…';
+  cKind.textContent = '';
+  cBody.innerHTML = '<div class="v-sk panel" style="margin-top:var(--sp-6)"></div>';
+  cSave.style.display = 'none'; cSource.style.display = 'none';
+  try{
+    const r = await fetch('/api/memory/entity/' + encodeURIComponent(type) + '/' + id);
+    if (!r.ok) throw new Error('http');
+    paintCard(await r.json());
+  }catch{
+    cTitle.textContent = 'Не открылось';
+    cBody.innerHTML = '<div class="v-empty"><strong>Запись не загрузилась</strong>' +
+      'Возможно, её удалили или пропала связь.</div>';
+  }
+}
+
+cSave.addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const form = document.getElementById('editForm');
+  if (!form) return;
+  const data = {};
+  form.querySelectorAll('input, select').forEach(el => {
+    data[el.name] = String(el.value).trim();
+  });
+  cSave.disabled = true; cSave.textContent = 'Сохраняю…';
+  try{
+    const r = await fetch('/api/memory/entity/' + encodeURIComponent(CURRENT.entity)
+                          + '/' + CURRENT.id, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){
+      toast(d.detail || 'Не удалось сохранить');
+      cSave.disabled = false; cSave.textContent = 'Сохранить';
+      return;
+    }
+    const n = Object.keys(d.changes || {}).length;
+    toast(n ? 'Сохранено — ' + n + ' ' + plural(n, 'правка', 'правки', 'правок')
+            : 'Ничего не изменилось');
+    paintCard(Object.assign({}, CURRENT, { values: d.values, label: d.label,
+                                           history: d.history }));
+    loadList(); loadMap();
+  }catch{
+    toast('Нет связи с сервером');
+    cSave.disabled = false; cSave.textContent = 'Сохранить';
+  }
+});
+
+// Оригинал отдаётся только с заголовком авторизации, поэтому открываем его
+// через fetch и blob, а не ссылкой: обычный <a href> уйдёт без заголовка и
+// получит 401 — человек увидит «нет доступа» к собственному документу.
+cSource.addEventListener('click', async () => {
+  if (!CURRENT || !CURRENT.source || !CURRENT.source.item) return;
+  const id = CURRENT.source.item.id;
+  cSource.disabled = true; cSource.textContent = 'Открываю…';
+  try{
+    const r = await fetch('/api/inbox/' + id + '/file');
+    if (!r.ok){
+      toast(r.status === 410 ? 'Оригинал не найден в хранилище'
+                             : 'Не удалось открыть источник');
+      cSource.disabled = false; cSource.textContent = 'Открыть источник';
+      return;
+    }
+    dropBlob();
+    blobUrl = URL.createObjectURL(await r.blob());
+    window.open(blobUrl, '_blank', 'noopener');
+    setTimeout(dropBlob, 60000);        // окно успевает загрузить, память не течёт
+  }catch{
+    toast('Нет связи с сервером');
+  }
+  cSource.disabled = false; cSource.textContent = 'Открыть источник';
+});
+
+// ── загрузка ──────────────────────────────────────────────────────────────
+async function loadMap(){
+  const r = await fetch('/api/memory/map');
+  if (!r.ok) throw new Error('http');
+  MAP = await r.json();
+  paintState(MAP);
+  paintMap(MAP);
+  if (!TYPE){
+    // Открываем самый наполненный вид: показывать пустой раздел первым — значит
+    // спрятать от человека то, что у него уже есть.
+    let best = null;
+    MAP.groups.forEach(g => g.types.forEach(t => {
+      if (!best || t.count > best.count) best = t;
+    }));
+    TYPE = (best && best.count ? best.type : (MAP.groups[0] || {}).types?.[0]?.type) || 'service';
+  }
+  paintSegs(MAP);
+}
+
+async function boot(){
+  try{
+    await loadMap();
+    await loadList();
+  }catch{
+    paintState(null);
+    paintFail('Сервер не ответил на запрос памяти.');
+    document.getElementById('map').innerHTML = '';
+    document.getElementById('listBox').innerHTML = '';
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

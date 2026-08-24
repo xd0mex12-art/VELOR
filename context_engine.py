@@ -167,6 +167,41 @@ def _sources_block(bid: int) -> str:
             "факты компании и различай источники, если это важно для вывода.")
 
 
+def _memory_source_block(bid: int) -> str:
+    """
+    Откуда взяты знания о бизнесе.
+
+    Сами услуги, правила и цены уже уходят в базу знаний (ai._knowledge_block) —
+    здесь не дублируем их, а добавляем то, чего там нет: из какого документа
+    что известно. Без этой строки на вопрос «откуда ты это взял?» сотрудник
+    может только развести руками, хотя система ответ знает.
+    """
+    links = _safe(lambda: database.memory_recent(bid, 12), []) or []
+    seen, bits = set(), []
+    for l in links:
+        if l.get("event") != "created" or not l.get("item_id"):
+            continue
+        name = (l.get("item_title") or l.get("item_filename") or "").strip()
+        if not name:
+            continue
+        try:
+            import entities
+            what = entities.ENTITIES.get(l.get("entity_type"), {}).get("title") or ""
+        except Exception:
+            what = ""
+        key = (name, what)
+        if key in seen:
+            continue
+        seen.add(key)
+        bits.append(f"{what.lower() or 'запись'} — из «{name[:60]}»")
+        if len(bits) >= 6:
+            break
+    if not bits:
+        return ""
+    return ("\n\nОТКУДА ЗНАНИЯ (можешь сослаться, если спросят): "
+            + "; ".join(bits) + ".")
+
+
 def _finance_block(bid: int) -> str:
     fs = _finance(bid) or {}
     income = int(fs.get("income") or 0)
@@ -283,6 +318,7 @@ def build_system(business: dict, question: str, *, role: str | None = None,
     ctx += ai._knowledge_block(business)                       # товары/услуги/цены + guardrail
     ctx += ai._timeline_block(_safe(lambda: database.timeline_digest(bid), ""))
     ctx += _finance_block(bid)
+    ctx += _memory_source_block(bid)
     ctx += _crm_block(bid)
     ctx += _sources_block(bid)
     ctx += _client_block(bid, client_id)

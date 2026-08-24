@@ -2587,6 +2587,10 @@ def api_goal_add(body: GoalIn, x_auth: str = Header(default="")):
     if body.target <= 0:
         raise HTTPException(status_code=400, detail="Цель должна быть больше нуля")
     gid = database.add_goal(bid, body.metric, title[:160], body.target, body.deadline)
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_memory_link(bid, "goal", gid, event="created", source_kind="manual",
+                             confidence=1.0, actor=actor, actor_id=actor_id,
+                             note="Поставлена вручную")
     return {"ok": True, "id": gid}
 
 
@@ -2629,6 +2633,12 @@ def api_fact_add(body: FactIn, x_auth: str = Header(default="")):
     if not title:
         raise HTTPException(status_code=400, detail="Нужно название")
     fid = database.add_fact(bid, body.kind, title[:160], (body.body or "").strip()[:2000] or None)
+    entity = entities.FACT_ENTITY_BY_KIND.get(body.kind)
+    if entity:
+        actor, actor_id = _actor(x_auth, bid)
+        database.add_memory_link(bid, entity, fid, event="created", source_kind="manual",
+                                 confidence=1.0, actor=actor, actor_id=actor_id,
+                                 note="Внесено вручную")
     return {"ok": True, "id": fid}
 
 
@@ -3240,11 +3250,19 @@ def api_inbox_action(item_id: int, body: InboxAction, x_auth: str = Header(defau
 
     changes = understanding.diff(proposed, used) if body.data is not None else {}
     actor, actor_id = _actor(x_auth, bid)
-    database.add_inbox_decision(
+    decision_id = database.add_inbox_decision(
         bid, item_id, "edited" if changes else "confirmed", result_id=res["id"],
         action=body.action, entity_type=entity, entity_id=entity_id,
         original=proposed, corrected=used, changes=changes,
         actor=actor, actor_id=actor_id, note=detail)
+    # Знание родилось — записываем, из чего. Без этой строки запись в памяти
+    # выглядит как взявшаяся ниоткуда, и проверить её будет нечем.
+    if entity and entity_id:
+        database.add_memory_link(
+            bid, entity, entity_id, event="created", source_kind="inbox",
+            item_id=item_id, result_id=res["id"], decision_id=decision_id,
+            confidence=res.get("confidence"), actor=actor, actor_id=actor_id,
+            note=detail)
 
     applied = list(res.get("applied") or [])
     applied.append({"action": body.action, "auto": False, "detail": detail,
@@ -3374,6 +3392,188 @@ def api_inbox_delete(item_id: int, business_id: int = 0, x_auth: str = Header(de
     return {"ok": True}
 
 
+# ---------- ПАМЯТЬ БИЗНЕСА ----------
+# Одно место, где видно всё, что VELOR знает о бизнесе, и главное — откуда он
+# это знает. Ни один вид записи здесь не зашит: разделы, поля и подписи берутся
+# из реестра entities.py, а происхождение — из memory_links.
+
+ACTOR_RU = {"business": "владелец", "owner": "поддержка VELOR", "velor": "VELOR"}
+
+
+def _memory_link_public(link: dict) -> dict:
+    """Одно событие памяти наружу: что случилось, откуда и с какой уверенностью."""
+    out = {k: link.get(k) for k in
+           ("id", "event", "source_kind", "item_id", "result_id", "decision_id",
+            "confidence", "changes", "actor", "note", "created_at")}
+    out["actor_ru"] = ACTOR_RU.get(link.get("actor"), link.get("actor") or "")
+    if link.get("item_id"):
+        out["item"] = {"id": link["item_id"],
+                       "title": link.get("item_title") or link.get("item_filename"),
+                       "filename": link.get("item_filename"),
+                       "kind": link.get("item_kind"),
+                       "archived": bool(link.get("item_archived"))}
+    if link.get("result_id"):
+        out["result"] = {"id": link["result_id"],
+                         "type": link.get("result_type"),
+                         "type_ru": understanding.TYPE_RU.get(link.get("result_type"), ""),
+                         "confidence": link.get("result_confidence"),
+                         "summary": link.get("result_summary"),
+                         "extracted": link.get("result_extracted") or {}}
+    if link.get("decision_id"):
+        out["decision"] = {"decision": link.get("decision"),
+                           "action": link.get("decision_action"),
+                           "original": link.get("decision_original") or {},
+                           "corrected": link.get("decision_corrected") or {},
+                           "changes": link.get("decision_changes") or {}}
+    return out
+
+
+def _memory_type(entity_type: str):
+    try:
+        return entities.schema(entity_type)
+    except entities.EntityError:
+        raise HTTPException(status_code=404, detail="Такого вида записей нет.")
+
+
+@app.get("/api/memory/map")
+def api_memory_map(business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Что VELOR знает о бизнесе — по разделам, с долей знаний, у которых записан
+    источник. Доля важнее количества: знание без источника нечем проверить.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    sourced = database.memory_sourced_counts(bid)
+    groups, total, linked_all, documented_all = [], 0, 0, 0
+    for key, title in entities.GROUPS.items():
+        kinds = []
+        for t in entities.types_of_group(key):
+            sch = entities.schema(t)
+            n = entities.count(bid, t)
+            got = sourced.get(t) or {}
+            linked = min(int(got.get("linked", 0)), n)
+            documented = min(int(got.get("documented", 0)), n)
+            total += n
+            linked_all += linked
+            documented_all += documented
+            kinds.append({"type": t, "title": sch["title"], "plural": sch["plural"],
+                          "where": sch["where"], "can_edit": sch["can_edit"],
+                          "can_create": sch["can_create"], "count": n,
+                          "linked": linked, "documented": documented})
+        if kinds:
+            groups.append({"key": key, "title": title, "types": kinds,
+                           "count": sum(k["count"] for k in kinds)})
+    return {"groups": groups, "total": total, "linked": linked_all,
+            "documented": documented_all,
+            "recent": [_memory_link_public(l) for l in database.memory_recent(bid, 8)]}
+
+
+@app.get("/api/memory/list")
+def api_memory_list(type: str = "", business_id: int = 0, limit: int = 50, offset: int = 0,
+                    x_auth: str = Header(default="")):
+    """Записи одного вида вместе с их происхождением."""
+    bid = _resolve_bid(x_auth, business_id)
+    sch = _memory_type(type)
+    limit = max(1, min(int(limit or 50), 200))
+    items = entities.listing(bid, type, limit=limit, offset=max(0, int(offset or 0)))
+    ids = [i["id"] for i in items]
+    origins = database.memory_origins(bid, type, ids)
+    edits = database.memory_edit_counts(bid, type, ids)
+    for it in items:
+        link = origins.get(it["id"])
+        it["source"] = _memory_link_public(link) if link else None
+        it["edits"] = int(edits.get(it["id"], 0))
+    return {"type": type, "title": sch["title"], "plural": sch["plural"],
+            "where": sch["where"], "can_edit": sch["can_edit"],
+            "total": entities.count(bid, type), "items": items}
+
+
+@app.get("/api/memory/entity/{entity_type}/{entity_id}")
+def api_memory_entity(entity_type: str, entity_id: int, business_id: int = 0,
+                      x_auth: str = Header(default="")):
+    """
+    Одна запись целиком: значения полей, источник, что из него извлекли и вся
+    история правок. Оригинал документа остаётся доступен по item_id.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    sch = _memory_type(entity_type)
+    values = entities.read(bid, entity_type, entity_id)
+    if values is None:
+        raise HTTPException(status_code=404, detail="Запись не найдена.")
+    raw = entities.row(bid, entity_type, entity_id) or {}
+    history = [_memory_link_public(l)
+               for l in database.memory_links(bid, entity_type, entity_id)]
+    source = next((h for h in history if h["event"] == "created"), None)
+    return {"entity": entity_type, "id": entity_id,
+            "schema": sch, "values": values,
+            "label": entities.label(entity_type, raw),
+            "created_at": raw.get("created_at"),
+            "origin": entities.origin_of(entity_type, raw),
+            "source": source, "history": history}
+
+
+class MemoryEdit(BaseModel):
+    data: dict
+    business_id: int = 0
+
+
+@app.post("/api/memory/entity/{entity_type}/{entity_id}")
+def api_memory_edit(entity_type: str, entity_id: int, body: MemoryEdit,
+                    x_auth: str = Header(default="")):
+    """
+    Изменить знание. Что было и что стало — в истории; исходное предложение ИИ
+    остаётся нетронутым, поэтому видно, где он ошибся и как это поправили.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    _memory_type(entity_type)
+    try:
+        detail, now, before = entities.update(bid, entity_type, entity_id, body.data or {})
+    except entities.EntityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        logging.exception("Память: правка не удалась (biz %s, %s %s)",
+                          bid, entity_type, entity_id)
+        raise HTTPException(status_code=502, detail="Не удалось сохранить правку.")
+
+    changes = understanding.diff(before, now)
+    if changes:
+        actor, actor_id = _actor(x_auth, bid)
+        database.add_memory_link(bid, entity_type, entity_id, event="edited",
+                                 source_kind="manual", changes=changes,
+                                 actor=actor, actor_id=actor_id, note=detail)
+    raw = entities.row(bid, entity_type, entity_id) or {}
+    history = [_memory_link_public(l)
+               for l in database.memory_links(bid, entity_type, entity_id)]
+    return {"ok": True, "detail": detail, "changes": changes, "values": now,
+            "label": entities.label(entity_type, raw), "history": history}
+
+
+@app.get("/api/memory/source/{item_id}")
+def api_memory_source(item_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """Обратный взгляд: что выросло из одного материала."""
+    bid = _resolve_bid(x_auth, business_id)
+    item = database.get_inbox_item(item_id, bid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    grown = []
+    for link in database.memory_from_item(bid, item_id):
+        t = link["entity_type"]
+        if t not in entities.ENTITIES:
+            continue
+        raw = entities.row(bid, t, link["entity_id"])
+        if not raw:
+            continue          # запись удалили — цепочка обрывается честно
+        lb = entities.label(t, raw)
+        grown.append({"entity": t, "id": link["entity_id"],
+                      "entity_title": entities.ENTITIES[t]["title"],
+                      "title": lb["title"], "sub": lb.get("sub") or "",
+                      "confidence": link.get("confidence"),
+                      "created_at": link.get("created_at")})
+    return {"item": _inbox_public(item),
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id), item),
+            "entities": grown}
+
+
 @app.get("/api/documents")
 def api_documents(business_id: int = 0, x_auth: str = Header(default="")):
     """Список загруженных документов бизнеса."""
@@ -3398,6 +3598,10 @@ async def api_documents_upload(file: UploadFile = File(...),
     if not text.strip():
         return {"ok": False, "error": "Пустой файл или неподдерживаемый формат (нужен PDF, DOCX или TXT)"}
     doc_id, n = database.add_document(bid, file.filename, text)
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_memory_link(bid, "document", doc_id, event="created", source_kind="manual",
+                             confidence=1.0, actor=actor, actor_id=actor_id,
+                             note="Загружен файл: " + (file.filename or "документ"))
     # анализ документа → риск для Директора/брифинга (по тексту, детерминированно)
     signals.react(bid, "document", {"text": text, "filename": file.filename})
     return {"ok": True, "doc_id": doc_id, "chunks": n}
@@ -3436,9 +3640,13 @@ def api_finance_add(body: FinanceIn, x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, body.business_id)
     require_active(bid)
     kind = body.kind if body.kind in ("income", "expense") else "expense"
-    database.add_finance_entry(bid, kind, (body.category or "").strip() or None,
-                               body.amount, (body.note or "").strip() or None)
-    return {"ok": True}
+    eid = database.add_finance_entry(bid, kind, (body.category or "").strip() or None,
+                                     body.amount, (body.note or "").strip() or None)
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_memory_link(bid, kind, eid, event="created", source_kind="manual",
+                             confidence=1.0, actor=actor, actor_id=actor_id,
+                             note="Внесено вручную")
+    return {"ok": True, "id": eid}
 
 
 @app.post("/api/finance/{entry_id}/delete")

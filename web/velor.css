@@ -230,6 +230,10 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-head h1{ margin:0; }
 .v-head .v-lead{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-base);
   max-width:60ch; margin:var(--sp-3) 0 0; }
+/* Ссылка внутри пояснения должна выглядеть ссылкой: страницы задают
+   a{color:inherit}, и без этого правила переход между разделами не виден. */
+.v-head .v-lead a{ color:var(--lilac); border-bottom:1px solid rgba(169,156,255,.35); }
+.v-head .v-lead a:hover{ color:var(--bone); border-color:var(--hairline-2); }
 .v-head .v-acts{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
 @media(max-width:760px){
   .v-head{ grid-template-columns:1fr; align-items:start; }

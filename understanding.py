@@ -35,6 +35,10 @@ TYPES = (
     "PRICE_LIST",             # прайс с ценами
     "CONTRACT",               # договор
     "FINANCIAL_TRANSACTION",  # человек своими словами описал движение денег
+    "EMPLOYEE_INFORMATION",   # трудовой договор, резюме, данные о сотруднике
+    "SUPPLIER_INFORMATION",   # поставщик: условия, контакты, предложение
+    "COMPANY_INFO",           # реквизиты, адрес, режим работы — о самой компании
+    "GOAL_STATEMENT",         # владелец сказал, чего хочет достичь
     "VOICE_INFORMATION",      # голосовое сообщение
     "UNKNOWN",
 )
@@ -47,6 +51,10 @@ TYPE_RU = {
     "PRICE_LIST":            "Прайс-лист",
     "CONTRACT":              "Договор",
     "FINANCIAL_TRANSACTION": "Движение денег",
+    "EMPLOYEE_INFORMATION":  "Сведения о сотруднике",
+    "SUPPLIER_INFORMATION":  "Поставщик",
+    "COMPANY_INFO":          "Сведения о компании",
+    "GOAL_STATEMENT":        "Цель бизнеса",
     "VOICE_INFORMATION":     "Голосовое сообщение",
     "UNKNOWN":               "Не разобрал",
 }
@@ -90,6 +98,12 @@ ACTIONS = {
     "add_services":    {"title": "Добавить в услуги",       "safe": True,  "auto": True},
     "add_rules":       {"title": "Добавить в правила",      "safe": True,  "auto": True},
     "add_goal":        {"title": "Поставить цель",          "safe": True,  "auto": False},
+    # Сотрудник и поставщик — живые люди и партнёры. Запись безопасна (её легко
+    # исправить), но заводить её без ведома владельца нельзя: ошибка в имени
+    # или в должности потом всплывёт в ответе клиенту.
+    "add_employee":    {"title": "Добавить сотрудника",      "safe": True,  "auto": False},
+    "add_supplier":    {"title": "Добавить поставщика",      "safe": True,  "auto": False},
+    "add_company":     {"title": "Записать о компании",      "safe": True,  "auto": False},
     "save_document":   {"title": "Сохранить в базу знаний", "safe": True,  "auto": False},
     "ask_user":        {"title": "Уточнить у владельца",    "safe": True,  "auto": False},
 }
@@ -105,6 +119,9 @@ ENTITY_BY_ACTION = {
     "add_services":   "service",
     "add_rules":      "rule",
     "add_goal":       "goal",
+    "add_employee":   "employee",
+    "add_supplier":   "supplier",
+    "add_company":    "company",
     "save_document":  "rule",
 }
 
@@ -198,6 +215,30 @@ MARKERS = {
         (r"стороны договор", 4), (r"настоящий договор", 4), (r"реквизиты сторон", 4),
         (r"приложение №", 1),
     ],
+    "EMPLOYEE_INFORMATION": [
+        (r"трудов(ой|ого) договор", 4), (r"штатное расписание", 4),
+        (r"приказ о при[ёе]ме", 4), (r"должностн\w+ (инструкц|обязанност)", 3),
+        (r"\bрезюме\b", 3), (r"должность", 3), (r"испытательный срок", 3),
+        (r"табельный номер", 3), (r"\bсотрудник\w*\b", 2), (r"\bработник\w*\b", 2),
+        (r"\bоклад\b", 2), (r"\bф\.?и\.?о\.?\b", 2), (r"принят на работу", 4),
+    ],
+    "SUPPLIER_INFORMATION": [
+        (r"поставщик\w*", 4), (r"условия поставки", 4), (r"коммерческое предложение", 3),
+        (r"минимальный заказ", 3), (r"отсрочка платежа", 3), (r"оптов\w+", 2),
+        (r"срок поставки", 3),
+    ],
+    "COMPANY_INFO": [
+        (r"реквизиты компании|наши реквизиты", 4), (r"юридический адрес", 4),
+        (r"\bогрн\w*\b", 3), (r"\bкпп\b", 3), (r"режим работы", 3),
+        (r"график работы", 3), (r"о компании", 3), (r"\bреквизиты\b", 2),
+        (r"фактический адрес", 3),
+    ],
+    "GOAL_STATEMENT": [
+        (r"хочу выйти на", 5), (r"хочу зарабатывать", 5), (r"цель на \w+", 4),
+        (r"\bцель\b|\bцели\b", 3), (r"план на (месяц|квартал|год)", 3),
+        (r"выйти на", 2), (r"планиру\w+", 2), (r"к концу (месяца|года|квартала)", 2),
+        (r"довести до", 2), (r"хочу довести", 4),
+    ],
     "FINANCIAL_TRANSACTION": [
         (r"заплатил|оплатил|заплатили|оплатили", 3), (r"перевёл|перевел|перевели", 3),
         (r"потратил|потратили", 3), (r"получил|получили", 2), (r"выручка", 2),
@@ -207,6 +248,11 @@ MARKERS = {
 
 # Расход это или доход — по глаголу. Нужно и правилам, и проверке ответа модели.
 INCOME_WORDS = re.compile(r"получил|получили|выручк|поступил|заплатили\s+нам|оплатили\s+нам|продал|продали", re.I)
+# «Хочу выйти на 500 тысяч» — это намерение, а не операция. Без этой проверки
+# сумма в тексте о будущем считалась движением денег и спорила с целью на
+# равных, а спор двух типов честно опускает уверенность до низкой.
+INTENT_WORDS = re.compile(r"хочу|хотим|планиру|цель|цели|нужно выйти|давай(те)? выйдем|"
+                          r"к концу (месяца|года|квартала)|в планах", re.I)
 EXPENSE_WORDS = re.compile(r"заплатил|оплатил|потратил|перевёл|перевел|купил|закупил|списал", re.I)
 
 CATEGORY_WORDS = [
@@ -289,10 +335,16 @@ def classify_by_rules(text: str, filename: str = "", mime: str = "", kind: str =
             scores[t] = got
             hits[t] = why
 
-    # Заметка своими словами: движение денег видно по глаголу и сумме.
+    # Заметка своими словами: движение денег видно по глаголу и сумме. Но если
+    # человек говорит о будущем — это цель, и в финансы такую сумму пускать
+    # нельзя ни при какой уверенности.
     if kind == "text":
         money = find_money(text)
-        if money and (EXPENSE_WORDS.search(text or "") or INCOME_WORDS.search(text or "")):
+        intent = bool(INTENT_WORDS.search(text or ""))
+        if money and intent:
+            scores["GOAL_STATEMENT"] = scores.get("GOAL_STATEMENT", 0) + 4
+            hits.setdefault("GOAL_STATEMENT", []).append("сумма и намерение, а не факт")
+        elif money and (EXPENSE_WORDS.search(text or "") or INCOME_WORDS.search(text or "")):
             scores["FINANCIAL_TRANSACTION"] = scores.get("FINANCIAL_TRANSACTION", 0) + 4
             hits.setdefault("FINANCIAL_TRANSACTION", []).append("сумма и глагол о деньгах")
 
@@ -322,9 +374,13 @@ def extract_by_rules(kind_type: str, text: str, kind: str = "file"):
         data["currency"] = top["currency"]
         if len(money) > 1:
             data["amounts_found"] = len(money)
-    cat = guess_category(text)
-    if cat:
-        data["category"] = cat
+    # Категория расхода имеет смысл только для денег. В трудовом договоре слово
+    # «оклад» тоже встречается, но приписывать сотруднику «категория: зарплата»
+    # — значит засорять карточку смыслом, которого в ней нет.
+    if kind_type in ("FINANCIAL_TRANSACTION", "EXPENSE_DOCUMENT", "BANK_TRANSACTION"):
+        cat = guess_category(text)
+        if cat:
+            data["category"] = cat
     if kind_type in ("FINANCIAL_TRANSACTION", "EXPENSE_DOCUMENT"):
         if EXPENSE_WORDS.search(text or ""):
             data["direction"] = "expense"
@@ -336,7 +392,95 @@ def extract_by_rules(kind_type: str, text: str, kind: str = "file"):
     m = re.search(r"(?:заплатил|оплатил|перевёл|перевел|отдал)\w*\s+([А-ЯЁ][\w-]+)", text or "")
     if m:
         data["counterparty"] = m.group(1)
+
+    if kind_type == "GOAL_STATEMENT" and money:
+        # Цель — это самая большая названная цифра: «выйти на 500 тысяч».
+        data["target"] = max(m["amount"] for m in money)
+        data["metric"] = _goal_metric(text)
+        data.pop("direction", None)          # цель не движение денег
+    if kind_type == "EMPLOYEE_INFORMATION":
+        data.update(_employee_fields(text))
+    if kind_type == "SUPPLIER_INFORMATION":
+        who = _org_name(text) or _after(text, r"поставщик[а-я]*")
+        if who:
+            data["supplier"] = who
+        phone = _phone(text)
+        if phone:
+            data["phone"] = phone
+    if kind_type == "COMPANY_INFO":
+        for key, pattern in (("inn", r"\bинн\b"), ("ogrn", r"\bогрн\w*\b"),
+                             ("kpp", r"\bкпп\b")):
+            m2 = re.search(pattern + r"[:\s]*([0-9]{8,15})", text or "", re.I)
+            if m2:
+                data[key] = m2.group(1)
+        addr = re.search(r"(?:юридический|фактический)\s+адрес[:\s]*([^\n]{5,120})",
+                         text or "", re.I)
+        if addr:
+            data["address"] = addr.group(1).strip(" .;,")
     return data
+
+
+# Показатель цели: по словам, которыми человек её описал. Не угадали — доход,
+# самый частый случай, и его видно в форме подтверждения.
+GOAL_METRIC_WORDS = [
+    ("profit", r"прибыл"), ("clients", r"клиент"), ("orders", r"заявок|заявк|заказов"),
+    ("subscribers", r"подписчик"), ("income", r"выручк|доход|оборот|зарабат"),
+]
+
+
+def _goal_metric(text):
+    low = (text or "").lower()
+    for metric, pattern in GOAL_METRIC_WORDS:
+        if re.search(pattern, low):
+            return metric
+    return "income"
+
+
+_PHONE_RE = re.compile(r"(?:\+7|8)[\s\-(]*\d{3}[\s\-)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}")
+_FIO_RE = re.compile(r"\b([А-ЯЁ][а-яё]+)\s+([А-ЯЁ][а-яё]+)(?:\s+([А-ЯЁ][а-яё]+))?\b")
+_ORG_RE = re.compile(r"(ООО|ИП|АО|ЗАО|ПАО)\s*[«\"]?([^»\"\n,;]{2,60})[»\"]?", re.I)
+
+
+def _phone(text):
+    m = _PHONE_RE.search(text or "")
+    return m.group(0).strip() if m else None
+
+
+def _org_name(text):
+    m = _ORG_RE.search(text or "")
+    return (m.group(1).upper() + " " + m.group(2).strip()) if m else None
+
+
+def _after(text, pattern):
+    """Слово или название сразу после ключевого слова: «Поставщик: Ромашка»."""
+    m = re.search(pattern + r"[:\s]+([^\n,;.]{2,60})", text or "", re.I)
+    return m.group(1).strip() if m else None
+
+
+def _employee_fields(text):
+    """Имя, должность и контакт сотрудника — только то, что прямо написано."""
+    out = {}
+    named = re.search(r"(?:ф\.?и\.?о\.?|сотрудник|работник|принят[аы]? на работу)"
+                      r"[:\s]+([А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ][а-яё]+){1,2})", text or "", re.I)
+    if named:
+        out["person"] = named.group(1).strip()
+    else:
+        m = _FIO_RE.search(text or "")
+        if m:
+            out["person"] = " ".join(x for x in m.groups() if x)
+    role = _after(text, r"должность")
+    if role:
+        out["role"] = role
+    phone = _phone(text)
+    if phone:
+        out["phone"] = phone
+    salary = re.search(r"(?:оклад|заработная плата|зарплата)[:\s]*([\d   ]{3,12})",
+                       text or "", re.I)
+    if salary:
+        digits = re.sub(r"\D", "", salary.group(1))
+        if digits:
+            out["salary"] = int(digits)
+    return out
 
 
 ACTION_BY_TYPE = {
@@ -347,6 +491,10 @@ ACTION_BY_TYPE = {
     "SERVICES_OR_PRODUCTS":  ["add_services", "save_document"],
     "BUSINESS_RULES":        ["add_rules", "save_document"],
     "CONTRACT":              ["save_document"],
+    "EMPLOYEE_INFORMATION":  ["add_employee", "save_document"],
+    "SUPPLIER_INFORMATION":  ["add_supplier", "save_document"],
+    "COMPANY_INFO":          ["add_company", "save_document"],
+    "GOAL_STATEMENT":        ["add_goal"],
     "VOICE_INFORMATION":     ["ask_user"],
     "UNKNOWN":               ["ask_user"],
 }
@@ -541,7 +689,7 @@ def process(business_id, item_id):
 
     # Автоматически — только безопасное и только при высокой уверенности.
     # Деньги не двигаются сами никогда: create_expense/create_income safe=False.
-    applied = []
+    applied, pending_links = [], []
     if AUTO_APPLY and result["level"] == "HIGH":
         for a in result["suggested_actions"]:
             if a["safe"] and a.get("auto"):
@@ -554,14 +702,27 @@ def process(business_id, item_id):
                                 "entity_type": entity, "entity_id": entity_id})
                 # Автоприменение — тоже решение, и в истории оно должно быть
                 # видно наравне с нажатиями человека.
-                database.add_inbox_decision(
+                decision_id = database.add_inbox_decision(
                     business_id, item_id, "auto", action=a["action"],
                     entity_type=entity, entity_id=entity_id,
                     original=clean, corrected=clean, actor="velor", note=text)
+                # И в памяти бизнеса тоже: знание, добытое самим VELOR, должно
+                # быть так же прослеживаемо, как подтверждённое человеком.
+                # Записываем ПОСЛЕ сохранения разбора — иначе в связи не на что
+                # сослаться, и «что именно он понял» пришлось бы искать вручную.
+                if entity and entity_id:
+                    pending_links.append({"entity": entity, "entity_id": entity_id,
+                                          "decision_id": decision_id, "note": text})
     result["applied"] = applied
 
     result_id = database.save_inbox_result(business_id, item_id, result)
     result["id"] = result_id
+    for link in pending_links:
+        database.add_memory_link(
+            business_id, link["entity"], link["entity_id"], event="created",
+            source_kind="inbox", item_id=item_id, result_id=result_id,
+            decision_id=link["decision_id"], confidence=result["confidence"],
+            actor="velor", note=link["note"])
 
     status = "PROCESSED" if result["level"] == "HIGH" else "NEEDS_REVIEW"
     database.set_inbox_status(item_id, business_id, status)
@@ -575,6 +736,8 @@ def _summary_by_rules(kind_type, extracted, text):
         return ("Не удалось понять, что это. Откройте материал — и скажите, "
                 "куда его отнести.")
     bits = []
+    if extracted.get("target"):
+        bits.append("{:,}".format(extracted["target"]).replace(",", " "))
     if extracted.get("amount"):
         bits.append("{:,}".format(extracted["amount"]).replace(",", " ") + " "
                     + {"RUB": "₽", "USD": "$", "EUR": "€", "KZT": "₸"}.get(
@@ -623,9 +786,38 @@ def prefill(action, result, item):
         if data.get("date"):
             out["date_wanted"] = data["date"]
     elif entity == "goal":
+        # Название цели — слова самого владельца, а не пересказ. «Цель бизнеса»
+        # в списке целей не говорит ни о чём.
         out["title"] = title
-        if data.get("amount"):
-            out["target"] = data["amount"]
+        target = data.get("target") or data.get("amount")
+        if target:
+            out["target"] = target
+        out["metric"] = data.get("metric") or "income"
+        if data.get("deadline"):
+            out["deadline"] = data["deadline"]
+    elif entity == "employee":
+        out["title"] = data.get("person") or title
+        if data.get("role"):
+            out["role"] = data["role"]
+        if data.get("phone"):
+            out["contact"] = data["phone"]
+        # В заметку кладём факты из документа, а не пересказ его типа: строка
+        # «Сведения о сотруднике» не говорит о человеке ничего.
+        bits = []
+        if data.get("salary"):
+            bits.append("Оклад: {:,}".format(int(data["salary"])).replace(",", " "))
+        out["body"] = "; ".join(bits)
+    elif entity == "supplier":
+        out["title"] = data.get("supplier") or data.get("counterparty") or title
+        if data.get("phone"):
+            out["contact"] = data["phone"]
+        out["body"] = summary
+    elif entity == "company":
+        out["title"] = title
+        bits = [f"{k.upper()}: {data[k]}" for k in ("inn", "kpp", "ogrn") if data.get(k)]
+        if data.get("address"):
+            bits.append("Адрес: " + data["address"])
+        out["body"] = "; ".join(bits) or summary
     return {k: v for k, v in out.items() if v not in (None, "")}
 
 
