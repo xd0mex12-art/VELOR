@@ -581,6 +581,29 @@ def init_db():
                    created_at   TEXT DEFAULT CURRENT_TIMESTAMP
                )"""
         )
+        # Что человек решил по разбору. Отдельная таблица, потому что это
+        # НЕ состояние материала, а история: кто, когда, что подтвердил, что
+        # исправил и во что это превратилось. По ней видно, где ИИ ошибается
+        # систематически, — а значит, чему его учить.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS inbox_decisions (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   item_id      INTEGER NOT NULL,
+                   result_id    INTEGER,
+                   decision     TEXT NOT NULL,   -- confirmed|edited|dismissed|auto|classified
+                   action       TEXT,            -- какое действие подтверждали
+                   entity_type  TEXT,            -- что создали (expense, client…)
+                   entity_id    INTEGER,
+                   original     TEXT,            -- JSON: что предложил ИИ
+                   corrected    TEXT,            -- JSON: что стало после правки
+                   changes      TEXT,            -- JSON: только изменённые поля
+                   actor        TEXT,            -- business | owner | velor
+                   actor_id     INTEGER,
+                   note         TEXT,
+                   created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
         # Оригиналы для backend'а "db" (Render: диск эфемерный, база — нет).
         conn.execute(
             """CREATE TABLE IF NOT EXISTS inbox_blobs (
@@ -702,6 +725,7 @@ def init_db():
             ("idx_inbox_biz_status",     "inbox_items",     "business_id, status"),
             ("idx_inbox_blobs_biz",      "inbox_blobs",     "business_id"),
             ("idx_inbox_results_item",   "inbox_results",   "business_id, item_id"),
+            ("idx_inbox_decisions_item", "inbox_decisions", "business_id, item_id"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -3217,6 +3241,84 @@ def mark_result_applied(result_id, business_id, applied):
             (_json.dumps(applied, ensure_ascii=False), result_id, business_id),
         )
         return cur.rowcount > 0
+
+
+# ---------- журнал решений по разборам ----------
+
+def add_inbox_decision(business_id, item_id, decision, result_id=None, action=None,
+                       entity_type=None, entity_id=None, original=None, corrected=None,
+                       changes=None, actor="business", actor_id=None, note=None):
+    """
+    Записать решение. Ничего не перезаписывает: каждое нажатие — новая строка.
+    История нужна целиком, а не в последней редакции.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO inbox_decisions
+               (business_id, item_id, result_id, decision, action, entity_type,
+                entity_id, original, corrected, changes, actor, actor_id, note)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (business_id, item_id, result_id, decision, action, entity_type, entity_id,
+             _json.dumps(original or {}, ensure_ascii=False),
+             _json.dumps(corrected or {}, ensure_ascii=False),
+             _json.dumps(changes or {}, ensure_ascii=False),
+             actor, actor_id, note),
+        )
+        return cur.lastrowid
+
+
+def list_inbox_decisions(business_id, item_id):
+    """История решений по материалу — от старых к новым, как она и случалась."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM inbox_decisions
+                WHERE business_id = ? AND item_id = ?
+                ORDER BY id ASC""",
+            (business_id, item_id),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for key in ("original", "corrected", "changes"):
+            try:
+                d[key] = _json.loads(d.get(key) or "{}")
+            except (ValueError, TypeError):
+                d[key] = {}
+        out.append(d)
+    return out
+
+
+def count_inbox_decisions(business_id, item_ids):
+    """Сколько решений по каждому материалу — чтобы лента знала без N запросов."""
+    ids = [int(i) for i in item_ids]
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT item_id, COUNT(*) AS n FROM inbox_decisions
+                 WHERE business_id = ? AND item_id IN ({ph})
+                 GROUP BY item_id""",
+            (business_id, *ids),
+        ).fetchall()
+    return {r["item_id"]: r["n"] for r in rows}
+
+
+def inbox_correction_stats(business_id):
+    """
+    Насколько часто человек правит ИИ. Не украшение: если доля правок высокая,
+    автоматике доверять рано, и это должно быть видно владельцу.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT decision, COUNT(*) AS n FROM inbox_decisions
+                WHERE business_id = ? GROUP BY decision""",
+            (business_id,),
+        ).fetchall()
+    by = {r["decision"]: r["n"] for r in rows}
+    human = sum(by.get(k, 0) for k in ("confirmed", "edited", "dismissed", "classified"))
+    return {"by_decision": by, "human_total": human,
+            "edited": by.get("edited", 0), "dismissed": by.get("dismissed", 0)}
 
 
 # ---------- оригиналы файлов в базе (backend "db" из storage.py) ----------

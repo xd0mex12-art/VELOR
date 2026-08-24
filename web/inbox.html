@@ -132,6 +132,43 @@
     font-size:var(--fs-body); color:var(--verdant); padding:var(--sp-2) 0; }
   .doing .note{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--saffron); }
 
+  /* форма правки: те же поля, что у настоящей записи */
+  .confirm-form{ margin-top:var(--sp-3); display:grid; gap:var(--sp-3); }
+  .confirm-form .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
+  .confirm-form .fld label .req{ color:var(--ink-coral); margin-left:4px; }
+  .confirm-form input, .confirm-form select{ width:100%; min-height:48px;
+    background:var(--surface-2); border:1px solid var(--hairline); border-radius:var(--r-sm);
+    padding:12px 14px; color:var(--bone); font-family:inherit;
+    font-weight:var(--fw-thin); font-size:16px; }
+  .confirm-form .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
+  /* поле, которое человек уже изменил, — видно, что правка не потерялась */
+  .confirm-form input.dirty{ border-color:var(--saffron); }
+  .confirm-form .was{ display:block; margin-top:5px; font-size:var(--fs-caption);
+    color:var(--saffron); }
+
+  .what-is{ margin-top:var(--sp-3); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+
+  /* история решений */
+  .story{ margin-top:var(--sp-5); }
+  .story > h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
+  .ev{ display:flex; gap:var(--sp-3); padding:var(--sp-3) 0;
+    border-bottom:1px solid var(--hairline); }
+  .ev:last-child{ border-bottom:none; }
+  .ev .pin{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:7px;
+    background:var(--lilac); }
+  .ev.d-edited .pin{ background:var(--saffron); }
+  .ev.d-dismissed .pin{ background:var(--ink-coral); }
+  .ev.d-confirmed .pin{ background:var(--verdant); }
+  .ev.d-auto .pin{ background:var(--iris); }
+  .ev .body{ flex:1; min-width:0; }
+  .ev .t{ font-size:var(--fs-body); }
+  .ev .w{ font-size:var(--fs-caption); color:var(--ash); margin-top:3px; }
+  .ev .chg{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--silver); }
+  .ev .chg s{ color:var(--ash); text-decoration:line-through; }
+  .ev .chg b{ color:var(--saffron); font-weight:var(--fw-reg); }
+
   /* строка разбора в ленте */
   .got-line{ margin-top:var(--sp-2); display:flex; align-items:center;
     gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); color:var(--silver); }
@@ -398,6 +435,14 @@ function itemHTML(it){
 
 // ── «VELOR понял»: что нашёл, насколько уверен, что предлагает ──
 function gotCard(it, res){
+  // «Разбирается сейчас» и «разбора нет» — разные состояния. Первое проходит
+  // само, и предлагать кнопку «Разобрать» значило бы звать человека делать
+  // работу, которая уже идёт.
+  if (!res && it && it.status === 'PROCESSING'){
+    return `<div class="got-card processing"><div class="cap"><b>VELOR понял</b></div>
+      <div class="why">Читаю материал — это займёт пару секунд.</div>
+      <div class="v-sk row" style="margin-top:var(--sp-4)"></div></div>`;
+  }
   if (!res){
     return `<div class="got-card"><div class="cap"><b>VELOR понял</b></div>
       <div class="why">Материал ещё не разобран. Нажмите «Разобрать» — VELOR посмотрит,
@@ -412,18 +457,79 @@ function gotCard(it, res){
 
   const applied = (res.applied || []);
   const doneNames = new Set(applied.map(a => a.action));
-  const left = (res.suggested_actions || []).filter(a => !doneNames.has(a.action));
+  const left = (res.suggested_actions || []).filter(a => !doneNames.has(a.action) && a.entity);
 
   const doneHTML = applied.map(a =>
-    `<div class="done">✓ ${esc(a.detail || a.action)}${a.auto ? ' — VELOR сделал сам' : ''}</div>`).join('');
+    `<div class="done">✓ ${esc(a.detail || a.action)}${a.auto ? ' — VELOR сделал сам'
+      : (a.edited ? ' — с вашими правками' : '')}</div>`).join('');
 
-  // При низкой уверенности кнопок действий не даём вовсе: сначала надо
-  // понять, что это, а не нажимать наугад.
-  const btnsHTML = (res.level === 'LOW')
-    ? `<button class="v-btn ghost process" type="button">Разобрать заново</button>`
-    : left.map(a => `<button class="v-btn ${a.safe ? 'ghost' : ''} act" data-a="${esc(a.action)}"
-         type="button">${esc(a.title)}</button>`).join('')
-      + `<button class="v-btn ghost process" type="button">Разобрать заново</button>`;
+  // Низкая уверенность — действий не предлагаем вовсе. Вместо них просим
+  // сказать, что это: нажимать наугад хуже, чем спросить.
+  if (res.level === 'LOW'){
+    const opts = (res.types || []).map(t =>
+      `<button class="v-btn ghost sm what" data-t="${esc(t.type)}" type="button">${esc(t.title)}</button>`).join('');
+    return `
+      <div class="got-card lv-LOW">
+        <div class="cap"><b>VELOR понял</b>
+          <span class="st-tag st-NEEDS_REVIEW"><i></i>нужно уточнение</span></div>
+        <div class="what">${esc(res.type_ru || '')}</div>
+        <div class="why">${esc(res.summary || '')}</div>
+        <div class="conf">
+          <span class="val">Уверенность ${esc(res.level_ru || '')}</span>
+          <span class="bar"><span style="width:${pct}%"></span></span>
+          <span class="val">${pct}%</span>
+        </div>
+        <div class="doing">
+          <div class="lead">Уверенности мало — сам ничего делать не буду. Подскажите, что это:</div>
+          ${doneHTML}
+          <div class="what-is">${opts}</div>
+          <div class="btns" style="margin-top:var(--sp-3)">
+            <button class="v-btn ghost process" type="button">Разобрать заново</button>
+            <button class="v-btn ghost skip" type="button">Не учитывать</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // HIGH и MEDIUM: показываем предложение и три ответа на него.
+  // Разница в словах, а не в возможностях: при средней уверенности прямо
+  // сказано, что решение за человеком.
+  const btnsHTML = left.map((a, i) => `
+    <div class="offer" data-a="${esc(a.action)}">
+      ${left.length > 1 ? `<div class="lead">${esc(a.entity_title || a.title)}</div>` : ''}
+      <div class="btns">
+        <button class="v-btn ok" type="button">${i === 0 ? 'Подтвердить' : esc(a.title)}</button>
+        <button class="v-btn ghost edit" type="button">Изменить</button>
+      </div>
+      <form class="confirm-form" style="display:none">${
+        (a.fields || []).map(f => `
+          <div class="fld">
+            <label for="f-${esc(a.action)}-${esc(f.name)}">${esc(f.label)}${f.required
+              ? '<span class="req" title="обязательное">*</span>' : ''}</label>
+            ${(f.options || []).length
+              ? `<select id="f-${esc(a.action)}-${esc(f.name)}" name="${esc(f.name)}">${
+                  f.options.map(o => `<option value="${esc(o)}"${
+                    String(f.value) === String(o) ? ' selected' : ''}>${esc(o)}</option>`).join('')
+                }</select>`
+              : `<input id="f-${esc(a.action)}-${esc(f.name)}" name="${esc(f.name)}"
+                   type="${f.type === 'int' ? 'text' : 'text'}"
+                   inputmode="${f.type === 'int' ? 'numeric' : 'text'}"
+                   value="${esc(f.value === null || f.value === undefined ? '' : f.value)}"
+                   data-was="${esc(f.value === null || f.value === undefined ? '' : f.value)}">`}
+            ${f.hint ? `<span class="hint">${esc(f.hint)}</span>` : ''}
+            <span class="was" style="display:none"></span>
+          </div>`).join('')
+      }
+        <div class="btns">
+          <button class="v-btn save" type="button">Сохранить и подтвердить</button>
+          <button class="v-btn ghost cancel" type="button">Отмена</button>
+        </div>
+      </form>
+    </div>`).join('')
+    + `<div class="btns" style="margin-top:var(--sp-3)">
+        <button class="v-btn ghost skip" type="button">Не учитывать</button>
+        <button class="v-btn ghost process" type="button">Разобрать заново</button>
+      </div>`;
 
   return `
     <div class="got-card lv-${esc(res.level)}">
@@ -453,6 +559,36 @@ function gotCard(it, res){
         ${res.error ? `<div class="note">${esc(res.error)}</div>` : ''}
       </div>
     </div>`;
+}
+
+const DECISION_RU = {
+  confirmed: 'Подтверждено', edited: 'Исправлено и подтверждено',
+  dismissed: 'Не учтено', auto: 'VELOR сделал сам', classified: 'Вы уточнили тип',
+};
+const ACTOR_RU = { business: 'вы', owner: 'поддержка VELOR', velor: 'VELOR' };
+
+function storyHTML(history){
+  if (!history || !history.length) return '';
+  const rows = history.map(h => {
+    const chg = Object.entries(h.changes || {}).map(([k, v]) =>
+      `<div>${esc(FIELD_RU[k] || k)}: <s>${esc(v.was === null || v.was === undefined ? '—' : v.was)}</s>
+        → <b>${esc(v.now === null || v.now === undefined ? '—' : v.now)}</b></div>`).join('');
+    return `<div class="ev d-${esc(h.decision)}"><span class="pin"></span>
+      <div class="body">
+        <div class="t">${esc(DECISION_RU[h.decision] || h.decision)}${h.note
+          ? ' — ' + esc(h.note) : ''}</div>
+        <div class="w">${esc(ACTOR_RU[h.actor] || h.actor)} · ${esc(when(h.created_at))}</div>
+        ${chg ? `<div class="chg">${chg}</div>` : ''}
+      </div></div>`;
+  }).join('');
+  return `<div class="story"><h3>История решений</h3>${rows}</div>`;
+}
+
+function when(iso){
+  const d = new Date(String(iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day: 'numeric', month: 'long',
+                                     hour: '2-digit', minute: '2-digit' });
 }
 
 function gotLine(res){
@@ -660,57 +796,123 @@ async function fileBlob(id){
   return blobUrl;
 }
 
-// Кнопки внутри «VELOR понял». Действия выполняет сервер — здесь только
-// нажатие и честный показ того, что вышло.
+// Кнопки внутри «VELOR понял». Решение принимает человек, выполняет сервер —
+// здесь только нажатие, форма правки и честный показ того, что вышло.
 function wireGot(box, it){
   const card = box.querySelector('.got-card');
   if (!card) return;
 
-  const proc = card.querySelector('.process');
-  if (proc) proc.addEventListener('click', async () => {
-    proc.disabled = true; proc.textContent = 'Разбираю…';
-    try{
-      const r = await fetch('/api/inbox/' + it.id + '/process', { method: 'POST' });
-      if (!r.ok){
-        let why = 'Не удалось разобрать';
-        try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
-        toast(why); proc.disabled = false; proc.textContent = 'Разобрать заново';
-        return;
-      }
-      const d = await r.json();
-      const shell = document.createElement('div');
-      shell.innerHTML = gotCard(d.item, d.result);
-      card.replaceWith(shell.firstElementChild);
-      wireGot(box, it);
-      await load(true);
-    }catch{
-      toast('Нет связи с сервером'); proc.disabled = false; proc.textContent = 'Разобрать заново';
-    }
-  });
+  // Общий ответ сервера на любое решение: перерисовать карточку и историю.
+  function applyResult(d){
+    const shell = document.createElement('div');
+    shell.innerHTML = gotCard(d.item, d.result);
+    card.replaceWith(shell.firstElementChild);
+    const story = box.querySelector('.story');
+    if (story && d.history) story.outerHTML = storyHTML(d.history);
+    else if (d.history) box.insertAdjacentHTML('beforeend', storyHTML(d.history));
+    wireGot(box, it);
+    load(true);
+  }
 
-  card.querySelectorAll('.act').forEach(btn => btn.addEventListener('click', async () => {
-    const was = btn.textContent;
-    btn.disabled = true; btn.textContent = 'Выполняю…';
+  async function post(url, payload, btn, busyText){
+    const was = btn ? btn.textContent : '';
+    if (btn){ btn.disabled = true; btn.textContent = busyText; }
     try{
-      const r = await fetch('/api/inbox/' + it.id + '/action', {
+      const r = await fetch(url, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: btn.dataset.a })
+        body: JSON.stringify(payload || {})
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok){
-        toast(d.detail || 'Не получилось выполнить'); btn.disabled = false; btn.textContent = was;
-        return;
+        toast(d.detail || 'Не получилось');
+        if (btn){ btn.disabled = false; btn.textContent = was; }
+        return null;
       }
-      toast(d.detail || 'Готово');
-      const shell = document.createElement('div');
-      shell.innerHTML = gotCard(d.item, d.result);
-      card.replaceWith(shell.firstElementChild);
-      wireGot(box, it);
-      await load(true);
+      return d;
     }catch{
-      toast('Нет связи с сервером'); btn.disabled = false; btn.textContent = was;
+      toast('Нет связи с сервером');
+      if (btn){ btn.disabled = false; btn.textContent = was; }
+      return null;
     }
+  }
+
+  // Пока разбор идёт — сами перечитываем карточку. Несколько попыток с
+  // растущей паузой, потом молчим: бесконечный опрос хуже честной кнопки.
+  if (card.classList.contains('processing')) waitCard(box, it, 0);
+
+  const proc = card.querySelector('.process');
+  if (proc) proc.addEventListener('click', async () => {
+    const d = await post('/api/inbox/' + it.id + '/process', {}, proc, 'Разбираю…');
+    if (d) applyResult(d);
+  });
+
+  const skip = card.querySelector('.skip');
+  if (skip) skip.addEventListener('click', async () => {
+    const d = await post('/api/inbox/' + it.id + '/dismiss', {}, skip, 'Убираю…');
+    if (d){ toast('Не учтено — материал остался во входящих'); applyResult(d); }
+  });
+
+  // Низкая уверенность: человек называет тип сам.
+  card.querySelectorAll('.what').forEach(btn => btn.addEventListener('click', async () => {
+    const d = await post('/api/inbox/' + it.id + '/classify',
+                         { type: btn.dataset.t }, btn, 'Записываю…');
+    if (d){ toast('Понял: ' + (d.result.type_ru || '')); applyResult(d); }
   }));
+
+  card.querySelectorAll('.offer').forEach(offer => {
+    const action = offer.dataset.a;
+    const form = offer.querySelector('.confirm-form');
+    const okBtn = offer.querySelector('.ok');
+    const editBtn = offer.querySelector('.edit');
+
+    okBtn.addEventListener('click', async () => {
+      const d = await post('/api/inbox/' + it.id + '/action', { action }, okBtn, 'Записываю…');
+      if (d){ toast(d.detail || 'Готово'); applyResult(d); }
+    });
+
+    editBtn.addEventListener('click', () => {
+      const open = form.style.display !== 'none';
+      form.style.display = open ? 'none' : 'grid';
+      editBtn.textContent = open ? 'Изменить' : 'Свернуть';
+      if (!open) form.querySelector('input, select')?.focus();
+    });
+
+    // Пометка изменённых полей: правку видно до нажатия, а не только в истории.
+    form.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+      const changed = String(inp.value) !== String(inp.dataset.was || '');
+      inp.classList.toggle('dirty', changed);
+      const was = inp.closest('.fld').querySelector('.was');
+      was.style.display = changed ? 'block' : 'none';
+      was.textContent = changed
+        ? 'VELOR предлагал: ' + (inp.dataset.was || '(пусто)')
+        : '';
+    }));
+
+    form.querySelector('.cancel').addEventListener('click', () => {
+      form.querySelectorAll('input').forEach(inp => {
+        inp.value = inp.dataset.was || '';
+        inp.classList.remove('dirty');
+        inp.closest('.fld').querySelector('.was').style.display = 'none';
+      });
+      form.style.display = 'none';
+      editBtn.textContent = 'Изменить';
+    });
+
+    form.querySelector('.save').addEventListener('click', async ev => {
+      const data = {};
+      form.querySelectorAll('input, select').forEach(el => {
+        const v = String(el.value).trim();
+        if (v !== '') data[el.name] = v;
+      });
+      const d = await post('/api/inbox/' + it.id + '/action', { action, data },
+                           ev.currentTarget, 'Записываю…');
+      if (d){
+        const n = Object.keys(d.changes || {}).length;
+        toast((d.detail || 'Готово') + (n ? ' · с вашими правками' : ''));
+        applyResult(d);
+      }
+    });
+  });
 }
 
 async function download(it){
@@ -737,6 +939,28 @@ function closeModal(){
 }
 modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.classList.contains('on')) closeModal(); });
+
+function waitCard(box, it, attempt){
+  if (attempt > 6) return;
+  setTimeout(async () => {
+    const card = box.querySelector('.got-card');
+    if (!card || !card.classList.contains('processing')) return;   // уже показали
+    try{
+      const r = await fetch('/api/inbox/' + it.id);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (!d.result && d.item.status === 'PROCESSING'){
+        waitCard(box, it, attempt + 1);
+        return;
+      }
+      const shell = document.createElement('div');
+      shell.innerHTML = gotCard(d.item, d.result);
+      card.replaceWith(shell.firstElementChild);
+      wireGot(box, it);
+      load(true);
+    }catch{ /* связь пропала — карточка останется с кнопкой после обновления */ }
+  }, 900 + attempt * 700);
+}
 
 async function openItem(id){
   const body = document.getElementById('vBody');
@@ -776,6 +1000,8 @@ async function openItem(id){
     shell.innerHTML = gotCard(it, res);
     body.innerHTML = '';
     body.appendChild(shell.firstElementChild);
+    if (got.history && got.history.length)
+      body.insertAdjacentHTML('beforeend', storyHTML(got.history));
     wireGot(body, it);
 
     const view = document.createElement('div');

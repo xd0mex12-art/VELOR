@@ -37,6 +37,7 @@ import trial
 import identity
 import storage
 import understanding
+import entities
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -2888,6 +2889,20 @@ def _inbox_disposition(kind: str, filename: str) -> str:
             + "; filename*=UTF-8''" + quoted)
 
 
+def _actor(x_auth: str, bid: int):
+    """
+    Кто выполняет действие. Владелец VELOR может работать в панели компании —
+    и в истории должно быть видно, что правил не сам бизнес, а мы.
+    """
+    payload = _auth_payload(x_auth) or {}
+    role = payload.get("role")
+    if role == "business":
+        return "business", payload.get("bid") or bid
+    if role == "owner":
+        return "owner", None
+    return "business", bid
+
+
 def _inbox_understand(bid: int, item_id: int) -> None:
     """
     Запустить разбор материала.
@@ -2920,8 +2935,14 @@ def _understand_safely(bid: int, item_id: int) -> None:
             pass
 
 
-def _inbox_result_public(res: dict | None) -> dict | None:
-    """Разбор наружу: добавляем человеческие подписи, чтобы их не собирал фронт."""
+def _inbox_result_public(res: dict | None, item: dict | None = None) -> dict | None:
+    """
+    Разбор наружу: человеческие подписи и готовая форма подтверждения.
+
+    Форму собираем здесь, а не на фронте: описание полей живёт в entities.py,
+    и интерфейс не должен знать, из чего состоит расход или клиент. Добавили
+    новый вид записи — форма появилась сама.
+    """
     if not res:
         return None
     out = {k: res.get(k) for k in
@@ -2931,6 +2952,28 @@ def _inbox_result_public(res: dict | None) -> dict | None:
     out["type_ru"] = understanding.TYPE_RU.get(res.get("type"), "Не разобрал")
     out["level_ru"] = understanding.LEVEL_RU.get(res.get("level"), "низкая")
     out["needs"] = understanding.NEEDS_RU.get(res.get("level"), "нужно уточнение")
+
+    acts = []
+    for a in (res.get("suggested_actions") or []):
+        a = dict(a)
+        entity = understanding.ENTITY_BY_ACTION.get(a.get("action"))
+        if entity:
+            try:
+                sch = entities.schema(entity)
+            except entities.EntityError:
+                sch = None
+            if sch:
+                values = understanding.prefill(a["action"], res, item or {})
+                a["entity"] = entity
+                a["entity_title"] = sch["title"]
+                a["where"] = sch["where"]
+                a["fields"] = [dict(f, value=(values or {}).get(f["name"], ""))
+                               for f in sch["fields"]]
+        acts.append(a)
+    out["suggested_actions"] = acts
+    # Типы для случая «VELOR не понял, скажите сами» — тот же закрытый список.
+    out["types"] = [{"type": t, "title": understanding.TYPE_RU[t]}
+                    for t in understanding.TYPES if t != "UNKNOWN"]
     return out
 
 
@@ -2957,10 +3000,12 @@ def api_inbox_list(business_id: int = 0, status: str = "", archived: int = 0,
     # Разборы забираем одним запросом на всю страницу: иначе лента из тридцати
     # материалов сделала бы тридцать походов в базу.
     results = database.get_inbox_results(bid, [i["id"] for i in items])
+    decisions = database.count_inbox_decisions(bid, [i["id"] for i in items])
     out = []
     for i in items:
         row = _inbox_public(i)
-        row["result"] = _inbox_result_public(results.get(i["id"]))
+        row["result"] = _inbox_result_public(results.get(i["id"]), i)
+        row["decisions"] = decisions.get(i["id"], 0)
         out.append(row)
     return {
         "items": out,
@@ -2996,8 +3041,9 @@ def api_inbox_note(body: InboxNote, x_auth: str = Header(default="")):
         bid, kind="text", title=title, body=text,
         size=len(text.encode("utf-8")), source=body.source)
     _inbox_understand(bid, item_id)
-    item = _inbox_public(database.get_inbox_item(item_id, bid))
-    item["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id))
+    raw = database.get_inbox_item(item_id, bid)
+    item = _inbox_public(raw)
+    item["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id), raw)
     return {"ok": True, "item": item}
 
 
@@ -3051,8 +3097,9 @@ async def api_inbox_upload(files: list[UploadFile] = File(...),
             bid, kind="file", title=name, filename=name, mime=mime,
             size=len(data), storage_key=key, source=source)
         _inbox_understand(bid, item_id)
-        row = _inbox_public(database.get_inbox_item(item_id, bid))
-        row["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id))
+        raw = database.get_inbox_item(item_id, bid)
+        row = _inbox_public(raw)
+        row["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id), raw)
         saved.append(row)
 
     return {"ok": bool(saved), "saved": saved, "failed": failed}
@@ -3066,7 +3113,8 @@ def api_inbox_item(item_id: int, business_id: int = 0, x_auth: str = Header(defa
     if not item:
         raise HTTPException(status_code=404, detail="Материал не найден.")
     return {"item": _inbox_public(item),
-            "result": _inbox_result_public(database.get_inbox_result(bid, item_id))}
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id), item),
+            "history": database.list_inbox_decisions(bid, item_id)}
 
 
 @app.get("/api/inbox/{item_id}/file")
@@ -3133,13 +3181,25 @@ def api_inbox_process(item_id: int, business_id: int = 0, x_auth: str = Header(d
         logging.exception("Inbox: повторный разбор упал (biz %s, материал %s)", bid, item_id)
         database.set_inbox_status(item_id, bid, "FAILED", "Разбор не удался")
         raise HTTPException(status_code=502, detail="Не удалось разобрать материал.")
+    raw = database.get_inbox_item(item_id, bid)
     return {"ok": True,
-            "result": _inbox_result_public(database.get_inbox_result(bid, item_id)),
-            "item": _inbox_public(database.get_inbox_item(item_id, bid))}
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id), raw),
+            "item": _inbox_public(raw)}
 
 
 class InboxAction(BaseModel):
     action: str
+    data: dict | None = None      # значения из формы; нет — берём предложенные ИИ
+    business_id: int = 0
+
+
+class InboxDismiss(BaseModel):
+    reason: str = ""
+    business_id: int = 0
+
+
+class InboxClassify(BaseModel):
+    type: str
     business_id: int = 0
 
 
@@ -3165,22 +3225,121 @@ def api_inbox_action(item_id: int, body: InboxAction, x_auth: str = Header(defau
         # Выполнять можно только предложенное: иначе через этот эндпоинт можно
         # было бы провести любую операцию, сославшись на чужой разбор.
         raise HTTPException(status_code=400, detail="Такое действие для этого материала не предлагалось.")
+    item = database.get_inbox_item(item_id, bid)
+    # Что предлагал ИИ — фиксируем ДО выполнения: после создания записи узнать
+    # исходное предложение будет уже неоткуда.
+    proposed = understanding.prefill(body.action, res, item) or {}
     try:
-        detail = understanding.apply_action(bid, item_id, body.action, res, auto=False)
+        detail, entity, entity_id, used = understanding.apply_action(
+            bid, item_id, body.action, res, auto=False, data=body.data)
     except understanding.ActionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         logging.exception("Inbox: действие не выполнено (biz %s, материал %s)", bid, item_id)
         raise HTTPException(status_code=502, detail="Не удалось выполнить действие.")
 
+    changes = understanding.diff(proposed, used) if body.data is not None else {}
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_inbox_decision(
+        bid, item_id, "edited" if changes else "confirmed", result_id=res["id"],
+        action=body.action, entity_type=entity, entity_id=entity_id,
+        original=proposed, corrected=used, changes=changes,
+        actor=actor, actor_id=actor_id, note=detail)
+
     applied = list(res.get("applied") or [])
-    applied.append({"action": body.action, "auto": False, "detail": detail})
+    applied.append({"action": body.action, "auto": False, "detail": detail,
+                    "entity_type": entity, "entity_id": entity_id,
+                    "edited": bool(changes)})
     database.mark_result_applied(res["id"], bid, applied)
     if body.action != "ask_user":
         database.set_inbox_status(item_id, bid, "PROCESSED")
-    return {"ok": True, "detail": detail,
-            "result": _inbox_result_public(database.get_inbox_result(bid, item_id)),
-            "item": _inbox_public(database.get_inbox_item(item_id, bid))}
+    raw = database.get_inbox_item(item_id, bid)
+    return {"ok": True, "detail": detail, "entity_type": entity, "entity_id": entity_id,
+            "changes": changes,
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id), raw),
+            "item": _inbox_public(raw),
+            "history": database.list_inbox_decisions(bid, item_id)}
+
+
+@app.post("/api/inbox/{item_id}/dismiss")
+def api_inbox_dismiss(item_id: int, body: InboxDismiss, x_auth: str = Header(default="")):
+    """
+    «Не учитывать»: VELOR понял неправильно или материал не нужен.
+
+    Ничего не удаляем — ни материал, ни разбор. Отказ это тоже сведение о
+    качестве работы ИИ, и он должен остаться в истории.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    item = database.get_inbox_item(item_id, bid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    res = database.get_inbox_result(bid, item_id)
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_inbox_decision(
+        bid, item_id, "dismissed", result_id=(res or {}).get("id"),
+        original=(res or {}).get("extracted_data") or {},
+        actor=actor, actor_id=actor_id,
+        note=(body.reason or "").strip()[:300] or "Отклонено владельцем")
+    database.set_inbox_status(item_id, bid, "PROCESSED")
+    raw = database.get_inbox_item(item_id, bid)
+    return {"ok": True,
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id), raw),
+            "item": _inbox_public(raw),
+            "history": database.list_inbox_decisions(bid, item_id)}
+
+
+@app.post("/api/inbox/{item_id}/classify")
+def api_inbox_classify(item_id: int, body: InboxClassify, x_auth: str = Header(default="")):
+    """
+    «Уточнить»: при низкой уверенности человек сам говорит, что это.
+
+    Ответ человека — не догадка, поэтому уверенность становится полной, а
+    прошлый разбор ИИ сохраняется рядом: по паре «что решил ИИ / что сказал
+    человек» и видно, где модель ошибается.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    item = database.get_inbox_item(item_id, bid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    kind = (body.type or "").strip().upper()
+    if kind not in understanding.TYPES or kind == "UNKNOWN":
+        raise HTTPException(status_code=400, detail="Неизвестный вид материала.")
+
+    was = database.get_inbox_result(bid, item_id) or {}
+    extracted = dict(was.get("extracted_data") or {})
+    result = {
+        "type": kind, "confidence": 1.0, "level": "HIGH",
+        "summary": understanding.TYPE_RU[kind] + " — определил владелец",
+        "extracted_data": extracted,
+        "suggested_actions": understanding.suggest(kind, extracted),
+        "engine": "human", "model": None, "error": None, "applied": [],
+    }
+    database.save_inbox_result(bid, item_id, result)
+    database.set_inbox_status(item_id, bid, "NEEDS_REVIEW")
+    actor, actor_id = _actor(x_auth, bid)
+    database.add_inbox_decision(
+        bid, item_id, "classified", result_id=was.get("id"),
+        original={"type": was.get("type")}, corrected={"type": kind},
+        changes=understanding.diff({"type": was.get("type")}, {"type": kind}),
+        actor=actor, actor_id=actor_id,
+        note="Владелец уточнил: " + understanding.TYPE_RU[kind])
+    raw = database.get_inbox_item(item_id, bid)
+    return {"ok": True,
+            "result": _inbox_result_public(database.get_inbox_result(bid, item_id), raw),
+            "item": _inbox_public(raw),
+            "history": database.list_inbox_decisions(bid, item_id)}
+
+
+@app.get("/api/inbox/{item_id}/history")
+def api_inbox_history(item_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """История решений по материалу: кто, когда, что подтвердил и что исправил."""
+    bid = _resolve_bid(x_auth, business_id)
+    if not database.get_inbox_item(item_id, bid):
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    return {"history": database.list_inbox_decisions(bid, item_id),
+            "stats": database.inbox_correction_stats(bid)}
 
 
 @app.post("/api/inbox/{item_id}/archive")

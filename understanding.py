@@ -84,11 +84,28 @@ def level_of(confidence: float) -> str:
 ACTIONS = {
     "create_expense":  {"title": "Записать расход",         "safe": False, "auto": False},
     "create_income":   {"title": "Записать доход",          "safe": False, "auto": False},
+    "create_client":   {"title": "Завести клиента",         "safe": True,  "auto": False},
+    "create_order":    {"title": "Создать заявку",          "safe": False, "auto": False},
     "add_price_list":  {"title": "Добавить в прайс",        "safe": True,  "auto": True},
     "add_services":    {"title": "Добавить в услуги",       "safe": True,  "auto": True},
     "add_rules":       {"title": "Добавить в правила",      "safe": True,  "auto": True},
+    "add_goal":        {"title": "Поставить цель",          "safe": True,  "auto": False},
     "save_document":   {"title": "Сохранить в базу знаний", "safe": True,  "auto": False},
     "ask_user":        {"title": "Уточнить у владельца",    "safe": True,  "auto": False},
+}
+
+# Какое действие какой вид записи создаёт. ask_user не создаёт ничего — это
+# признание, что решение за человеком, а не работа.
+ENTITY_BY_ACTION = {
+    "create_expense": "expense",
+    "create_income":  "income",
+    "create_client":  "client",
+    "create_order":   "order",
+    "add_price_list": "product",
+    "add_services":   "service",
+    "add_rules":      "rule",
+    "add_goal":       "goal",
+    "save_document":  "rule",
 }
 
 
@@ -528,9 +545,19 @@ def process(business_id, item_id):
     if AUTO_APPLY and result["level"] == "HIGH":
         for a in result["suggested_actions"]:
             if a["safe"] and a.get("auto"):
-                done = apply_action(business_id, item_id, a["action"], result, auto=True)
-                if done:
-                    applied.append({"action": a["action"], "auto": True, "detail": done})
+                try:
+                    text, entity, entity_id, clean = apply_action(
+                        business_id, item_id, a["action"], result, auto=True)
+                except ActionError:
+                    continue          # не смогли — просто оставим человеку
+                applied.append({"action": a["action"], "auto": True, "detail": text,
+                                "entity_type": entity, "entity_id": entity_id})
+                # Автоприменение — тоже решение, и в истории оно должно быть
+                # видно наравне с нажатиями человека.
+                database.add_inbox_decision(
+                    business_id, item_id, "auto", action=a["action"],
+                    entity_type=entity, entity_id=entity_id,
+                    original=clean, corrected=clean, actor="velor", note=text)
     result["applied"] = applied
 
     result_id = database.save_inbox_result(business_id, item_id, result)
@@ -559,6 +586,59 @@ def _summary_by_rules(kind_type, extracted, text):
     return name + ((" — " + ", ".join(bits)) if bits else ".")
 
 
+def prefill(action, result, item):
+    """
+    Чем заполнить форму подтверждения: что ИИ вытащил, разложенное по полям
+    конкретного вида записи. Это же значение считается «оригиналом ИИ» в
+    аудите — с ним потом сравнивают правки человека.
+    """
+    entity = ENTITY_BY_ACTION.get(action)
+    if not entity:
+        return None
+    data = dict((result or {}).get("extracted_data") or {})
+    title = ((item or {}).get("title") or (item or {}).get("filename") or "материал")[:120]
+    summary = ((result or {}).get("summary") or "")[:300]
+
+    out = {}
+    if entity in ("expense", "income"):
+        if data.get("amount"):
+            out["amount"] = data["amount"]
+        if data.get("category"):
+            out["category"] = data["category"]
+        out["note"] = summary or title
+    elif entity in ("product", "service", "rule"):
+        out["title"] = title
+        out["body"] = summary
+    elif entity == "client":
+        out["name"] = data.get("counterparty") or title
+        if data.get("phone"):
+            out["phone"] = data["phone"]
+        out["notes"] = summary
+    elif entity == "order":
+        out["text"] = summary or title
+        if data.get("amount"):
+            out["amount"] = data["amount"]
+        if data.get("phone"):
+            out["phone"] = data["phone"]
+        if data.get("date"):
+            out["date_wanted"] = data["date"]
+    elif entity == "goal":
+        out["title"] = title
+        if data.get("amount"):
+            out["target"] = data["amount"]
+    return {k: v for k, v in out.items() if v not in (None, "")}
+
+
+def diff(before, after):
+    """Что именно человек изменил: поле → {было, стало}. Пусто — не менял."""
+    changed = {}
+    for key in set(list((before or {}).keys()) + list((after or {}).keys())):
+        was, now = (before or {}).get(key), (after or {}).get(key)
+        if str(was if was is not None else "") != str(now if now is not None else ""):
+            changed[key] = {"was": was, "now": now}
+    return changed
+
+
 # ============================================================
 #  ВЫПОЛНЕНИЕ ПРЕДЛОЖЕННОГО ДЕЙСТВИЯ
 # ============================================================
@@ -567,13 +647,20 @@ class ActionError(Exception):
     """Действие выполнить нельзя — с объяснением для человека."""
 
 
-def apply_action(business_id, item_id, action, result=None, auto=False):
+def apply_action(business_id, item_id, action, result=None, auto=False, data=None):
     """
-    Выполнить одно предложенное действие. Возвращает строку с тем, что вышло.
+    Выполнить одно предложенное действие. Возвращает (текст, вид, id, значения).
 
     auto=True — вызвано самим VELOR. В этом режиме небезопасные действия
     запрещены жёстко, а не по совести вызывающего.
+
+    data — значения из формы подтверждения. Не передали — берём то, что
+    предложил ИИ. Создание в обоих случаях идёт через одну фабрику, поэтому
+    «подтвердил как есть» и «исправил и подтвердил» отличаются только тем,
+    что попадёт в аудит.
     """
+    import entities
+
     meta = ACTIONS.get(action)
     if not meta:
         raise ActionError("Неизвестное действие.")
@@ -586,34 +673,18 @@ def apply_action(business_id, item_id, action, result=None, auto=False):
     item = database.get_inbox_item(item_id, business_id)
     if not item:
         raise ActionError("Материал не найден.")
-    data = res.get("extracted_data") or {}
-    title = (item.get("title") or item.get("filename") or "материал")[:120]
-
-    if action in ("create_expense", "create_income"):
-        amount = data.get("amount")
-        if not amount:
-            raise ActionError("В материале нет суммы — записывать нечего.")
-        kind = "income" if action == "create_income" else "expense"
-        note = (res.get("summary") or title)[:160]
-        database.add_finance_entry(business_id, kind, data.get("category") or "без категории",
-                                   int(amount), note)
-        return f"{'Доход' if kind == 'income' else 'Расход'} {int(amount)} записан в финансы"
-
-    if action in ("add_price_list", "add_services", "add_rules"):
-        kind = {"add_price_list": "product", "add_services": "service",
-                "add_rules": "rule"}[action]
-        body = (res.get("summary") or "")[:2000]
-        database.add_fact(business_id, kind, title, body)
-        return "Добавлено в память бизнеса"
-
-    if action == "save_document":
-        # Текст уже в материале; в базу знаний кладём выжимку, а не файл —
-        # оригинал остаётся во входящих и никуда не девается.
-        database.add_fact(business_id, "rule", title, (res.get("summary") or "")[:2000])
-        return "Сохранено в базу знаний"
 
     if action == "ask_user":
         database.set_inbox_status(item_id, business_id, "NEEDS_REVIEW")
-        return "Отмечено: нужен ваш взгляд"
+        return "Отмечено: нужен ваш взгляд", None, None, {}
 
-    raise ActionError("Действие пока не поддержано.")
+    entity = ENTITY_BY_ACTION.get(action)
+    if not entity:
+        raise ActionError("Действие пока не поддержано.")
+
+    values = data if data is not None else prefill(action, res, item)
+    try:
+        entity_id, text, clean = entities.create(business_id, entity, values or {})
+    except entities.EntityError as e:
+        raise ActionError(str(e))
+    return text, entity, entity_id, clean
