@@ -3,273 +3,400 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VELOR — Память компании</title>
+<title>VELOR AI — База знаний</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd;
-    --iris:#8052ff; --verdant:#2fd4b2; --hairline:rgba(255,255,255,.08); }
+  /* Документы = память сотрудника. Экран отвечает на один вопрос: чего он ещё
+     не знает о вашем бизнесе. Поэтому наверху — насколько память заполнена,
+     а дальше сами знания, которые можно править прямо здесь, не уходя в
+     настройки и не открывая системных окошек поверх страницы. */
   *{ margin:0; padding:0; box-sizing:border-box; }
-  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
-  a{ color:inherit; text-decoration:none; }
+  a{ text-decoration:none; color:inherit; }
   button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
   #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
 
-  nav{ position:fixed; top:0; left:0; right:0; z-index:50; display:flex; align-items:center; justify-content:space-between;
-    padding:20px 24px; background:linear-gradient(180deg,rgba(0,0,0,.9),transparent); }
-  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
-  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); border-left:1px solid var(--hairline); padding-left:9px; }
-  .nav-links{ display:flex; gap:22px; align-items:center; }
-  .ghost{ font-weight:400; font-size:14px; letter-spacing:.02em; color:var(--ash); background:none; border:none; transition:color .3s; }
-  .ghost:hover{ color:var(--bone); } .ghost.active{ color:var(--bone); }
-  @media(max-width:820px){ .nav-links .hideMob{ display:none; } }
+  body main{ padding-top:104px; padding-bottom:80px; }
+  section{ margin-bottom:var(--sp-10); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
 
-  main{ position:relative; z-index:1; max-width:1000px; margin:0 auto; padding:118px 24px 80px; }
-  .label{ font-weight:600; font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:#a99cff; }
-  h1{ font-weight:500; font-size:clamp(30px,4.4vw,48px); line-height:1.12; letter-spacing:-0.03em; margin:12px 0 8px; }
-  .sub{ color:var(--silver); margin-bottom:44px; max-width:600px; }
+  /* карточки памяти */
+  .mem{ display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4); }
+  .card{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-6); display:flex; flex-direction:column; }
+  .card.full{ grid-column:1/-1; }
+  .card > .ct{ font-weight:var(--fw-med); font-size:var(--fs-base); margin-bottom:var(--sp-4);
+    display:flex; align-items:center; gap:var(--sp-2); }
+  .card > .ct .n{ margin-left:auto; font-size:var(--fs-sm); color:var(--ash); font-weight:var(--fw-thin); }
+  .card .dot{ width:8px; height:8px; border-radius:50%; background:var(--lilac); flex:none; }
 
-  .sect{ font-weight:600; font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); margin:8px 0 16px; }
+  .kv{ display:flex; justify-content:space-between; gap:var(--sp-4); padding:var(--sp-2) 0;
+    border-bottom:1px solid var(--hairline); }
+  .kv:last-of-type{ border-bottom:none; }
+  .kv .k{ color:var(--ash); font-size:var(--fs-sm); }
+  .kv .v{ font-weight:var(--fw-reg); font-size:var(--fs-body); text-align:right; }
 
-  /* аналитика пользы */
-  .metrics{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:56px; }
-  @media(max-width:820px){ .metrics{ grid-template-columns:1fr 1fr; } }
-  .metric{ border:1px solid var(--hairline); border-radius:20px; padding:24px; background:rgba(255,255,255,.02); }
-  .metric .v{ font-weight:500; font-size:clamp(28px,4vw,40px); letter-spacing:-0.03em; }
-  .metric:nth-child(1) .v{ color:#c9bfff; }
-  .metric:nth-child(2) .v{ color:var(--verdant); }
-  .metric .l{ margin-top:8px; font-size:13px; color:var(--ash); }
+  .know{ white-space:pre-wrap; font-weight:var(--fw-thin); font-size:var(--fs-body);
+    line-height:1.6; color:var(--silver); max-height:300px; overflow:auto; }
+  .know-edit{ width:100%; min-height:200px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:14px 16px;
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin);
+    font-size:var(--fs-body); line-height:1.6; resize:vertical; display:none; }
+  .card .foot{ margin-top:auto; padding-top:var(--sp-4); display:flex; align-items:center;
+    gap:var(--sp-3); flex-wrap:wrap; }
+  .card .foot .sub{ font-size:var(--fs-sm); color:var(--ash); }
 
-  /* блоки памяти */
-  .mem{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px; }
-  @media(max-width:820px){ .mem{ grid-template-columns:1fr; } }
-  .card{ border:1px solid var(--hairline); border-radius:20px; padding:26px; background:rgba(255,255,255,.02); }
-  .card .ct{ font-weight:500; font-size:17px; margin-bottom:14px; display:flex; align-items:center; gap:9px; }
-  .card .dot{ width:8px; height:8px; border-radius:50%; background:#a99cff; }
-  .kv{ display:flex; justify-content:space-between; gap:16px; padding:9px 0; border-bottom:1px solid var(--hairline); }
-  .kv:last-child{ border-bottom:none; }
-  .kv .k{ color:var(--ash); font-size:14px; } .kv .v{ font-weight:400; font-size:15px; text-align:right; }
-  .know{ white-space:pre-wrap; font-weight:200; font-size:14.5px; line-height:1.6; color:var(--silver); max-height:340px; overflow:auto; }
-  .empty{ color:var(--ash); }
-  .empty a{ color:#a99cff; }
-  .full{ grid-column:1/-1; }
-  .edit{ display:inline-block; margin-top:16px; font-size:14px; color:#a99cff; }
-  .edit:hover{ color:#fff; }
-
-  /* документы */
-  .drop{ border:1px dashed rgba(255,255,255,.18); border-radius:16px; padding:22px; text-align:center; color:var(--ash);
-    transition:border-color .25s, background .25s; cursor:pointer; }
-  .drop:hover, .drop.over{ border-color:#a99cff; background:rgba(128,82,255,.06); color:var(--silver); }
-  .drop b{ color:#a99cff; font-weight:500; }
-  .doc{ display:flex; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--hairline); }
-  .doc:last-child{ border-bottom:none; }
-  .doc .fn{ font-size:15px; } .doc .meta{ font-size:13px; color:var(--ash); margin-left:auto; }
-  .doc .del{ background:none; border:none; color:var(--ash); font-size:20px; line-height:1; padding:2px 8px; transition:color .2s; }
-  .doc .del:hover{ color:#ff6b6b; }
-  .docHint{ font-size:13px; color:var(--ash); margin-top:12px; }
-
-  /* списки памяти: услуги, товары, правила, цели */
-  .item{ display:flex; align-items:flex-start; gap:12px; padding:12px 0; border-bottom:1px solid var(--hairline); }
+  /* списки фактов */
+  .item{ display:flex; align-items:flex-start; gap:var(--sp-3); padding:var(--sp-3) 0;
+    border-bottom:1px solid var(--hairline); min-height:48px; }
   .item:last-of-type{ border-bottom:none; }
   .item .txt{ flex:1; min-width:0; }
-  .item .t{ font-size:15px; font-weight:400; }
-  .item .b{ font-size:13.5px; color:var(--ash); margin-top:3px; white-space:pre-wrap; }
-  .item .act{ background:none; border:none; color:var(--ash); font-size:13px; padding:2px 6px; transition:color .2s; }
-  .item .act:hover{ color:#a99cff; }
-  .item .act.rm:hover{ color:#ff6b6b; }
-  .addRow{ display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; }
-  .addRow input{ flex:1; min-width:140px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    border-radius:12px; padding:10px 14px; color:var(--bone); font-family:inherit; font-weight:200; font-size:14.5px; }
+  .item .t{ font-size:var(--fs-body); font-weight:var(--fw-reg); }
+  .item .b{ font-size:var(--fs-sm); color:var(--ash); margin-top:3px; white-space:pre-wrap; }
+  .item .act{ width:44px; height:44px; flex:none; background:none; border:none; color:var(--ash);
+    border-radius:var(--r-sm); font-size:15px; line-height:1;
+    transition:color var(--dur-fast), background var(--dur-fast); }
+  .item .act:hover{ color:var(--lilac); background:var(--surface-2); }
+  .item .act.rm:hover{ color:var(--coral); background:rgba(255,107,107,.1); }
+  .item.editing{ background:var(--tint-iris); }
+  .item .edit-box{ flex:1; display:grid; gap:var(--sp-2); }
+  .item.confirm{ background:rgba(255,107,107,.07); }
+  .item .ask{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+  .item .ask span{ font-size:var(--fs-sm); color:var(--silver); }
+
+  .addRow{ display:flex; gap:var(--sp-2); margin-top:var(--sp-4); flex-wrap:wrap; }
+  .addRow input{ flex:1; min-width:140px; min-height:44px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:10px 14px;
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:var(--fs-body); }
   .addRow input.det{ flex:1.4; }
-  .addRow button{ border:none; border-radius:12px; background:var(--iris); color:#fff;
-    font-weight:600; font-size:12px; letter-spacing:.1em; text-transform:uppercase; padding:0 18px; min-height:40px; }
-  .know-edit{ width:100%; min-height:170px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    border-radius:14px; padding:14px 16px; color:var(--bone); font-family:inherit; font-weight:200;
-    font-size:14.5px; line-height:1.6; resize:vertical; display:none; }
+
+  /* документы */
+  .drop{ border:1px dashed var(--hairline-2); border-radius:var(--r-lg); padding:var(--sp-8) var(--sp-6);
+    text-align:center; color:var(--ash); font-size:var(--fs-body); cursor:pointer;
+    transition:border-color var(--dur), background var(--dur), color var(--dur); }
+  .drop:hover, .drop.over{ border-color:var(--lilac); background:var(--tint-iris); color:var(--silver); }
+  .drop b{ color:var(--lilac); font-weight:var(--fw-med); }
+  .doc{ display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) 0;
+    border-bottom:1px solid var(--hairline); min-height:48px; }
+  .doc:last-child{ border-bottom:none; }
+  .doc .fn{ font-size:var(--fs-body); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .doc .meta{ font-size:var(--fs-sm); color:var(--ash); margin-left:auto; white-space:nowrap; }
+  .doc .del{ width:44px; height:44px; flex:none; background:none; border:none; color:var(--ash);
+    font-size:20px; line-height:1; border-radius:var(--r-sm); transition:color var(--dur-fast), background var(--dur-fast); }
+  .doc .del:hover{ color:var(--coral); background:rgba(255,107,107,.1); }
+  .docHint{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-4); }
+
+  #toast{ position:fixed; bottom:var(--sp-8); left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone);
+    font-weight:var(--fw-reg); font-size:var(--fs-body); padding:14px 28px;
+    border-radius:var(--r-pill); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:820px){ .mem{ grid-template-columns:1fr; } }
+  @media(max-width:560px){ body main{ padding-top:92px; } }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
 <link rel="stylesheet" href="velor.css">
 </head>
-<body class="narrow">
+<body>
 <canvas id="ambientCanvas"></canvas>
 
-
 <main>
-  <span class="label">Core · Память компании</span>
-  <h1>Что знает ваш AI.</h1>
-  <p class="sub">Всё, что VELOR запомнил о вашем бизнесе, и сколько пользы он уже принёс. Чем полнее память — тем точнее сотрудник.</p>
-
-  <div class="sect">Польза VELOR</div>
-  <div class="metrics">
-    <div class="metric"><div class="v num" id="m-msgs">—</div><div class="l">Обращений обработано</div></div>
-    <div class="metric"><div class="v num" id="m-time">—</div><div class="l">Времени сэкономлено</div></div>
-    <div class="metric"><div class="v num" id="m-orders">—</div><div class="l">Заявок оформлено</div></div>
-    <div class="metric"><div class="v num" id="m-clients">—</div><div class="l">Клиентов в памяти</div></div>
-  </div>
-
-  <div class="sect">Память</div>
-  <div class="mem">
-    <div class="card">
-      <div class="ct"><span class="dot"></span>Профиль компании</div>
-      <div class="kv"><span class="k">Название</span><span class="v" id="p-name">—</span></div>
-      <div class="kv"><span class="k">Сфера</span><span class="v" id="p-about">—</span></div>
-      <div class="kv"><span class="k">Стиль общения</span><span class="v" id="p-tone">—</span></div>
-      <div class="kv"><span class="k">Клиентов в базе</span><span class="v num" id="p-clients">—</span></div>
-      <a class="edit" href="onboarding.html">Дообучить сотрудника →</a>
-    </div>
-    <div class="card">
-      <div class="ct"><span class="dot"></span>Knowledge · знания</div>
-      <div class="know" id="know">Загружаю…</div>
-      <textarea class="know-edit" id="knowEdit"></textarea>
-      <a class="edit" href="#" id="knowToggle">Редактировать →</a>
-    </div>
-
-    <div class="card" data-kind="service">
-      <div class="ct"><span class="dot"></span>Услуги</div>
-      <div class="list"></div>
-      <div class="addRow">
-        <input class="ttl" placeholder="Название услуги" maxlength="160">
-        <input class="det" placeholder="Цена, срок, условия" maxlength="2000">
-        <button type="button">Добавить</button>
+  <header class="v-head">
+    <div>
+      <h1>База знаний</h1>
+      <p class="v-lead">Всё, что VELOR знает о вашем деле: прайс, услуги, правила и файлы.
+        Чем полнее память — тем точнее сотрудник отвечает клиентам и тем реже
+        отправляет их «уточнить у менеджера».</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Читаю память…</span>
       </div>
     </div>
+    <div class="v-acts">
+      <button class="v-btn" type="button" id="uploadBtn">Загрузить документ</button>
+    </div>
+  </header>
 
-    <div class="card" data-kind="product">
-      <div class="ct"><span class="dot"></span>Товары</div>
-      <div class="list"></div>
-      <div class="addRow">
-        <input class="ttl" placeholder="Название товара" maxlength="160">
-        <input class="det" placeholder="Цена, наличие, описание" maxlength="2000">
-        <button type="button">Добавить</button>
+  <div id="failZone" role="alert"></div>
+
+  <!-- что сотрудник уже сделал: это и есть ответ «зачем всё это» -->
+  <section>
+    <h2 class="sec-h">Что сделал сотрудник</h2>
+    <div class="v-kpi" id="kpi" aria-live="polite">
+      <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-h">Память</h2>
+    <div class="mem">
+      <div class="card">
+        <div class="ct"><span class="dot"></span>Профиль компании</div>
+        <div class="kv"><span class="k">Название</span><span class="v" id="p-name">—</span></div>
+        <div class="kv"><span class="k">Сфера</span><span class="v" id="p-about">—</span></div>
+        <div class="kv"><span class="k">Стиль общения</span><span class="v" id="p-tone">—</span></div>
+        <div class="foot">
+          <a class="v-btn ghost sm" href="settings.html">Изменить профиль</a>
+          <span class="sub">влияет на каждый ответ клиенту</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="ct"><span class="dot"></span>Знания текстом <span class="n" id="know-n"></span></div>
+        <div class="know" id="know">Загружаю…</div>
+        <textarea class="know-edit" id="knowEdit" aria-label="Знания о бизнесе"></textarea>
+        <div class="foot">
+          <button class="v-btn ghost sm" type="button" id="knowToggle">Редактировать</button>
+          <button class="v-btn ghost sm" type="button" id="knowCancel" style="display:none">Отмена</button>
+          <span class="sub" id="knowHint">прайс, условия, частые вопросы</span>
+        </div>
+      </div>
+
+      <div class="card" data-kind="service">
+        <div class="ct"><span class="dot"></span>Услуги <span class="n"></span></div>
+        <div class="list"></div>
+        <div class="addRow">
+          <input class="ttl" placeholder="Название услуги" maxlength="160" aria-label="Название услуги">
+          <input class="det" placeholder="Цена, срок, условия" maxlength="2000" aria-label="Подробности услуги">
+          <button class="v-btn sm" type="button">Добавить</button>
+        </div>
+      </div>
+
+      <div class="card" data-kind="product">
+        <div class="ct"><span class="dot"></span>Товары <span class="n"></span></div>
+        <div class="list"></div>
+        <div class="addRow">
+          <input class="ttl" placeholder="Название товара" maxlength="160" aria-label="Название товара">
+          <input class="det" placeholder="Цена, наличие, описание" maxlength="2000" aria-label="Подробности товара">
+          <button class="v-btn sm" type="button">Добавить</button>
+        </div>
+      </div>
+
+      <div class="card" data-kind="rule">
+        <div class="ct"><span class="dot"></span>Правила работы <span class="n"></span></div>
+        <div class="list"></div>
+        <div class="addRow">
+          <input class="ttl" placeholder="Правило" maxlength="160" aria-label="Правило">
+          <input class="det" placeholder="Подробности" maxlength="2000" aria-label="Подробности правила">
+          <button class="v-btn sm" type="button">Добавить</button>
+        </div>
+      </div>
+
+      <div class="card" data-kind="goal">
+        <div class="ct"><span class="dot"></span>Цели бизнеса <span class="n"></span></div>
+        <div class="list"></div>
+        <div class="addRow">
+          <input class="ttl" placeholder="Цель" maxlength="160" aria-label="Цель">
+          <input class="det" placeholder="Срок и как поймём, что достигли" maxlength="2000" aria-label="Срок цели">
+          <button class="v-btn sm" type="button">Добавить</button>
+        </div>
+      </div>
+
+      <div class="card full">
+        <div class="ct"><span class="dot"></span>Документы компании <span class="n" id="doc-n"></span></div>
+        <div class="drop" id="drop">Перетащите файл сюда или <b>выберите</b> — PDF, DOCX или TXT.<br>
+          VELOR прочитает его и будет отвечать клиентам по нему.</div>
+        <input type="file" id="fileInput" accept=".pdf,.docx,.txt" hidden>
+        <div id="docs" style="margin-top:var(--sp-4)"></div>
+        <div class="docHint">Прайсы, инструкции, FAQ, договоры — до 8 МБ. Файл разбивается на
+          фрагменты, и ядро находит нужный кусок при ответе.</div>
       </div>
     </div>
-
-    <div class="card" data-kind="rule">
-      <div class="ct"><span class="dot"></span>Правила работы</div>
-      <div class="list"></div>
-      <div class="addRow">
-        <input class="ttl" placeholder="Правило" maxlength="160">
-        <input class="det" placeholder="Подробности" maxlength="2000">
-        <button type="button">Добавить</button>
-      </div>
-    </div>
-
-    <div class="card" data-kind="goal">
-      <div class="ct"><span class="dot"></span>Цели бизнеса</div>
-      <div class="list"></div>
-      <div class="addRow">
-        <input class="ttl" placeholder="Цель" maxlength="160">
-        <input class="det" placeholder="Срок и как поймём, что достигли" maxlength="2000">
-        <button type="button">Добавить</button>
-      </div>
-    </div>
-
-    <div class="card full">
-      <div class="ct"><span class="dot"></span>Клиенты</div>
-      <div class="kv"><span class="k">В базе</span><span class="v num" id="c-count">—</span></div>
-      <div class="kv"><span class="k">Последний</span><span class="v" id="c-last">—</span></div>
-      <a class="edit" href="clients.html">Открыть базу клиентов — там можно править и удалять →</a>
-    </div>
-    <div class="card full">
-      <div class="ct"><span class="dot"></span>Документы · файлы компании</div>
-      <div class="drop" id="drop">Перетащите файл сюда или <b>выберите</b> — PDF, DOCX или TXT.<br>VELOR прочитает и будет отвечать по нему.</div>
-      <input type="file" id="fileInput" accept=".pdf,.docx,.txt" hidden>
-      <div id="docs" style="margin-top:16px"></div>
-      <div class="docHint">Прайсы, инструкции, FAQ, договоры — до 8 МБ. Файл разбивается на фрагменты, ядро находит нужный при ответе.</div>
-    </div>
-  </div>
+  </section>
 </main>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
 <script src="core-live.js?v=10"></script>
 <script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
 const TONE = { professional:'Профессиональный', friendly:'Дружелюбный', strict:'Строгий' };
-function hours(mins){ if(!mins) return '0 мин'; if(mins<60) return mins+' мин'; return (mins/60).toFixed(mins<600?1:0)+' ч'; }
+function hours(mins){ if(!mins) return '0 мин'; if(mins < 60) return mins + ' мин'; return (mins/60).toFixed(mins < 600 ? 1 : 0) + ' ч'; }
 
-(async () => {
-  try{
-    const b = await (await fetch('/api/business')).json();
-    document.getElementById('p-name').textContent = b.name || '—';
-    document.getElementById('p-about').textContent = b.about || '—';
-    document.getElementById('p-tone').textContent = TONE[b.tone] || 'не задан';
-    const know = document.getElementById('know');
-    if (b.knowledge && b.knowledge.trim()){ know.textContent = b.knowledge; }
-    else { know.className='know empty'; know.innerHTML = 'AI ещё не обучен. <a href="onboarding.html">Пройдите обучение →</a>'; }
-  }catch{}
-  try{
-    const s = await (await fetch('/api/stats')).json();
-    document.getElementById('m-msgs').textContent = s.messages;
-    document.getElementById('m-time').textContent = hours(s.minutes_saved);
-    document.getElementById('m-orders').textContent = s.orders_done;
-    document.getElementById('m-clients').textContent = s.clients;
-    document.getElementById('p-clients').textContent = s.clients;
-  }catch{}
-  try{
-    const cl = await (await fetch('/api/clients')).json();
-    const arr = cl.clients || cl || [];
-    document.getElementById('c-count').textContent = arr.length;
-    document.getElementById('c-last').textContent = arr.length ? (arr[0].name || arr[0].chat_id || '—') : '—';
-  }catch{}
-  loadDocs();
-  loadFacts();
-})();
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3000);
+}
 
-// ── знания: правим прямо здесь, без похода в настройки ──
-const knowBox = document.getElementById('know');
-const knowEdit = document.getElementById('knowEdit');
-document.getElementById('knowToggle').addEventListener('click', async e => {
-  e.preventDefault();
-  const link = e.currentTarget;
+// сколько всего в памяти — считаем в одном месте, показываем в одном месте
+const memory = { knowledge: 0, facts: 0, docs: 0 };
+
+function paintState(unknown){
+  const box = document.getElementById('state');
+  // Если данные не пришли — честно «не знаю». Сказать «память пуста» там, где
+  // мы просто не смогли её прочитать, значит соврать владельцу.
+  if (unknown){
+    box.innerHTML = '<span class="v-badge bad"><i></i>Не смог прочитать память</span>' +
+      '<span>сервер не ответил — цифры ниже могут быть неполными</span>';
+    return;
+  }
+  const parts = [];
+  if (memory.knowledge) parts.push(memory.knowledge.toLocaleString('ru-RU') + ' ' +
+    plural(memory.knowledge, 'символ знаний', 'символа знаний', 'символов знаний'));
+  if (memory.facts) parts.push(memory.facts + ' ' + plural(memory.facts, 'запись', 'записи', 'записей'));
+  if (memory.docs) parts.push(memory.docs + ' ' + plural(memory.docs, 'документ', 'документа', 'документов'));
+
+  // «Достаточно» — это когда сотруднику есть на что опереться: связный текст
+  // о бизнесе либо разложенные по полочкам услуги, товары и правила.
+  const enough = memory.knowledge >= 400 || memory.facts >= 5 || memory.docs >= 1;
+  if (!parts.length){
+    box.innerHTML = '<span class="v-badge bad"><i></i>Память пуста</span>' +
+      '<span>сотрудник отвечает клиентам общими словами — начните с прайса и условий</span>';
+    return;
+  }
+  box.innerHTML = `<span class="v-badge ${enough ? 'good' : 'warn'}"><i></i>` +
+    `${enough ? 'Есть на что опереться' : 'Знает мало'}</span><span>${parts.join(' · ')}` +
+    `${enough ? '' : ' — этого хватит не на все вопросы клиентов'}</span>`;
+}
+
+function paintFail(msg){
+  document.getElementById('failZone').innerHTML = `
+    <div class="v-fail"><div><div class="t">Память не загрузилась</div>
+      <div class="d">${esc(msg)}</div></div>
+      <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => {
+    document.getElementById('failZone').innerHTML = ''; boot();
+  });
+}
+
+async function loadProfile(){
+  const r = await fetch('/api/business');
+  if (!r.ok) throw 0;
+  const b = await r.json();
+  document.getElementById('p-name').textContent  = b.name || 'не задано';
+  document.getElementById('p-about').textContent = b.about || 'не задана';
+  document.getElementById('p-tone').textContent  = TONE[b.tone] || 'не задан';
+  const know = document.getElementById('know');
+  const text = (b.knowledge || '').trim();
+  memory.knowledge = text.length;
+  document.getElementById('know-n').textContent = text ? text.length.toLocaleString('ru-RU') + ' симв.' : '';
+  if (text){ know.className = 'know'; know.textContent = text; }
+  else {
+    know.className = 'know v-empty';
+    know.innerHTML = '<strong>Пока пусто</strong>Напишите своими словами: что продаёте, ' +
+      'по каким ценам, как работает доставка. Это самая быстрая прибавка к качеству ответов.';
+  }
+}
+
+async function loadStats(){
+  const r = await fetch('/api/stats');
+  if (!r.ok) throw 0;
+  const s = await r.json();
+  document.getElementById('kpi').innerHTML = [
+    ['Обращений обработано', s.messages, s.messages ? 'вместо вас' : 'клиенты ещё не писали'],
+    ['Времени сэкономлено', hours(s.minutes_saved), '≈2 минуты на обращение'],
+    ['Заявок оформлено', s.orders_done, s.orders_total ? 'из ' + s.orders_total + ' всего' : 'заявок ещё нет'],
+    ['Клиентов в памяти', s.clients, s.clients ? 'сотрудник помнит каждого' : 'база пока пуста'],
+  ].map(([k, v, sub]) => `
+    <div class="v-kpi-card">
+      <div class="k">${k}</div>
+      <div class="v num">${typeof v === 'number' ? v.toLocaleString('ru-RU') : esc(v)}</div>
+      <div class="s">${esc(sub)}</div>
+    </div>`).join('');
+}
+
+// ── знания текстом: правим прямо здесь ──
+const knowBox    = document.getElementById('know');
+const knowEdit   = document.getElementById('knowEdit');
+const knowToggle = document.getElementById('knowToggle');
+const knowCancel = document.getElementById('knowCancel');
+const knowHint   = document.getElementById('knowHint');
+
+function knowMode(editing){
+  knowBox.style.display  = editing ? 'none' : '';
+  knowEdit.style.display = editing ? 'block' : 'none';
+  knowCancel.style.display = editing ? '' : 'none';
+  knowToggle.textContent = editing ? 'Сохранить' : 'Редактировать';
+  knowToggle.classList.toggle('ghost', !editing);
+  knowHint.textContent = editing
+    ? 'пишите свободным текстом — ядро разберётся'
+    : 'прайс, условия, частые вопросы';
+}
+
+knowToggle.addEventListener('click', async () => {
   if (knowEdit.style.display !== 'block'){
-    knowEdit.value = knowBox.classList.contains('empty') ? '' : knowBox.textContent;
-    knowBox.style.display = 'none'; knowEdit.style.display = 'block';
-    link.textContent = 'Сохранить';
-    knowEdit.focus();
+    knowEdit.value = knowBox.classList.contains('v-empty') ? '' : knowBox.textContent;
+    knowMode(true); knowEdit.focus();
     return;
   }
   const text = knowEdit.value.trim();
+  knowToggle.disabled = true; knowToggle.textContent = 'Сохраняю…';
   try{
     const r = await fetch('/api/business', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ knowledge: text })
     });
     if (!r.ok) throw 0;
-    knowBox.className = text ? 'know' : 'know empty';
-    knowBox.textContent = text || 'Знаний пока нет.';
-    knowEdit.style.display = 'none'; knowBox.style.display = '';
-    link.textContent = 'Редактировать →';
-  }catch{ alert('Не удалось сохранить'); }
+    memory.knowledge = text.length;
+    document.getElementById('know-n').textContent = text ? text.length.toLocaleString('ru-RU') + ' симв.' : '';
+    if (text){ knowBox.className = 'know'; knowBox.textContent = text; }
+    else {
+      knowBox.className = 'know v-empty';
+      knowBox.innerHTML = '<strong>Пока пусто</strong>Напишите своими словами: что продаёте, ' +
+        'по каким ценам, как работает доставка.';
+    }
+    knowMode(false); paintState(); toast('Знания сохранены');
+  }catch{ toast('Не сохранилось — проверьте связь с сервером'); }
+  knowToggle.disabled = false;
+  if (knowEdit.style.display === 'block') knowToggle.textContent = 'Сохранить';
 });
+knowCancel.addEventListener('click', () => knowMode(false));
 
 // ── услуги, товары, правила, цели ──
-function escq(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const KIND_EMPTY = {
+  service: ['Услуг пока нет', 'Добавьте то, что продаёте, с ценой и сроком — сотрудник будет называть их клиенту сам.'],
+  product: ['Товаров пока нет', 'Название, цена, наличие — этого достаточно, чтобы отвечать на «сколько стоит».'],
+  rule:    ['Правил пока нет', 'Например: «предоплата 50%», «доставка от 3000 бесплатно», «работаем 9:00–21:00».'],
+  goal:    ['Целей пока нет', 'Цель помогает AI-директору советовать по делу, а не вообще.'],
+};
 
 async function loadFacts(){
-  let facts = [];
-  try{ facts = (await (await fetch('/api/facts')).json()).facts || []; }catch{}
+  const r = await fetch('/api/facts');
+  if (!r.ok) throw 0;
+  const facts = (await r.json()).facts || [];
+  memory.facts = facts.length;
   document.querySelectorAll('.card[data-kind]').forEach(card => {
     const mine = facts.filter(f => f.kind === card.dataset.kind);
-    card.querySelector('.list').innerHTML = mine.length ? mine.map(f => `
-      <div class="item" data-id="${f.id}">
-        <div class="txt">
-          <div class="t">${escq(f.title)}</div>
-          ${f.body ? `<div class="b">${escq(f.body)}</div>` : ''}
-        </div>
-        <button class="act ed" type="button">правка</button>
-        <button class="act rm" type="button">удалить</button>
-      </div>`).join('')
-      : '<div class="empty" style="font-size:14px">Пока пусто — добавьте первую запись ниже.</div>';
+    card.querySelector('.ct .n').textContent = mine.length || '';
+    const [head, body] = KIND_EMPTY[card.dataset.kind];
+    card.querySelector('.list').innerHTML = mine.length
+      ? mine.map(f => `
+        <div class="item" data-id="${f.id}">
+          <div class="txt">
+            <div class="t">${esc(f.title)}</div>
+            ${f.body ? `<div class="b">${esc(f.body)}</div>` : ''}
+          </div>
+          <button class="act ed" type="button" aria-label="Изменить «${esc(f.title)}»">✎</button>
+          <button class="act rm" type="button" aria-label="Удалить «${esc(f.title)}»">×</button>
+        </div>`).join('')
+      : `<div class="v-empty"><strong>${head}</strong>${body}</div>`;
   });
 }
 
 document.querySelectorAll('.card[data-kind]').forEach(card => {
   const kind = card.dataset.kind;
   const ttl = card.querySelector('.ttl'), det = card.querySelector('.det');
+  const addBtn = card.querySelector('.addRow button');
 
   const add = async () => {
     const title = ttl.value.trim();
-    if (!title){ ttl.focus(); return; }
+    if (!title){ toast('Впишите название'); ttl.focus(); return; }
+    addBtn.disabled = true;
     try{
       const r = await fetch('/api/facts', {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -277,53 +404,98 @@ document.querySelectorAll('.card[data-kind]').forEach(card => {
       });
       if (!r.ok) throw 0;
       ttl.value = ''; det.value = '';
-      await loadFacts();
-    }catch{ alert('Не удалось добавить'); }
+      await loadFacts(); paintState(); toast('Добавлено в память');
+    }catch{ toast('Не добавилось — проверьте связь с сервером'); }
+    addBtn.disabled = false;
   };
-  card.querySelector('.addRow button').addEventListener('click', add);
+  addBtn.addEventListener('click', add);
   [ttl, det].forEach(i => i.addEventListener('keydown', e => { if (e.key === 'Enter') add(); }));
 
+  // Правка и удаление живут в самой строке: системные prompt/confirm выбрасывали
+  // человека из интерфейса и теряли всё, что он успел написать.
   card.querySelector('.list').addEventListener('click', async e => {
-    const row = e.target.closest('.item');
-    if (!row) return;
+    const row = e.target.closest('.item'); if (!row) return;
     const id = row.dataset.id;
 
-    if (e.target.classList.contains('rm')){
-      if (!confirm('Удалить «' + row.querySelector('.t').textContent + '» из памяти?')) return;
-      await fetch('/api/facts/' + id + '/delete', { method:'POST' });
-      await loadFacts();
+    if (e.target.closest('.rm')){
+      if (row.classList.contains('confirm')) return;
+      row.classList.add('confirm');
+      row.querySelector('.txt').insertAdjacentHTML('afterend',
+        `<div class="ask"><span>Удалить?</span>
+          <button class="v-btn danger sm yes" type="button">Удалить</button>
+          <button class="v-btn ghost sm no" type="button">Отмена</button></div>`);
+      row.querySelectorAll('.act').forEach(a => a.style.display = 'none');
       return;
     }
-    if (e.target.classList.contains('ed')){
-      const title = prompt('Название', row.querySelector('.t').textContent);
-      if (title === null || !title.trim()) return;
+    if (e.target.closest('.no')){
+      row.classList.remove('confirm');
+      row.querySelector('.ask').remove();
+      row.querySelectorAll('.act').forEach(a => a.style.display = '');
+      return;
+    }
+    if (e.target.closest('.yes')){
+      e.target.disabled = true;
+      try{
+        const r = await fetch('/api/facts/' + id + '/delete', { method:'POST' });
+        if (!r.ok) throw 0;
+        await loadFacts(); paintState(); toast('Удалено из памяти');
+      }catch{ toast('Не удалилось'); e.target.disabled = false; }
+      return;
+    }
+    if (e.target.closest('.ed')){
+      if (row.classList.contains('editing')) return;
+      const title = row.querySelector('.t').textContent;
       const bodyEl = row.querySelector('.b');
-      const body = prompt('Подробности', bodyEl ? bodyEl.textContent : '');
-      if (body === null) return;
-      await fetch('/api/facts/' + id, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ kind, title: title.trim(), body: body.trim() })
+      const body = bodyEl ? bodyEl.textContent : '';
+      row.classList.add('editing');
+      row.innerHTML = `
+        <div class="edit-box">
+          <input class="e-ttl" maxlength="160" value="${esc(title)}" aria-label="Название">
+          <input class="e-det" maxlength="2000" value="${esc(body)}" placeholder="Подробности" aria-label="Подробности">
+          <div class="ask">
+            <button class="v-btn sm save" type="button">Сохранить</button>
+            <button class="v-btn ghost sm cancel" type="button">Отмена</button>
+          </div>
+        </div>`;
+      row.querySelector('.e-ttl').focus();
+      row.querySelector('.cancel').addEventListener('click', () => loadFacts());
+      row.querySelector('.save').addEventListener('click', async ev => {
+        const t = row.querySelector('.e-ttl').value.trim();
+        if (!t){ toast('Название не может быть пустым'); return; }
+        ev.currentTarget.disabled = true;
+        try{
+          const r = await fetch('/api/facts/' + id, {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ kind, title: t, body: row.querySelector('.e-det').value.trim() })
+          });
+          if (!r.ok) throw 0;
+          await loadFacts(); toast('Сохранено');
+        }catch{ toast('Не сохранилось'); ev.currentTarget.disabled = false; }
       });
-      await loadFacts();
     }
   });
 });
 
+// ── документы ──
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('fileInput');
+const DROP_TEXT = 'Перетащите файл сюда или <b>выберите</b> — PDF, DOCX или TXT.<br>' +
+  'VELOR прочитает его и будет отвечать клиентам по нему.';
 
 async function loadDocs(){
-  try{
-    const d = await (await fetch('/api/documents')).json();
-    const box = document.getElementById('docs');
-    const rows = d.documents || [];
-    box.innerHTML = rows.length ? rows.map(r => `
+  const r = await fetch('/api/documents');
+  if (!r.ok) throw 0;
+  const rows = (await r.json()).documents || [];
+  memory.docs = rows.length;
+  document.getElementById('doc-n').textContent = rows.length || '';
+  document.getElementById('docs').innerHTML = rows.length
+    ? rows.map(d => `
       <div class="doc">
-        <span class="fn">${r.filename||'документ'}</span>
-        <span class="meta">${r.chunks} фрагм.</span>
-        <button class="del" data-id="${r.id}" title="Удалить">×</button>
-      </div>`).join('') : '';
-  }catch{}
+        <span class="fn">${esc(d.filename || 'документ')}</span>
+        <span class="meta">${d.chunks} ${plural(d.chunks, 'фрагмент', 'фрагмента', 'фрагментов')}</span>
+        <button class="del" data-id="${d.id}" type="button" aria-label="Удалить «${esc(d.filename || 'документ')}»">×</button>
+      </div>`).join('')
+    : '';
 }
 
 async function upload(file){
@@ -331,23 +503,55 @@ async function upload(file){
   drop.textContent = 'Читаю «' + file.name + '»…';
   const fd = new FormData(); fd.append('file', file);
   try{
-    const d = await (await fetch('/api/documents/upload', {method:'POST', body:fd})).json();
-    if(d.ok) drop.innerHTML = 'Готово: <b>' + d.chunks + ' фрагментов</b> добавлено в знания.';
-    else drop.textContent = d.error || 'Не удалось загрузить файл.';
-  }catch{ drop.textContent = 'Ошибка загрузки — проверьте сервер.'; }
-  setTimeout(() => { drop.innerHTML = 'Перетащите файл сюда или <b>выберите</b> — PDF, DOCX или TXT.'; }, 3500);
-  loadDocs();
+    const r = await fetch('/api/documents/upload', {method:'POST', body:fd});
+    const d = await r.json();
+    if(r.ok && d.ok){
+      drop.innerHTML = 'Готово: <b>' + d.chunks + ' ' +
+        plural(d.chunks, 'фрагмент', 'фрагмента', 'фрагментов') + '</b> добавлено в знания.';
+    } else {
+      drop.textContent = d.error || 'Не удалось прочитать файл. Проверьте формат: PDF, DOCX или TXT.';
+    }
+  }catch{ drop.textContent = 'Файл не загрузился — проверьте связь с сервером.'; }
+  setTimeout(() => { drop.innerHTML = DROP_TEXT; }, 4000);
+  try{ await loadDocs(); paintState(); }catch{}
 }
 
+document.getElementById('uploadBtn').addEventListener('click', () => fileInput.click());
 drop.addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', e => upload(e.target.files[0]));
 drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
 drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('over'); upload(e.dataTransfer.files[0]); });
+
 document.getElementById('docs').addEventListener('click', async e => {
   const b = e.target.closest('.del'); if(!b) return;
-  try{ await fetch('/api/documents/'+b.dataset.id+'/delete', {method:'POST'}); loadDocs(); }catch{}
+  b.disabled = true;
+  try{
+    const r = await fetch('/api/documents/' + b.dataset.id + '/delete', {method:'POST'});
+    if (!r.ok) throw 0;
+    await loadDocs(); paintState(); toast('Документ удалён из памяти');
+  }catch{ toast('Не удалилось'); b.disabled = false; }
 });
+
+async function boot(){
+  const jobs = [
+    ['профиль компании', loadProfile],
+    ['статистику', loadStats],
+    ['записи памяти', loadFacts],
+    ['документы', loadDocs],
+  ];
+  const broken = [];
+  for (const [name, fn] of jobs){
+    try{ await fn(); }catch{ broken.push(name); }
+  }
+  paintState(broken.length === jobs.length);
+  if (broken.length){
+    paintFail(broken.length === jobs.length
+      ? 'Сервер не ответил ни на один запрос. Проверьте, что он запущен, и повторите.'
+      : 'Сервер не отдал ' + broken.join(', ') + '. Остальное на странице — настоящее.');
+  }
+}
+boot();
 </script>
 </body>
 </html>

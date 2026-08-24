@@ -762,16 +762,38 @@ def api_update_status(order_id: int, body: StatusIn, x_auth: str = Header(defaul
 # ---------- КЛИЕНТЫ (CRM) ----------
 
 @app.get("/api/clients")
-def api_clients(business_id: int = 0, q: str = "",
+def api_clients(business_id: int = 0, q: str = "", segment: str = "all",
                 limit: int = 50, offset: int = 0, x_auth: str = Header(default="")):
-    """Список клиентов бизнеса с поиском и постраничной загрузкой."""
+    """
+    Список клиентов бизнеса: поиск, срез базы и постраничная загрузка.
+
+    Кроме самих строк отдаём то, что владелец спрашивает у базы клиентов на
+    самом деле: сколько живых, сколько уснуло и какой средний чек. Все цифры
+    считаются по уже существующим заказам и сообщениям — ничего не выдумываем.
+    """
     bid = _resolve_bid(x_auth, business_id)
     query = q.strip() or None
+    segment = segment if segment in database.SEGMENTS else "all"
     limit = max(1, min(limit, 200))
-    items = database.list_clients(bid, query=query, limit=limit, offset=max(0, offset))
+    items = database.list_clients(bid, query=query, limit=limit,
+                                  offset=max(0, offset), segment=segment)
     stats = database.clients_overview(bid, query=query)
-    return {"items": items, "total": stats["total"],
-            "with_phone": stats["with_phone"], "orders_total": stats["orders_total"]}
+    shown = database.count_segment(bid, query=query, segment=segment)
+    orders = database.orders_overview(bid)
+    paid = orders["with_amount"]
+    return {
+        "items": items,
+        "total": shown,                 # сколько в текущем срезе — для «показать ещё»
+        "segment": segment,
+        "all_total": stats["total"],    # вся база, независимо от среза
+        "with_phone": stats["with_phone"],
+        "orders_total": stats["orders_total"],
+        "active": database.active_clients(bid),
+        "sleeping": database.count_segment(bid, segment="sleeping"),
+        "new30": database.count_segment(bid, segment="new"),
+        "avg_check": round(orders["turnover"] / paid) if paid else 0,
+        "sleeping_days": database.SLEEPING_DAYS,
+    }
 
 
 @app.get("/api/clients/{client_id}/orders")
@@ -948,6 +970,159 @@ def api_stats(business_id: int = 0, x_auth: str = Header(default="")):
 
 # ---------- ГЛАВНАЯ: всё одним запросом ----------
 
+def _slot(text, note="", href="", kind=""):
+    """Одна мысль VELOR для главной: что сказать, почему и куда вести."""
+    text = (text or "").strip()
+    return {"text": text, "note": (note or "").strip(), "href": href, "kind": kind} if text else None
+
+
+def _velor_says(bid, sig, totals, risks, opps, advice, business):
+    """
+    Четыре слота блока «Что говорит VELOR»: наблюдение, проблема, рекомендация,
+    возможность.
+
+    Ни одного обращения к ИИ: берём то, что уже посчитано (тренды) и уже
+    сохранено (риски, совет директора, дневник). Главная обязана открываться
+    мгновенно, а мысль на ней — быть той же, что и в разделах, иначе владелец
+    видит два разных мнения об одном бизнесе.
+
+    Слоты не повторяются: одна и та же фраза не займёт два места — вместо
+    дубля берём следующую по важности.
+    """
+    cur, ch = sig["current"], sig["change"]
+    used = set()
+
+    def take(slot):
+        if not slot:
+            return None
+        key = slot["text"].strip().lower()
+        if key in used:
+            return None
+        used.add(key)
+        return slot
+
+    # ── проблема: первым делом то, что уже признано риском ──
+    problem = take(_slot(risks[0]["title"], risks[0]["why"], "risks.html", "риск")) if risks else None
+    if not problem:
+        money = signals.top_insight(bid)          # живое денежное следствие, без ИИ
+        problem = take(_slot(money["text"], money["note"], money["href"], "финансы")) if money else None
+    if not problem and sig["stale_orders"]:
+        problem = take(_slot(
+            f"Заявки ждут ответа: {sig['stale_orders']}",
+            "Висят дольше трёх дней. Каждый день ожидания — клиент, который уходит к другим.",
+            "orders.html", "заявки"))
+
+    # ── наблюдение: факт о бизнесе, а не оценка. Сначала деньги, потом спрос ──
+    observation = None
+    for slot in (
+        _slot(f"Прибыль за 30 дней: {cur['profit']:,} ₽".replace(",", " "),
+              f"Доход {cur['income']:,} ₽, расход {cur['expense']:,} ₽.".replace(",", " ")
+              + (f" К прошлому месяцу {ch['profit']:+d}%." if ch.get("profit") is not None else
+                 " Сравнить пока не с чем — это первый месяц данных."),
+              "finance.html", "деньги") if (cur["income"] or cur["expense"]) else None,
+        _slot(f"Заявок за 30 дней: {cur['orders']}",
+              f"Всего в работе {totals['total']}, из них новых {totals['new']}."
+              + (f" К прошлому месяцу {ch['orders']:+d}%." if ch.get("orders") is not None else ""),
+              "orders.html", "спрос") if cur["orders"] else None,
+        _slot(f"Обращений от клиентов: {cur['messages']}",
+              "Столько раз к вам написали за 30 дней — на все ответил VELOR.",
+              "clients.html", "спрос") if cur["messages"] else None,
+        # Данных за месяц нет вовсе — говорим об этом прямо, а не показываем ноль
+        # как достижение. Ноль в красивой рамке выглядит как сломанный экран.
+        _slot("Данных за последний месяц пока нет",
+              f"В базе {database._plural(totals['total'], 'заявка', 'заявки', 'заявок')}"
+              " — движения за 30 дней не было. Как только появится, я начну считать тренды."
+              if totals["total"] else
+              "Ни заявок, ни обращений, ни денег. Наполните VELOR — и я начну считать за вас.",
+              "orders.html" if totals["total"] else "guide.html", "старт"),
+    ):
+        observation = take(slot)
+        if observation:
+            break
+
+    # ── рекомендация: что сделать. Совет директора старше дневника ──
+    recommendation = None
+    board = database.list_board_recs(bid, limit=1)
+    if board:
+        recommendation = take(_slot(board[0]["problem"], board[0].get("effect") or board[0].get("why") or "",
+                                    "board.html", "совет директора"))
+    if not recommendation and advice:
+        recommendation = take(_slot(advice, "Вывод из вчерашнего дневника.", "journal.html", "дневник"))
+    if not recommendation and totals["new"]:
+        recommendation = take(_slot(
+            f"Разберите {database._plural(totals['new'], 'новую заявку', 'новые заявки', 'новых заявок')}",
+            "Пока заявка не в работе, она не приносит денег.", "orders.html", "заявки"))
+    if not recommendation and not (business.get("knowledge") or "").strip():
+        recommendation = take(_slot(
+            "Расскажите VELOR о компании",
+            "Пока база знаний пуста, сотрудник отвечает клиентам общими словами.",
+            "memory.html", "настройка"))
+
+    opportunity = take(_slot(opps[0]["title"], opps[0]["why"], "opportunities.html",
+                             "возможность")) if opps else None
+
+    return {"observation": observation, "problem": problem,
+            "recommendation": recommendation, "opportunity": opportunity}
+
+
+def _attention(bid, sig, totals, risks, business):
+    """
+    «Что требует внимания» — список дел, а не наблюдений. Каждая строка ведёт
+    туда, где её можно закрыть, и появляется только если действительно есть.
+    """
+    items = []
+
+    # _plural сам подставляет число, поэтому дописывать его отдельно нельзя.
+    if sig["stale_orders"]:
+        items.append({"title": database._plural(sig["stale_orders"], "заявка ждёт", "заявки ждут",
+                                                "заявок ждут") + " дольше трёх дней",
+                      "note": "Клиент считает, что о нём забыли.",
+                      "href": "orders.html", "level": "urgent"})
+
+    if totals["new"]:
+        items.append({"title": "Ждёт разбора: " + database._plural(
+            totals["new"], "новая заявка", "новые заявки", "новых заявок"),
+            "note": "Пока заявка не в работе, она не приносит денег.",
+            "href": "orders.html", "level": "warn"})
+
+    # Заказы без суммы — прямая дыра в обороте и среднем чеке.
+    no_amount = max(0, totals["total"] - totals.get("with_amount", totals["total"]))
+    if no_amount:
+        items.append({"title": "Без суммы: " + database._plural(
+            no_amount, "заявка", "заявки", "заявок"),
+            "note": "Пока сумма не проставлена, оборот и средний чек занижены.",
+            "href": "orders.html", "level": "info"})
+
+    # Источники, которые перестали отдавать данные.
+    try:
+        broken = [c for c in database.list_connections(bid) if c.get("status") == "error"]
+    except Exception:
+        broken = []
+    for c in broken[:2]:
+        items.append({"title": f"Источник «{c.get('provider')}» не отвечает",
+                      "note": (c.get("last_error") or "")[:160],
+                      "href": "integrations.html", "level": "warn"})
+
+    if len(risks) > 1:
+        items.append({"title": f"Рисков без решения: {len(risks)}",
+                      "note": "VELOR отметил их, но вы ещё не разобрали.",
+                      "href": "risks.html", "level": "warn"})
+
+    if not (business.get("knowledge") or "").strip():
+        items.append({"title": "База знаний пуста",
+                      "note": "Сотрудник отвечает клиентам общими словами, а не о вашем деле.",
+                      "href": "memory.html", "level": "info"})
+
+    if not business.get("tg_bot_token"):
+        items.append({"title": "Telegram-бот не подключён",
+                      "note": "Клиенты пока не могут написать вашему сотруднику.",
+                      "href": "guide.html", "level": "info"})
+
+    order = {"urgent": 0, "warn": 1, "info": 2}
+    items.sort(key=lambda i: order.get(i["level"], 3))
+    return items[:5]
+
+
 @app.get("/api/home")
 def api_home(business_id: int = 0, x_auth: str = Header(default="")):
     """
@@ -996,10 +1171,18 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
                      "ai_avatar": business.get("ai_avatar")},
         "focus": focus,
         "orders": {"new": totals["new"], "today": totals["today"],
-                   "total": totals["total"], "turnover": totals["turnover"]},
+                   "total": totals["total"], "turnover": totals["turnover"],
+                   "with_amount": totals["with_amount"],
+                   "change": sig["change"]["orders"]},
         "money": {"income": sig["current"]["income"], "profit": sig["current"]["profit"],
                   "income_change": sig["change"]["income"], "profit_change": sig["change"]["profit"]},
-        "clients": {"new": sig["current"]["clients"], "change": sig["change"]["clients"]},
+        "clients": {"new": sig["current"]["clients"], "change": sig["change"]["clients"],
+                    # «Активные» — те, кто писал или заказывал за 30 дней. Общее
+                    # число клиентов растёт вечно и владельцу ничего не говорит.
+                    "active": database.active_clients(bid), "total": database.count_clients(bid)},
+        "velor": _velor_says(bid, sig, totals, risks, opps, advice, business),
+        "attention": _attention(bid, sig, totals, risks, business),
+        "today": datetime.date.today().isoformat(),
         "forecast": signals.forecast(bid),   # прогноз на конец месяца (обновляется с расходами)
         "advice": advice,
         "advice_day": journal[0]["day"] if journal else None,

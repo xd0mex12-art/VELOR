@@ -25,6 +25,12 @@
   --iris:#8052ff; --lilac:#a99cff; --saffron:#ffb829; --verdant:#2fd4b2;
   --coral:#ff6b6b; --magenta:#ff4fd8;
   --iris-1:#8052ff; --iris-2:#5b6cff;           /* градиент бренда */
+  /* Светлые «чернила» бренда: текст поверх цветной подложки. Раньше эти
+     оттенки жили хексом внутри страниц, из-за чего один и тот же тег
+     «риск» отличался по цвету на разных вкладках. */
+  --ink-iris:#c1b3ff; --ink-coral:#ff9b9b; --ink-verdant:#7fe6d0;
+  --lilac-2:#c9bfff;                            /* акцент в заголовке */
+  --sheet:#0a0a0a;                              /* фон модального листа */
 
   /* поверхности и линии — одна лестница прозрачностей на весь кабинет */
   --surface:rgba(255,255,255,.022);             /* фон карточки */
@@ -207,6 +213,143 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
   color var(--dur), box-shadow var(--dur), transform var(--dur-fast); }
 
 @media(prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+
+/* ============================================================
+   СЛОЙ КОМПОНЕНТОВ VELOR — одна раскладка экрана на весь кабинет.
+   Аудит показал: каждая вкладка изобретала свой заголовок, свои карточки
+   цифр, свой пустой экран и свою ошибку — из-за этого кабинет читался как
+   набор отдельных страниц. Здесь описан скелет, общий для всех шести
+   разделов: заголовок → объяснение состояния → главное действие → контент,
+   и три состояния этого контента (загрузка, пусто, ошибка).
+   Классы с префиксом v- — общие. Уникальное для экрана остаётся в его <style>.
+   ============================================================ */
+
+/* — шапка экрана: кто я, что здесь сейчас, что можно сделать — */
+.v-head{ display:grid; grid-template-columns:1fr auto; align-items:end;
+  gap:var(--sp-4) var(--sp-6); margin-bottom:var(--sp-6); }
+.v-head h1{ margin:0; }
+.v-head .v-lead{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-base);
+  max-width:60ch; margin:var(--sp-3) 0 0; }
+.v-head .v-acts{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+@media(max-width:760px){
+  .v-head{ grid-template-columns:1fr; align-items:start; }
+  .v-head .v-acts{ width:100%; }
+  .v-head .v-acts > *{ flex:1 1 auto; justify-content:center; }
+}
+
+/* Строка состояния — экран отвечает на вопрос «а сейчас как?».
+   Не украшение: когда данных нет, здесь стоит причина, а не тире. */
+.v-state{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;
+  margin-top:var(--sp-4); font-size:var(--fs-body); font-weight:var(--fw-thin); color:var(--silver); }
+.v-state .v-badge{ display:inline-flex; align-items:center; gap:7px; font-weight:var(--fw-med);
+  font-size:var(--fs-body); padding:5px 12px; border-radius:var(--r-pill);
+  background:var(--surface-2); color:var(--silver); }
+.v-state .v-badge i{ width:8px; height:8px; border-radius:50%; background:currentColor; flex:none; }
+.v-badge.good{ color:var(--verdant); } .v-badge.warn{ color:var(--saffron); }
+.v-badge.bad{ color:var(--coral); } .v-badge.calm{ color:var(--lilac); }
+
+/* — кнопки: ровно две роли, чтобы главное действие читалось с первого взгляда — */
+.v-btn{ display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2);
+  min-height:48px; padding:12px 26px; border:1px solid transparent; border-radius:var(--r-pill);
+  background:var(--iris); color:#fff; font-family:inherit; font-weight:var(--fw-semi);
+  font-size:var(--fs-body); letter-spacing:.01em; cursor:pointer;
+  transition:filter var(--dur-fast), background var(--dur), border-color var(--dur), opacity var(--dur); }
+.v-btn:hover{ filter:brightness(1.12); }
+.v-btn:disabled{ opacity:.45; cursor:default; filter:none; }
+.v-btn.ghost{ background:var(--surface-2); border-color:var(--hairline-2); color:var(--silver); }
+.v-btn.ghost:hover{ background:var(--surface-3); color:var(--bone); filter:none; }
+.v-btn.sm{ min-height:40px; padding:9px 18px; font-size:var(--fs-sm); }
+.v-btn.danger{ background:transparent; border-color:rgba(255,107,107,.4); color:#ff9b9b; }
+.v-btn.danger:hover{ background:rgba(255,107,107,.12); filter:none; }
+
+/* — цифры экрана: одинаковая карточка везде, где есть KPI — */
+.v-kpi{ display:grid; grid-template-columns:repeat(4,1fr); gap:var(--sp-4); }
+.v-kpi.three{ grid-template-columns:repeat(3,1fr); }
+.v-kpi > *{ border:1px solid var(--hairline); border-radius:var(--r-lg); background:var(--surface);
+  padding:var(--sp-5) var(--sp-6); min-height:128px; display:flex; flex-direction:column;
+  transition:border-color var(--dur), background var(--dur); }
+a.v-kpi-card:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,255,.05); }
+/* скелет на месте карточки держит её высоту, но не рисует рамку раньше времени */
+.v-kpi > .v-sk{ border:none; padding:0; }
+.v-kpi .k{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--ash); }
+.v-kpi .v{ font-weight:var(--fw-reg); font-size:clamp(26px,2.7vw,34px); letter-spacing:-.03em;
+  line-height:1.05; margin-top:auto; font-variant-numeric:tabular-nums; }
+.v-kpi .s{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-2); }
+.v-kpi .s.up{ color:var(--verdant); } .v-kpi .s.down{ color:var(--coral); }
+@media(max-width:1000px){ .v-kpi, .v-kpi.three{ grid-template-columns:repeat(2,1fr); } }
+@media(max-width:560px){
+  .v-kpi, .v-kpi.three{ grid-template-columns:1fr; }
+  .v-kpi > *{ min-height:0; padding:var(--sp-4) var(--sp-5); }
+  .v-kpi .v{ margin-top:var(--sp-3); }
+}
+
+/* — панель со списком: заголовок-надпись + строки — */
+.v-panel{ border:1px solid var(--hairline); border-radius:var(--r-lg); background:var(--surface);
+  padding:var(--sp-5) var(--sp-6); }
+.v-panel > h2, .v-panel > .v-panel-h{ font-weight:var(--fw-semi); font-size:10px;
+  letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+  margin:0 0 var(--sp-4); display:flex; align-items:baseline; gap:var(--sp-2); }
+.v-panel > h2 .n, .v-panel > .v-panel-h .n{ color:var(--lilac); }
+
+/* Строка списка. Высота ≥44px — палец попадает без прицеливания. */
+.v-row{ display:flex; align-items:flex-start; gap:var(--sp-3); padding:var(--sp-3) 0;
+  border-bottom:1px solid var(--hairline); min-height:44px; }
+.v-row:last-child{ border-bottom:none; padding-bottom:0; }
+.v-row:first-of-type{ padding-top:0; }
+a.v-row:hover .t{ color:var(--bone); }
+.v-row .pin{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:7px; background:var(--iris); }
+.v-row .pin.urgent{ background:var(--coral); } .v-row .pin.warn{ background:var(--saffron); }
+.v-row .pin.info{ background:var(--lilac); } .v-row .pin.evt{ background:var(--verdant); }
+.v-row .body{ min-width:0; flex:1; }
+.v-row .t{ font-weight:var(--fw-reg); font-size:var(--fs-body); line-height:1.4; transition:color var(--dur-fast); }
+.v-row .d{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm); line-height:1.45;
+  margin-top:3px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.v-row .w{ color:var(--ash); font-size:var(--fs-caption); white-space:nowrap; padding-left:var(--sp-2);
+  font-variant-numeric:tabular-nums; }
+
+/* — пусто: не «нет данных», а что это значит и что сделать — */
+.v-empty{ padding:var(--sp-6) 0; color:var(--ash); font-weight:var(--fw-thin);
+  font-size:var(--fs-body); line-height:1.55; max-width:56ch; }
+.v-empty strong{ display:block; color:var(--bone); font-weight:var(--fw-reg);
+  font-size:var(--fs-base); margin-bottom:var(--sp-2); }
+.v-empty a{ color:var(--lilac); }
+.v-empty a:hover{ color:var(--bone); }
+
+/* — ошибка: видно, что случилось, и есть чем ответить — */
+.v-fail{ border:1px solid rgba(255,107,107,.35); background:rgba(255,107,107,.07);
+  border-radius:var(--r-lg); padding:var(--sp-5) var(--sp-6);
+  display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; margin-bottom:var(--sp-5); }
+.v-fail .t{ font-weight:var(--fw-med); font-size:var(--fs-base); }
+.v-fail .d{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-body); margin-top:4px; }
+.v-fail .v-btn{ margin-left:auto; }
+@media(max-width:560px){ .v-fail .v-btn{ margin-left:0; width:100%; } }
+
+/* — загрузка: место занято заранее, поэтому контент не прыгает — */
+.v-sk{ border-radius:var(--r-lg); min-height:128px;
+  background:linear-gradient(90deg,var(--surface),var(--surface-3),var(--surface));
+  background-size:200% 100%; animation:velorShimmer 1.4s linear infinite; }
+.v-sk.row{ min-height:64px; border-radius:var(--r-md); margin-bottom:var(--sp-3); }
+.v-sk.line{ min-height:18px; border-radius:var(--r-xs); margin-bottom:var(--sp-2); }
+.v-sk.panel{ min-height:210px; }
+
+/* — чипы-сегменты: смена среза одним касанием — */
+.v-segs{ display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+.v-seg{ min-height:40px; padding:9px 16px; border-radius:var(--r-pill); background:var(--surface-2);
+  border:1px solid var(--hairline); color:var(--silver); font-family:inherit;
+  font-weight:var(--fw-med); font-size:var(--fs-sm); cursor:pointer;
+  transition:background var(--dur), color var(--dur), border-color var(--dur); }
+.v-seg:hover{ color:var(--bone); background:var(--surface-3); }
+.v-seg[aria-pressed="true"]{ background:rgba(128,82,255,.20); border-color:transparent; color:var(--bone); }
+/* На телефоне мелкие цели промахиваются: доводим до пальца, а не до курсора. */
+@media(max-width:760px){
+  .v-seg{ min-height:44px; }
+  .v-btn.sm{ min-height:44px; padding:11px 20px; }
+}
+
+/* появление контента — один раз, обновления идут без прыжков */
+.v-in{ opacity:0; transform:translateY(10px); animation:velorIn .45s var(--ease) forwards; }
+@keyframes velorIn{ to{ opacity:1; transform:none } }
 
 /* ===== переходы между разделами =====
    Раньше здесь был кросс-документный кроссфейд (@view-transition: navigation:auto).

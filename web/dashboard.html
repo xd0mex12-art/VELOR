@@ -7,153 +7,100 @@
 <link href="vendor/inter.css" rel="stylesheet">
 <script src="vendor/three.min.js"></script>
 <style>
-  :root{
-    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd; --lilac:#a99cff;
-    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --coral:#ff6b6b; --magenta:#ff4fd8;
-    --hairline:rgba(255,255,255,.08);
-  }
+  /* Главная = утренний брифинг владельца: за 30 секунд видно состояние дел
+     и что делать. Порядок блоков — это порядок вопросов в голове:
+     «как я?» → «сколько денег?» → «что думает VELOR?» → «за что взяться?»
+     → «что изменилось без меня?». Всё остальное живёт в своих разделах. */
   *{ margin:0; padding:0; box-sizing:border-box; }
   a{ text-decoration:none; color:inherit; }
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
-  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:6px; }
+  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:var(--r-xs); }
   .num{ font-variant-numeric:tabular-nums; }
   #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
 
   body main{ padding-top:104px; padding-bottom:80px; }
+  section + section{ margin-top:var(--sp-6); }
 
-  /* ── шапка ── */
-  .top{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px;
-    flex-wrap:wrap; margin-bottom:26px; }
-  .hi{ font-weight:400; font-size:clamp(26px,3.4vw,42px); letter-spacing:-.035em; }
-  .hi b{ font-weight:500; color:#c9bfff; }
-  /* «отчёт за ночь» — тихая строка, дающая ощущение: VELOR уже поработал за меня */
-  .sub{ font-weight:200; font-size:16px; color:var(--silver); margin-top:10px;
-    line-height:1.5; max-width:680px; transition:opacity .35s ease; }
-  .pulse{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ash); }
+  /* ── шапка брифинга ── */
+  .head{ display:grid; grid-template-columns:1fr auto; align-items:start;
+    gap:var(--sp-4) var(--sp-6); margin-bottom:var(--sp-6); }
+  .head .pulse{ justify-content:flex-end; margin-bottom:var(--sp-3); }
+  @media(max-width:760px){
+    .head{ grid-template-columns:1fr; }
+    .head .pulse{ justify-content:flex-start; }
+    .head .v-acts > *{ flex:1 1 auto; justify-content:center; }
+  }
+  .head .date{ font-weight:400; font-size:var(--fs-sm); letter-spacing:.04em;
+    text-transform:lowercase; color:var(--ash); margin-bottom:var(--sp-2); }
+  .hi{ font-weight:400; font-size:clamp(26px,3.2vw,40px); letter-spacing:-.035em; line-height:1.1; }
+  .hi b{ font-weight:500; color:var(--lilac-2); }
+  /* Строка статуса — общий компонент .v-state; своим остаётся только хвост фактов. */
+  .v-state .tail{ color:var(--ash); font-size:var(--fs-body); }
+  .pulse{ display:flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); }
   .pulse .dot{ width:7px; height:7px; border-radius:50%; background:var(--verdant);
     box-shadow:0 0 9px rgba(47,212,178,.8); animation:breathe 3.6s ease-in-out infinite; }
-  /* «живой», но спокойный: медленное дыхание — знак, что VELOR на связи, без мигания */
   @keyframes breathe{ 0%,100%{ opacity:.55; transform:scale(.82) } 50%{ opacity:1; transform:scale(1.1) } }
 
-  /* ── ядро + герой-рекомендация: единый первый блок ── */
-  .prime{ display:grid; grid-template-columns:200px 1fr; gap:28px; align-items:stretch;
-    margin-bottom:16px; }
-  .core-wrap{ position:relative; display:flex; align-items:center; justify-content:center; }
-  .core-square{ position:relative; width:200px; aspect-ratio:1; }
+
+  /* ── «Что говорит VELOR» — интеллектуальное ядро экрана ── */
+  .says{ border:1px solid rgba(128,82,255,.28); border-radius:var(--r-xl);
+    background:linear-gradient(150deg,rgba(128,82,255,.13),rgba(91,108,255,.04) 55%,rgba(255,255,255,.015));
+    padding:var(--sp-6); }
+  .says-head{ display:flex; align-items:center; gap:var(--sp-4); margin-bottom:var(--sp-5); }
+  .core-square{ position:relative; width:76px; height:76px; flex:none; }
   #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important; }
+  .says-head h2{ font-weight:500; font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .says-head .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:200; margin-top:3px; }
 
-  /* герой — самая важная карточка, визуальный центр после ядра */
-  .hero{ position:relative; overflow:hidden; border-radius:28px; padding:34px 38px;
-    border:1px solid rgba(128,82,255,.3);
-    background:linear-gradient(150deg,rgba(128,82,255,.18),rgba(91,108,255,.06) 55%,rgba(255,255,255,.02));
-    display:flex; flex-direction:column; justify-content:center;
-    box-shadow:0 0 60px -20px rgba(128,82,255,.5); transition:border-color .3s, box-shadow .3s; }
-  a.hero:hover{ border-color:rgba(128,82,255,.55); box-shadow:0 0 90px -20px rgba(128,82,255,.7); }
-  .hero:before{ content:''; position:absolute; top:-40%; right:-10%; width:320px; height:320px;
-    background:radial-gradient(circle,rgba(128,82,255,.25),transparent 70%); pointer-events:none; }
-  .hero .h-k{ display:flex; align-items:center; gap:10px; font-weight:600; font-size:11px;
-    letter-spacing:.18em; text-transform:uppercase; color:var(--lilac); margin-bottom:16px; }
-  .hero .h-k .badge{ width:26px; height:26px; border-radius:8px; flex:none;
-    background:linear-gradient(150deg,#8052ff,#5b6cff); display:flex; align-items:center;
-    justify-content:center; font-weight:600; font-size:13px; color:#fff; }
-  .hero .h-text{ font-weight:400; font-size:clamp(23px,2.9vw,34px); letter-spacing:-.03em;
-    line-height:1.25; max-width:760px; }
-  .hero .h-note{ color:var(--silver); font-weight:200; font-size:16px; line-height:1.55;
-    margin-top:14px; max-width:680px;
-    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .hero .h-go{ margin-top:22px; align-self:flex-start; display:inline-flex; align-items:center; gap:8px;
-    font-weight:600; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#fff;
-    background:var(--iris); padding:13px 24px; border-radius:24px; min-height:44px;
-    transition:filter .3s; }
-  .hero .h-go:hover{ filter:brightness(1.18) drop-shadow(0 0 16px rgba(128,82,255,.6)); }
+  .slots{ display:grid; grid-template-columns:repeat(2,1fr); gap:var(--sp-3); }
+  .slot{ border:1px solid var(--hairline); border-radius:var(--r-lg); padding:var(--sp-5);
+    background:rgba(0,0,0,.28); display:flex; flex-direction:column; min-height:126px;
+    transition:border-color .25s, background .25s; }
+  a.slot:hover{ border-color:rgba(128,82,255,.4); background:rgba(0,0,0,.16); }
+  .slot .tag{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start;
+    font-weight:600; font-size:9.5px; letter-spacing:.15em; text-transform:uppercase;
+    padding:4px 10px; border-radius:var(--r-md); margin-bottom:var(--sp-3); }
+  .tag.obs{ background:rgba(255,255,255,.07); color:var(--silver); }
+  .tag.prob{ background:rgba(255,107,107,.16); color:var(--ink-coral); }
+  .tag.rec{ background:rgba(128,82,255,.18); color:var(--ink-iris); }
+  .tag.opp{ background:rgba(47,212,178,.14); color:var(--ink-verdant); }
+  .slot .line{ font-weight:400; font-size:var(--fs-lead); letter-spacing:-.02em; line-height:1.3; }
+  .slot .why{ color:var(--ash); font-weight:200; font-size:var(--fs-body); line-height:1.5;
+    margin-top:var(--sp-2);
+    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .slot.void{ background:transparent; border-style:dashed; border-color:rgba(255,255,255,.10); }
+  /* скелет слота повторяет его высоту точь-в-точь — иначе контент прыгнет */
+  .slots .v-sk{ min-height:126px; }
+  .slot.void .line{ font-size:var(--fs-body); color:var(--ash); font-weight:200; }
 
-  /* ── сетка карточек ── */
-  .grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
-  .card{ border:1px solid var(--hairline); border-radius:22px; padding:22px 24px;
-    background:rgba(255,255,255,.022); transition:border-color .25s, background .25s;
-    display:flex; flex-direction:column; min-height:132px; }
-  a.card:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,255,.05); }
-  .card .k{ font-weight:600; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash); }
-  .card .v{ font-weight:400; font-size:clamp(28px,3vw,38px); letter-spacing:-.03em; margin-top:auto;
-    line-height:1.05; }
-  .card .s{ font-size:13px; color:var(--ash); margin-top:8px; }
-  .card .s.up{ color:var(--verdant); } .card .s.down{ color:var(--coral); }
+  /* ── два списка внизу: дела и события ── */
+  .cols{ display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4); }
+  .more{ display:inline-flex; align-items:center; min-height:44px; margin-top:var(--sp-2);
+    color:var(--lilac); font-size:var(--fs-sm); }
+  /* пустое состояние внутри панели живёт плотнее, чем на весь экран */
+  .v-panel .v-empty{ padding:var(--sp-2) 0; }
 
-  .span2{ grid-column:span 2; } .span4{ grid-column:1/-1; }
-
-  /* состояние — с мини-кольцом */
-  .state-card{ flex-direction:row; align-items:center; gap:18px; }
-  .ring{ position:relative; flex:none; width:74px; height:74px; }
-  .ring svg{ width:100%; height:100%; transform:rotate(-90deg); }
-  .ring circle{ fill:none; stroke-width:8; stroke-linecap:round; }
-  .ring .bg{ stroke:rgba(255,255,255,.08); }
-  .ring .arc{ stroke:var(--arc,#8052ff); transition:stroke-dashoffset 1s cubic-bezier(.22,1,.36,1); }
-  .ring .mid{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
-    font-size:22px; font-weight:400; font-variant-numeric:tabular-nums; }
-  .state-card .st-side{ display:flex; flex-direction:column; }
-  .state-card .st-lvl{ font-weight:500; font-size:17px; letter-spacing:-.02em; }
-
-  /* карточки риск / возможность / совет */
-  .tag{ display:inline-block; font-weight:600; font-size:9.5px; letter-spacing:.15em;
-    text-transform:uppercase; padding:4px 10px; border-radius:14px; margin-bottom:12px; align-self:flex-start; }
-  .tag.risk{ background:rgba(255,107,107,.16); color:#ff9b9b; }
-  .tag.opp{ background:rgba(47,212,178,.14); color:#7fe6d0; }
-  .tag.board{ background:rgba(128,82,255,.16); color:#c1b3ff; }
-  .tag.calm{ background:rgba(255,255,255,.06); color:var(--ash); }
-  .card .line{ font-weight:400; font-size:19px; letter-spacing:-.02em; line-height:1.32; }
-  .card .why{ color:var(--ash); font-weight:200; font-size:14px; margin-top:9px; line-height:1.5;
-    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-
-  /* списки: действия / документы / события */
-  .card.list{ gap:0; }
-  .card.list .k{ margin-bottom:16px; }
-  .row{ display:flex; align-items:baseline; gap:12px; padding:11px 0;
-    border-bottom:1px solid var(--hairline); }
-  .row:last-child{ border-bottom:none; padding-bottom:0; }
-  .row .pin{ width:6px; height:6px; border-radius:50%; flex:none; transform:translateY(-2px);
-    background:var(--iris); }
-  .row .pin.doc{ background:var(--saffron); } .row .pin.evt{ background:var(--verdant); }
-  .row .t{ font-weight:200; font-size:15px; line-height:1.4; }
-  .row .d{ color:var(--ash); font-size:13px; }
-  .row .w{ margin-left:auto; color:var(--ash); font-size:12px; white-space:nowrap; padding-left:8px; }
-  .empty{ color:var(--ash); font-weight:200; font-size:14px; padding:6px 0 2px; }
-
-  .sk{ height:100%; min-height:132px; border-radius:22px;
-    background:linear-gradient(90deg,rgba(255,255,255,.03),rgba(255,255,255,.07),rgba(255,255,255,.03));
-    background-size:200% 100%; animation:shimmer 1.4s linear infinite; }
-  @keyframes shimmer{ from{ background-position:200% 0 } to{ background-position:-200% 0 } }
-
-  .card{ opacity:0; transform:translateY(10px); animation:cIn .5s cubic-bezier(.22,1,.36,1) forwards; }
-  @keyframes cIn{ to{ opacity:1; transform:none } }
-  /* обновлённая карточка живёт без входной анимации (иначе при каждом обновлении
-     был бы «прыжок»). Только мягкий вздох прозрачности + едва заметная ирисовая
-     линия — знак, что здесь стало свежее. Без сдвигов и вспышек. */
-  .card.live{ animation:none; opacity:1; transform:none; }
-  .card.refreshed{ box-shadow:inset 0 0 0 1px rgba(128,82,255,.16); }
+  footer{ position:relative; z-index:1; display:flex; justify-content:space-between; gap:var(--sp-5);
+    flex-wrap:wrap; max-width:1280px; margin:0 auto; padding:56px var(--sp-6) var(--sp-6); }
+  .caption{ font-weight:200; font-size:var(--fs-caption); color:var(--ash); }
 
   #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
     background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone); font-weight:400;
-    font-size:15px; padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none;
-    transition:opacity .3s, transform .3s; }
+    font-size:var(--fs-body); padding:14px 28px; border-radius:var(--r-xl); opacity:0;
+    pointer-events:none; transition:opacity .3s, transform .3s; }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
-  footer{ position:relative; z-index:1; display:flex; justify-content:space-between; gap:20px;
-    flex-wrap:wrap; max-width:1280px; margin:0 auto; padding:56px 24px 24px; }
-  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
-
   @media(max-width:1000px){
-    .grid{ grid-template-columns:repeat(2,1fr); }
-    .span4{ grid-column:1/-1; } .span2{ grid-column:span 2; }
+    .cols{ grid-template-columns:1fr; }
   }
   @media(max-width:720px){
-    .prime{ grid-template-columns:1fr; gap:18px; }
-    .core-square{ width:150px; margin:0 auto; }
-    .hero{ padding:26px 24px; }
+    .says{ padding:var(--sp-5); }
+    .slots{ grid-template-columns:1fr; }
+    .core-square{ width:60px; height:60px; }
   }
   @media(max-width:560px){
-    .grid{ grid-template-columns:1fr; }
-    .span2, .span4{ grid-column:1/-1; }
+    body main{ padding-top:92px; }
   }
   @media (prefers-reduced-motion: reduce){
     *{ animation:none !important; transition:none !important; }
@@ -166,30 +113,49 @@
 <canvas id="ambientCanvas"></canvas>
 
 <main>
-  <div class="top">
+  <!-- 1. Кто я, какой сегодня день, как дела -->
+  <header class="head">
     <div>
+      <p class="date" id="today">&nbsp;</p>
       <h1 class="hi" id="greeting">Обзор бизнеса, <b id="hiName">компания</b>.</h1>
-      <p class="sub" id="overnight">Пока вас не было, я приглядывал за делами.</p>
+      <p class="v-state" id="status"><span class="tail">Смотрю, что у вас происходит…</span></p>
     </div>
-    <div class="pulse"><span class="dot"></span><span id="pulse">сотрудник на связи</span></div>
-  </div>
+    <div>
+      <div class="pulse"><span class="dot"></span><span id="pulse">сотрудник на связи</span></div>
+      <div class="v-acts">
+        <a class="v-btn" href="home.html">Спросить VELOR</a>
+        <a class="v-btn ghost" href="timeline.html">Вся история</a>
+      </div>
+    </div>
+  </header>
 
   <div id="trialZone"></div>
+  <div id="failZone" role="alert"></div>
 
-  <!-- ядро + герой-рекомендация -->
-  <section class="prime">
-    <div class="core-wrap"><div class="core-square"><canvas id="coreCanvas"></canvas></div></div>
-    <a class="hero" id="hero" href="board.html" aria-label="Рекомендация AI">
-      <div class="h-k"><span class="badge" id="heroBadge">V</span> Рекомендация AI · сегодня важно</div>
-      <div class="h-text" id="heroText">Смотрю, что у вас происходит…</div>
-      <div class="h-note" id="heroNote"></div>
-      <span class="h-go" id="heroGo">Разобрать →</span>
-    </a>
+  <!-- 2. Деньги и люди -->
+  <section class="v-kpi" id="kpi" aria-label="Ключевые показатели" aria-live="polite">
+    <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
   </section>
 
-  <!-- сетка -->
-  <section class="grid" id="grid" aria-live="polite">
-    <div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div>
+  <!-- 3. Что об этом думает VELOR -->
+  <section class="says v-in" aria-labelledby="saysTitle">
+    <div class="says-head">
+      <div class="core-square"><canvas id="coreCanvas"></canvas></div>
+      <div>
+        <h2 id="saysTitle">Что говорит VELOR</h2>
+        <p class="sub" id="saysSub">Смотрю на ваши цифры…</p>
+      </div>
+    </div>
+    <div class="slots" id="slots" aria-live="polite">
+      <div class="v-sk"></div><div class="v-sk"></div>
+      <div class="v-sk"></div><div class="v-sk"></div>
+    </div>
+  </section>
+
+  <!-- 4. За что взяться и что изменилось -->
+  <section class="cols">
+    <div class="v-panel" id="attnPanel"><div class="v-sk panel"></div></div>
+    <div class="v-panel" id="actsPanel"><div class="v-sk panel"></div></div>
   </section>
 </main>
 
@@ -206,6 +172,14 @@
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
+const num   = n => (n || 0).toLocaleString('ru-RU');
+
+function plural(n, one, few, many){
+  const n10 = n % 10, n100 = n % 100;
+  if (n10 === 1 && n100 !== 11) return one;
+  if (n10 >= 2 && n10 <= 4 && !(n100 >= 12 && n100 <= 14)) return few;
+  return many;
+}
 
 let toastT;
 function toast(msg){
@@ -214,12 +188,19 @@ function toast(msg){
   clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove('show'), 3000);
 }
 
-function chg(pct, goodWhenUp = true){
-  if (pct === null || pct === undefined) return '<span class="s">за 30 дней</span>';
-  if (pct === 0) return '<span class="s">без изменений</span>';
+// Изменение показателя. Без сравнения не выдумываем «0%» и не повторяем
+// подпись карточки: строка под цифрой должна что-то добавлять, а не дублировать.
+function chg(pct, value, goodWhenUp = true){
+  if (pct === null || pct === undefined){
+    return value
+      ? '<span class="s">первый месяц — сравнить пока не с чем</span>'
+      : '<span class="s">движения по деньгам ещё не было</span>';
+  }
+  if (pct === 0) return '<span class="s">столько же, сколько месяц назад</span>';
   const good = goodWhenUp ? pct > 0 : pct < 0;
   return `<span class="s ${good ? 'up' : 'down'}">${pct > 0 ? '+' : ''}${pct}% к прошлому месяцу</span>`;
 }
+
 function ago(iso){
   const d = new Date((iso || '').replace(' ', 'T') + 'Z');
   if (isNaN(d)) return '';
@@ -230,276 +211,260 @@ function ago(iso){
   if (h < 24) return h + ' ч назад';
   return Math.round(h / 24) + ' дн назад';
 }
-function pluralClients(n){
-  const n10 = n % 10, n100 = n % 100;
-  if (n10 === 1 && n100 !== 11) return 'новый клиент';
-  if (n10 >= 2 && n10 <= 4 && !(n100 >= 12 && n100 <= 14)) return 'новых клиента';
-  return 'новых клиентов';
-}
 
+// ── шапка: дата и приветствие по времени суток ──
 const _bizName = localStorage.getItem('coreon_biz_name') || 'компания';
-// приветствие по времени суток — экран ощущается как личный утренний отчёт
 (function(){
-  const h = new Date().getHours();
+  const now = new Date(), h = now.getHours();
   const g = (h < 5 || h >= 23) ? 'Доброй ночи' : h < 12 ? 'Доброе утро'
           : h < 18 ? 'Добрый день' : 'Добрый вечер';
-  document.getElementById('greeting').innerHTML = g + ', <b id="hiName"></b>.';
+  document.getElementById('greeting').innerHTML = esc(g) + ', <b id="hiName"></b>.';
   document.getElementById('hiName').textContent = _bizName;
+  document.getElementById('today').textContent =
+    now.toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long' });
 })();
 
-// «Отчёт за ночь»: одна спокойная фраза — что VELOR успел, пока владелец отсутствовал.
-function overnightLine(aiEvents, board, risks){
-  const el = document.getElementById('overnight');
-  const since = Date.now() - 14*3600*1000;               // условная «ночь» — последние 14 ч
-  const fresh = aiEvents.filter(e=>{
-    const d = new Date((e.created_at||'').replace(' ','T')+'Z'); return !isNaN(d) && d.getTime() >= since;
-  }).length;
-  const parts = [];
-  if (fresh) parts.push('пересмотрел ваши цифры');
-  if (board && (board.items||[]).length) parts.push('обновил совет директора');
-  const rc = (risks && risks.count) || 0;
-  if (rc) parts.push('отметил ' + rc + ' ' + (function(n){
-    const n10=n%10,n100=n%100;
-    if(n10===1&&n100!==11) return 'риск';
-    if(n10>=2&&n10<=4&&!(n100>=12&&n100<=14)) return 'риска';
-    return 'рисков';
-  })(rc));
-  const text = parts.length
-    ? 'Пока вас не было, я ' + (parts.length>1
-        ? parts.slice(0,-1).join(', ') + ' и ' + parts[parts.length-1]
-        : parts[0]) + '.'
-    : 'Пока вас не было, я приглядывал за делами — всё спокойно.';
-  if (el.textContent === text) return;
-  el.style.opacity='0';
-  setTimeout(()=>{ el.textContent = text; el.style.opacity='1'; }, 200);
-}
-
-const LEN = 226.2;  // 2πr, r=36
-// Уровни совпадают с бэкендом (business_health): новый бизнес — спокойное «На старте»,
-// а не тревожный красный. Красный/амбер — только когда данные уже есть и есть о чём думать.
-function stateRing(score){
+// ── статус бизнеса: одна оценка + один факт. Цвет всегда продублирован словом ──
+// Пороги те же, что в business_health на сервере: новый бизнес — спокойное
+// «На старте», а не тревожный красный.
+function statusLine(d){
+  const score = d.health || 0;
   let color, lvl;
-  if      (score >= 75){ color = '#2fd4b2'; lvl = 'Здоровый'; }
-  else if (score >= 50){ color = '#2fd4b2'; lvl = 'Стабильный'; }
-  else if (score >= 25){ color = '#ffb829'; lvl = 'Требует внимания'; }
-  else                 { color = '#a99cff'; lvl = 'На старте'; }
-  const off = LEN - LEN * score / 100;
-  return `
-    <div class="card state-card" data-key="state" style="animation-delay:0ms">
-      <div class="ring">
-        <svg viewBox="0 0 84 84">
-          <circle class="bg" cx="42" cy="42" r="36"></circle>
-          <circle class="arc" cx="42" cy="42" r="36"
-            style="--arc:${color};stroke:${color}" stroke-dasharray="${LEN}" stroke-dashoffset="${off}"></circle>
-        </svg>
-        <div class="mid num">${score}</div>
-      </div>
-      <div class="st-side">
-        <span class="k">Состояние бизнеса</span>
-        <span class="st-lvl" style="color:${color}">${lvl}</span>
-        <a href="home.html" class="s" style="color:var(--lilac);margin-top:6px">Подробнее →</a>
-      </div>
-    </div>`;
+  if      (score >= 75){ color = 'var(--verdant)'; lvl = 'Здоровый'; }
+  else if (score >= 50){ color = 'var(--verdant)'; lvl = 'Стабильный'; }
+  else if (score >= 25){ color = 'var(--saffron)'; lvl = 'Требует внимания'; }
+  else                 { color = 'var(--lilac)';   lvl = 'На старте'; }
+
+  const o = d.orders || {}, cl = d.clients || {};
+  const bits = [];
+  if (o.new)     bits.push(num(o.new) + ' ' + plural(o.new, 'новая заявка', 'новые заявки', 'новых заявок'));
+  if (o.total)   bits.push('всего ' + num(o.total));
+  if (cl.active) bits.push(num(cl.active) + ' ' + plural(cl.active, 'активный клиент', 'активных клиента', 'активных клиентов'));
+  const tail = bits.length ? bits.join(' · ') : 'данных пока мало — я коплю их с каждым днём';
+
+  return `<span class="v-badge" style="color:${color}"><i></i>${esc(lvl)}</span>
+          <span class="tail">${esc(tail)}</span>`;
 }
 
-async function load(){
-  const grid = document.getElementById('grid');
+// ── KPI ──
+function kpiHTML(d){
+  const m = d.money || {}, o = d.orders || {}, cl = d.clients || {};
 
-  let d;
-  try{ d = await (await fetch('/api/home')).json(); }
-  catch{
-    document.getElementById('heroText').textContent = 'Нет связи с сервером.';
-    document.getElementById('heroNote').textContent = 'Проверьте, запущен ли сервер (python server.py).';
-    document.getElementById('heroGo').style.display = 'none';
-    grid.innerHTML = '';
-    return;
-  }
+  const clientsSub = cl.total
+    ? `<span class="s">из ${num(cl.total)} в базе${cl.new ? ` · ${num(cl.new)} ${plural(cl.new,'новый','новых','новых')} за 30 дней` : ''}</span>`
+    : '<span class="s">клиенты появятся с первым обращением</span>';
 
-  // сотрудник в шапке и на ядре
-  if (d.business && d.business.ai_name) document.getElementById('pulse').textContent = esc(d.business.ai_name) + ' на связи';
-  if (d.business && d.business.ai_avatar) document.getElementById('heroBadge').textContent = d.business.ai_avatar;
+  const ordersSub = o.total
+    ? `<span class="s">всего ${num(o.total)}${o.today ? ` · сегодня ${num(o.today)}` : ''}</span>`
+    : '<span class="s">заявок пока нет</span>';
 
-  // ── герой: рекомендация AI (фокус дня) — появляется естественно, мягким кроссфейдом ──
-  // Новый бизнес (данных ещё нет) встречаем тёплым приглашением, а не «всё под контролем»
-  // — иначе пустой экран звучит фальшиво. Уверенный фокус приходит, когда есть о чём говорить.
-  const f = d.focus || {};
-  const starting = (d.health || 0) < 25 && !d.money.income && !d.money.profit;
-  const heroText = starting
-    ? 'Давайте наполним VELOR — и я начну работать за вас.'
-    : (f.text || 'Спокойный день — всё под контролем.');
-  const heroNoteText = starting
-    ? 'Заполните профиль и внесите первые цифры в «Финансы» — дальше я подхвачу сам.'
-    : (f.note || '');
-  document.getElementById('hero').setAttribute('href', starting ? 'settings.html' : (f.href || 'board.html'));
-  softText(document.getElementById('heroText'), heroText);
-  const heroNote = document.getElementById('heroNote');
-  softText(heroNote, heroNoteText);
-  heroNote.style.display = heroNoteText ? '' : 'none';
-  document.getElementById('heroGo').textContent = starting ? 'Начать →' : 'Разобрать →';
-
-  // ── подгрузки: лёгкие (лента, документы) — каждый цикл; Совет директора (ИИ) —
-  //    только на первом заходе и изредка, чтобы не дёргать интеллект попусту ──
-  const wantBoard = (_polls === 0 || _polls % 6 === 0);   // ~раз в 3 минуты
-  const [events, boardResp] = await Promise.all([
-    fetch('/api/timeline?limit=40').then(r=>r.json()).catch(()=>({events:[]})),
-    wantBoard ? fetch('/api/board').then(r=>r.json()).catch(()=>null) : Promise.resolve(null),
-  ]);
-  if (boardResp) _board = boardResp;
-  const board = _board;
-
-  // AI-действия vs деловые события — из одной ленты, но по разным типам
-  const AI_KINDS = new Set(['reply','risk','opportunity','idea','board','content','memory','plan']);
-  const timeline = events.events || [];
-  const aiEvents = timeline.filter(e => AI_KINDS.has(e.kind));
-
-  // Живое ядро реагирует ТОЛЬКО на настоящую новую работу AI — не на каждый опрос.
-  // Короткий золотой импульс + мягкий «анализ» и обратно в покой. Никакого шума.
-  const maxAiId = aiEvents.reduce((m,e)=> Math.max(m, e.id||0), 0);
-  if (_lastAiId !== null && maxAiId > _lastAiId && window.VELOR_CORE){
-    window.VELOR_CORE.setState('analyzing');
-    window.VELOR_CORE.insight();
-    setTimeout(()=>{ if(window.VELOR_CORE) window.VELOR_CORE.setState('idle'); }, 2600);
-  }
-  _lastAiId = maxAiId;
-
-  // Отчёт за ночь — спокойная строка под приветствием
-  overnightLine(aiEvents, board, d.risks);
-
-  // ── ПЕРВЫЙ ЭКРАН = «понять компанию за 30 секунд» ──
-  // Оставляем только то, что помогает решать: состояние, деньги, взгляд вперёд,
-  // одно требующее внимания дело и доказательство работы VELOR за ночь.
-  // Списки документов/событий и дубли-советы убраны с главной — они живут
-  // в своих разделах и не отвлекают от решения.
-  const cards = [];
-
-  // 1) Ряд цифр — мгновенная картина компании
-  cards.push({k:'state', html: stateRing(d.health || 0)});
-
-  cards.push({k:'income', html:`<a class="card" data-key="income" href="finance.html">
-    <span class="k">Доход · 30 дней</span>
-    <span class="v">${money(d.money.income)}</span>
-    ${chg(d.money.income_change)}</a>`});
-
-  cards.push({k:'profit', html:`<a class="card" data-key="profit" href="finance.html">
-    <span class="k">Прибыль · 30 дней</span>
-    <span class="v">${money(d.money.profit)}</span>
-    ${chg(d.money.profit_change)}</a>`});
-
-  const fc = d.forecast;
-  if (fc){
-    const arrow = fc.direction === 'up' ? '↑' : fc.direction === 'down' ? '↓' : '→';
-    const cls = fc.direction === 'up' ? 'up' : fc.direction === 'down' ? 'down' : '';
-    cards.push({k:'forecast', html:`<a class="card" data-key="forecast" href="finance.html">
-      <span class="k">Прогноз прибыли · конец месяца</span>
-      <span class="v">${money(fc.profit)}</span>
-      <span class="s ${cls}">${arrow} по темпу 30 дней${fc.profit_change!=null?` · ${fc.profit_change>0?'+':''}${fc.profit_change}%`:''}</span></a>`});
-  } else {
-    // без прогноза место занимают клиенты — ряд остаётся ровным (4 карточки)
-    const cl = d.clients || {new:0, change:null};
-    cards.push({k:'clients', html:`<a class="card" data-key="clients" href="clients.html">
-      <span class="k">Новых клиентов · 30 дней</span>
-      <span class="v">${cl.new}</span>
-      ${chg(cl.change)}</a>`});
-  }
-
-  // 2) Одно дело, требующее внимания: риск, а если рисков нет — возможность.
-  //    Пусто в обоих — карточку не показываем вовсе (ничего лишнего на экране).
-  const r = d.risks || {}, o = d.opportunities || {};
-  if (r.top){
-    cards.push({k:'attn', html:`<a class="card span2" data-key="attn" href="risks.html">
-      <span class="tag risk">Требует внимания${(r.count||1)>1?` · ещё ${(r.count||1)-1}`:''}</span>
-      <div class="line">${esc(r.top.title)}</div>
-      <div class="why">${esc(r.top.why || '')}</div></a>`});
-  } else if (o.top){
-    cards.push({k:'attn', html:`<a class="card span2" data-key="attn" href="opportunities.html">
-      <span class="tag opp">Возможность${(o.count||1)>1?` · ещё ${(o.count||1)-1}`:''}</span>
-      <div class="line">${esc(o.top.title)}</div>
-      <div class="why">${esc(o.top.why || '')}</div></a>`});
-  }
-
-  // 3) Доказательство работы за ночь — что VELOR сделал сам.
-  const acts = (aiEvents.length ? aiEvents : (d.activity || [])).slice(0, 3);
-  const attnShown = !!(r.top || o.top);
-  cards.push({k:'acts', html:`<a class="card list ${attnShown?'span2':'span4'}" data-key="acts" href="timeline.html">
-    <span class="k">Что я сделал, пока вас не было</span>
-    ${acts.length ? acts.map(e=>`<div class="row"><span class="pin"></span>
-      <span class="t">${esc(e.title)}</span>
-      ${e.detail ? `<span class="d">${esc(e.detail)}</span>` : ''}
-      <span class="w">${ago(e.created_at)}</span></div>`).join('')
-    : '<div class="empty">Как только появятся данные — я начну работать и покажу здесь свои действия.</div>'}</a>`});
-
-  paint(cards);
+  return [
+    `<a class="v-kpi-card" href="finance.html">
+       <span class="k">Доход · 30 дней</span>
+       <span class="v num">${money(m.income)}</span>
+       ${chg(m.income_change, m.income)}</a>`,
+    `<a class="v-kpi-card" href="finance.html">
+       <span class="k">Прибыль · 30 дней</span>
+       <span class="v num">${money(m.profit)}</span>
+       ${chg(m.profit_change, m.income || m.profit)}</a>`,
+    `<a class="v-kpi-card" href="orders.html">
+       <span class="k">Новые заявки</span>
+       <span class="v num">${num(o.new)}</span>
+       ${ordersSub}</a>`,
+    `<a class="v-kpi-card" href="clients.html">
+       <span class="k">Активные клиенты · 30 дней</span>
+       <span class="v num">${num(cl.active)}</span>
+       ${clientsSub}</a>`,
+  ].join('');
 }
 
-// ── мягкая смена текста: если текст изменился — короткий кроссфейд, иначе тишина ──
+// ── «Что говорит VELOR»: четыре мысли. Пустой слот честно говорит, что пусто ──
+const SLOT_META = [
+  ['observation',    'obs',  'Наблюдение',   'Пока не за чем наблюдать — данных мало.'],
+  ['problem',        'prob', 'Проблема',     'Проблем не вижу. Это хорошая новость.'],
+  ['recommendation', 'rec',  'Рекомендация', 'Отдельной рекомендации нет — сейчас всё идёт своим ходом.'],
+  ['opportunity',    'opp',  'Возможность',  'Возможности появятся, когда наберётся история.'],
+];
+
+function slotsHTML(d){
+  const v = d.velor || {};
+  return SLOT_META.map(([key, cls, label, blank]) => {
+    const s = v[key];
+    if (!s) return `<div class="slot void">
+        <span class="tag ${cls}">${label}</span>
+        <div class="line">${esc(blank)}</div></div>`;
+    const tag = `<span class="tag ${cls}">${label}</span>`;
+    const body = `<div class="line">${esc(s.text)}</div>` +
+                 (s.note ? `<div class="why">${esc(s.note)}</div>` : '');
+    return s.href
+      ? `<a class="slot" href="${esc(s.href)}">${tag}${body}</a>`
+      : `<div class="slot">${tag}${body}</div>`;
+  }).join('');
+}
+
+// ── «Что требует внимания» ──
+function attnHTML(d){
+  const items = d.attention || [];
+  const head = `<h2>Что требует внимания${items.length ? ` <span class="n num">${items.length}</span>` : ''}</h2>`;
+  if (!items.length){
+    return head + `<p class="v-empty">Ничего не горит. Все заявки разобраны, источники на связи —
+      можно заняться развитием: <a href="opportunities.html">возможности →</a></p>`;
+  }
+  return head + items.map(i => {
+    const body = `<span class="pin ${esc(i.level || 'info')}"></span>
+      <span class="body">
+        <span class="t">${esc(i.title)}</span>
+        ${i.note ? `<span class="d">${esc(i.note)}</span>` : ''}
+      </span>`;
+    // Без адреса это не ссылка: пустой href выглядит кликабельным и никуда не ведёт.
+    return i.href ? `<a class="v-row" href="${esc(i.href)}">${body}</a>`
+                  : `<div class="v-row">${body}</div>`;
+  }).join('');
+}
+
+// ── «Последние изменения» ──
+function actsHTML(events, d){
+  const list = (events.length ? events : (d.activity || [])).slice(0, 5);
+  const head = '<h2>Последние изменения</h2>';
+  if (!list.length){
+    return head + `<p class="v-empty">Пока тихо. Как только появятся заявки, деньги или обращения —
+      я запишу здесь каждое движение.</p>`;
+  }
+  return head + list.map(e => `
+    <div class="v-row">
+      <span class="pin evt"></span>
+      <span class="body">
+        <span class="t">${esc(e.title)}</span>
+        ${e.detail ? `<span class="d">${esc(e.detail)}</span>` : ''}
+      </span>
+      <span class="w">${esc(ago(e.created_at))}</span>
+    </div>`).join('') + '<a class="more" href="timeline.html">Вся история →</a>';
+}
+
+// ── отрисовка без мигания: неизменившийся блок не трогаем совсем ──
+const _last = {};
+function put(id, html, animate){
+  if (_last[id] === html) return;
+  const first = _last[id] === undefined;
+  _last[id] = html;
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = html;
+  if (first && animate) el.querySelectorAll(':scope > *').forEach((n, i) => {
+    n.classList.add('v-in'); n.style.animationDelay = Math.min(i, 8) * 55 + 'ms';
+  });
+}
+
 function softText(el, text){
-  if (!el || el.textContent === text) return;      // не изменилось — не трогаем
+  if (!el || el.textContent === text) return;
   el.style.transition = 'opacity .35s ease';
   el.style.opacity = '0';
   setTimeout(()=>{ el.textContent = text; el.style.opacity = '1'; }, 200);
 }
 
-// ── отрисовка по ключам: неизменившиеся карточки не трогаем совсем (ноль вспышек),
-//    изменившиеся — тихо заменяем с лёгким «вздохом». Первый показ — как раньше, с каскадом ──
-let _firstPaint = true;
-const _lastHTML = {};
-function paint(cardObjs){
-  const grid = document.getElementById('grid');
-  if (_firstPaint){
-    grid.innerHTML = cardObjs.map(c=>c.html).join('');
-    grid.querySelectorAll('.card').forEach((el,i)=> el.style.animationDelay = Math.min(i,10)*55+'ms');
-    cardObjs.forEach(c=> _lastHTML[c.k]=c.html);
-    _firstPaint = false;
-    return;
-  }
-  cardObjs.forEach(c=>{
-    if (_lastHTML[c.k] === c.html) return;          // ничего не изменилось — покой
-    _lastHTML[c.k] = c.html;
-    const tmp = document.createElement('div'); tmp.innerHTML = c.html;
-    const fresh = tmp.firstElementChild;
-    if (!fresh) return;
-    fresh.classList.add('live', 'refreshed');       // live — без входной анимации
-    fresh.style.transition = 'opacity .5s ease, box-shadow .6s ease';
-    fresh.style.opacity = '.6';
-    const el = grid.querySelector('[data-key="'+c.k+'"]');
-    if (el) el.replaceWith(fresh); else grid.appendChild(fresh);
-    requestAnimationFrame(()=>{ fresh.style.opacity = '1'; });   // тихий вздох к полной видимости
-    setTimeout(()=> fresh.classList.remove('refreshed'), 1000);
-  });
+// «Пока вас не было» — одна строка под заголовком блока VELOR.
+function saysSubText(aiEvents){
+  const since = Date.now() - 14 * 3600 * 1000;
+  const fresh = aiEvents.filter(e=>{
+    const t = new Date((e.created_at || '').replace(' ', 'T') + 'Z');
+    return !isNaN(t) && t.getTime() >= since;
+  }).length;
+  return fresh
+    ? `Пока вас не было, я ${fresh} ${plural(fresh,'раз','раза','раз')} пересматривал ваши цифры.`
+    : 'Смотрю на ваши цифры постоянно — вот что вижу сейчас.';
 }
 
-let _polls = 0, _board = {items:[]}, _lastAiId = null;
+function showFail(){
+  document.getElementById('failZone').innerHTML = `
+    <div class="v-fail">
+      <div>
+        <div class="t">Не удалось получить данные</div>
+        <div class="d">Сервер не отвечает. Показатели ниже могут быть устаревшими.</div>
+      </div>
+      <button class="v-btn" type="button" id="retry">Повторить</button>
+    </div>`;
+  document.getElementById('retry').onclick = () => {
+    document.getElementById('failZone').innerHTML = '';
+    load();
+  };
+}
+
+let _lastAiId = null;
+
+async function load(){
+  let d;
+  try{
+    const r = await fetch('/api/home');
+    if (!r.ok) throw new Error(r.status);
+    d = await r.json();
+  }catch{
+    showFail();
+    return;
+  }
+  document.getElementById('failZone').innerHTML = '';
+
+  if (d.business && d.business.ai_name)
+    document.getElementById('pulse').textContent = d.business.ai_name + ' на связи';
+
+  document.getElementById('status').innerHTML = statusLine(d);
+  put('kpi', kpiHTML(d), true);
+  put('slots', slotsHTML(d), true);
+  put('attnPanel', attnHTML(d), false);
+
+  // Лента — отдельным запросом: она нужна только нижнему блоку и не должна
+  // задерживать цифры наверху.
+  let events = [];
+  try{
+    const t = await (await fetch('/api/timeline?limit=40')).json();
+    events = t.events || [];
+  }catch{ /* лента не критична: покажем то, что пришло в /api/home */ }
+
+  const AI_KINDS = new Set(['reply','risk','opportunity','idea','board','content','memory','plan']);
+  const aiEvents = events.filter(e => AI_KINDS.has(e.kind));
+  softText(document.getElementById('saysSub'), saysSubText(aiEvents));
+  put('actsPanel', actsHTML(events, d), false);
+
+  // Живое ядро реагирует только на настоящую новую работу AI, не на каждый опрос.
+  const maxAiId = aiEvents.reduce((m, e) => Math.max(m, e.id || 0), 0);
+  if (_lastAiId !== null && maxAiId > _lastAiId && window.VELOR_CORE){
+    window.VELOR_CORE.setState('analyzing');
+    window.VELOR_CORE.insight();
+    setTimeout(()=>{ if (window.VELOR_CORE) window.VELOR_CORE.setState('idle'); }, 2600);
+  }
+  _lastAiId = maxAiId;
+}
+
 load();
-// спокойный ритм: тихо сверяемся раз в 30 секунд, но трогаем DOM только при изменениях
-setInterval(()=>{ _polls++; load(); }, 30000);
+setInterval(load, 30000);
 </script>
 
 <style>
   /* ── Trial: запуск / режим ожидания / ценность ── */
   #trialZone:empty{ display:none; }
-  #trialZone{ margin:0 0 18px; }
-  .tz-launch, .tz-locked{ border-radius:26px; padding:30px 34px;
-    border:1px solid rgba(128,82,255,.3); animation:cIn .5s cubic-bezier(.22,1,.36,1) both;
+  #trialZone{ margin:0 0 var(--sp-5); }
+  .tz-launch, .tz-locked{ border-radius:var(--r-xl); padding:30px 34px;
+    border:1px solid rgba(128,82,255,.3); animation:velorIn .5s var(--ease) both;
     background:linear-gradient(150deg,rgba(128,82,255,.18),rgba(91,108,255,.05) 60%,rgba(255,255,255,.015)); }
   .tz-launch h3, .tz-locked h3{ font-weight:500; font-size:clamp(22px,2.6vw,28px); letter-spacing:-.02em; }
-  .tz-launch p, .tz-locked p{ color:var(--silver); font-weight:200; font-size:15px; line-height:1.55; margin-top:8px; max-width:640px; }
-  .tz-steps{ display:flex; gap:16px; flex-wrap:wrap; margin:18px 0 6px; font-size:13.5px; color:var(--ash); }
+  .tz-launch p, .tz-locked p{ color:var(--silver); font-weight:200; font-size:var(--fs-body);
+    line-height:1.55; margin-top:8px; max-width:640px; }
+  .tz-steps{ display:flex; gap:var(--sp-4); flex-wrap:wrap; margin:18px 0 6px; font-size:13.5px; color:var(--ash); }
   .tz-steps span{ display:inline-flex; align-items:center; gap:7px; }
   .tz-steps span.ok{ color:var(--verdant); }
-  .tz-go{ display:inline-flex; align-items:center; gap:9px; margin-top:20px; min-height:48px;
-    padding:14px 28px; border-radius:16px; border:none; background:var(--iris); color:#fff;
-    font-family:inherit; font-weight:600; font-size:15px; cursor:pointer; transition:filter .2s; }
+  .tz-go{ display:inline-flex; align-items:center; gap:9px; margin-top:var(--sp-5); min-height:48px;
+    padding:14px 28px; border-radius:var(--r-sm); border:none; background:var(--iris); color:#fff;
+    font-family:inherit; font-weight:600; font-size:var(--fs-body); cursor:pointer; transition:filter .2s; }
   .tz-go:hover{ filter:brightness(1.16) drop-shadow(0 0 18px rgba(128,82,255,.55)); }
   .tz-go:disabled{ opacity:.5; cursor:default; filter:none; }
-  .tz-msg{ margin-top:12px; font-size:14px; color:var(--saffron); }
+  .tz-msg{ margin-top:var(--sp-3); font-size:var(--fs-body); color:var(--saffron); }
   .tz-msg a{ color:var(--lilac); }
   .tz-locked{ border-color:rgba(255,255,255,.12); background:linear-gradient(150deg,rgba(128,82,255,.14),rgba(255,255,255,.02)); }
-  .tz-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:12px; margin:20px 0; }
-  .tz-stats div{ border:1px solid var(--hairline); border-radius:16px; padding:14px 16px; }
+  .tz-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--sp-3); margin:var(--sp-5) 0; }
+  .tz-stats div{ border:1px solid var(--hairline); border-radius:var(--r-md); padding:14px 16px; }
   .tz-stats .n{ font-weight:400; font-size:24px; letter-spacing:-.02em; color:#c9bfff; }
-  .tz-stats .k{ font-size:12px; color:var(--ash); margin-top:3px; }
-  .tz-strip{ display:flex; align-items:center; gap:16px; flex-wrap:wrap; padding:12px 18px;
-    border-radius:16px; border:1px solid var(--hairline); background:rgba(255,255,255,.02);
+  .tz-stats .k{ font-size:var(--fs-caption); color:var(--ash); margin-top:3px; }
+  .tz-strip{ display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; padding:12px 18px;
+    border-radius:var(--r-md); border:1px solid var(--hairline); background:var(--surface);
     font-size:13.5px; color:var(--silver); }
   .tz-strip b{ color:#c9bfff; font-weight:500; } .tz-strip .d{ margin-left:auto; color:var(--ash); }
 </style>
@@ -583,7 +548,7 @@ setInterval(()=>{ _polls++; load(); }, 30000);
 
   function renderTrial(t){
     var s = t.stats || {}, dl = t.days_left;
-    var left = (dl === 0) ? 'менее суток' : (dl + ' ' + plural(dl, 'день','дня','дней'));
+    var left = (dl === 0) ? 'менее суток' : (dl + ' ' + plural2(dl, 'день','дня','дней'));
     z.innerHTML =
       '<div class="tz-strip">' +
         '<span>Пробный период: <b>' + left + '</b> осталось</span>' +
@@ -593,7 +558,7 @@ setInterval(()=>{ _polls++; load(); }, 30000);
   }
 
   function stat(n, k){ return '<div><div class="n num">' + (n||0) + '</div><div class="k">' + k + '</div></div>'; }
-  function plural(n, a, b, c){ var n10=n%10, n100=n%100;
+  function plural2(n, a, b, c){ var n10=n%10, n100=n%100;
     if (n10===1 && n100!==11) return a;
     if (n10>=2 && n10<=4 && !(n100>=12 && n100<=14)) return b; return c; }
 })();

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VELOR AI — Ядро</title>
+<title>VELOR AI — AI-сотрудник</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <script src="vendor/three.min.js"></script>
 <style>
@@ -12,71 +12,17 @@
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+  /* заголовок для скринридера там, где визуально его роль играет карточка */
+  .sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+    overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 
   /* главная должна умещаться в один экран — отступы здесь плотнее общих.
      body main, а не main: velor.css подключается после и иначе перебьёт. */
   body main{ padding-top:104px; padding-bottom:70px; }
-  .top{ display:flex; align-items:baseline; justify-content:space-between; gap:16px;
-    flex-wrap:wrap; margin-bottom:18px; }
-  .hi{ font-weight:400; font-size:clamp(26px,3.4vw,40px); letter-spacing:-.035em; }
-  .hi b{ font-weight:500; color:#c9bfff; }
-  .pulse{ display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ash); }
+  .pulse{ display:flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); }
   .pulse .dot{ width:7px; height:7px; border-radius:50%; background:var(--verdant);
     box-shadow:0 0 9px rgba(47,212,178,.8); }
 
-  /* ── первый экран ── */
-  .os{ display:grid; gap:12px; grid-template-columns:repeat(4,1fr); }
-  .b{ border:1px solid var(--hairline); border-radius:20px; padding:18px 22px;
-    background:rgba(255,255,255,.022); transition:border-color .25s, background .25s;
-    opacity:0; transform:translateY(10px); animation:bIn .5s cubic-bezier(.22,1,.36,1) forwards; }
-  @keyframes bIn{ to{ opacity:1; transform:none } }
-  a.b:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,255,.05); }
-  .b .k{ font-weight:600; font-size:9.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--ash); }
-  .b .v{ font-weight:400; font-size:clamp(26px,3vw,34px); letter-spacing:-.03em; margin-top:10px;
-    font-variant-numeric:tabular-nums; line-height:1.1; }
-  .b .s{ font-size:13px; color:var(--ash); margin-top:6px; }
-  .b .s.up{ color:var(--verdant); } .b .s.down{ color:var(--coral); }
-
-  /* фокус дня — во всю ширину */
-  .focus{ grid-column:1/-1; padding:24px 28px;
-    background:linear-gradient(150deg,rgba(128,82,255,.14),rgba(255,255,255,.02));
-    border-color:rgba(128,82,255,.28); }
-  .focus .k{ color:#a99cff; }
-  .focus .f-text{ font-weight:400; font-size:clamp(21px,2.6vw,30px); letter-spacing:-.03em;
-    line-height:1.28; margin-top:12px; max-width:820px; }
-  .focus .f-note{ color:var(--silver); font-weight:200; font-size:15px; margin-top:10px; max-width:720px; }
-
-  /* карточки риска / возможности */
-  .b.wide{ grid-column:span 2; }
-  .b .tag{ display:inline-block; font-weight:600; font-size:9.5px; letter-spacing:.16em;
-    text-transform:uppercase; padding:4px 10px; border-radius:14px; margin-bottom:11px; }
-  .tag.risk{ background:rgba(255,107,107,.16); color:#ff9b9b; }
-  .tag.opp{ background:rgba(47,212,178,.14); color:#7fe6d0; }
-  .tag.calm{ background:rgba(255,255,255,.06); color:var(--ash); }
-  .b .line{ font-weight:400; font-size:18px; letter-spacing:-.02em; line-height:1.35; }
-  /* длинные объяснения не должны растягивать плитку — обрезаем по двум строкам */
-  .b .why, .focus .f-note{ display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-    overflow:hidden; }
-  .b .why{ color:var(--ash); font-weight:200; font-size:14px; margin-top:7px; line-height:1.5; }
-
-  /* совет ИИ */
-  .advice{ grid-column:span 2; display:flex; gap:14px; }
-  .advice .ic{ width:30px; height:30px; border-radius:10px; flex:none;
-    background:linear-gradient(150deg,#8052ff,#5b6cff); display:flex; align-items:center;
-    justify-content:center; font-weight:600; font-size:14px; color:#fff; }
-  .advice .p{ font-weight:200; font-size:16px; line-height:1.5; margin-top:8px;
-    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-
-  /* лента действий — рядом с возможностями, иначе полряда пустует */
-  .feed{ grid-column:span 2; }
-  .ev{ display:flex; align-items:baseline; gap:12px; padding:8px 0;
-    border-bottom:1px solid var(--hairline); }
-  .ev:last-child{ border-bottom:none; padding-bottom:0; }
-  .ev .pin{ width:6px; height:6px; border-radius:50%; background:var(--iris); flex:none;
-    transform:translateY(-2px); }
-  .ev .t{ font-weight:200; font-size:15px; }
-  .ev .d{ color:var(--ash); font-size:13px; }
-  .ev .w{ margin-left:auto; color:var(--ash); font-size:12px; white-space:nowrap; }
 
   /* ── ядро и диалог с сотрудником: первым экраном ── */
   .talk{ margin-bottom:56px; border:1px solid var(--hairline); border-radius:26px; overflow:hidden;
@@ -94,7 +40,7 @@
   #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important; cursor:pointer; }
 
   .roles{ display:flex; gap:7px; flex-wrap:wrap; padding:14px 20px 0; }
-  .role{ padding:7px 14px; border-radius:18px; background:rgba(255,255,255,.05);
+  .role{ min-height:40px; padding:9px 16px; border-radius:18px; background:rgba(255,255,255,.05);
     border:1px solid var(--hairline); color:var(--silver); font-weight:500; font-size:12px;
     transition:background .2s, color .2s, border-color .2s; }
   .role:hover{ color:#fff; }
@@ -109,12 +55,11 @@
     border-bottom-left-radius:6px; }
   .msg.core.think{ color:var(--ash); font-style:italic; }
   .ask{ display:flex; gap:10px; padding:16px 20px; border-top:1px solid var(--hairline); }
-  .ask input{ flex:1; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+  .ask input{ flex:1; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
     border-radius:24px; padding:12px 20px; color:var(--bone); font-size:16px; }
-  .ask button{ min-width:50px; border:none; border-radius:24px; background:var(--iris); color:#fff;
-    font-weight:600; font-size:18px; transition:filter .2s; }
-  .ask button:hover{ filter:brightness(1.2); }
-  .ask button:disabled{ opacity:.4; }
+  /* главное действие экрана — отправка вопроса; облик берём из общей кнопки,
+     здесь только ширина под один знак */
+  .ask button{ min-width:56px; padding-left:0; padding-right:0; font-size:18px; }
 
   /* ── здоровье бизнеса ── */
   .health{ margin-bottom:56px; border:1px solid var(--hairline); border-radius:26px; padding:26px 28px; }
@@ -138,7 +83,7 @@
   .fct .ff{ font-size:12px; color:var(--ash); font-weight:200; }
   .h-notes{ display:grid; grid-template-columns:1fr 1fr; gap:14px 26px; margin-top:26px;
     padding-top:22px; border-top:1px solid var(--hairline); }
-  .h-notes h4{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--lilac);
+  .h-notes h3{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--lilac);
     font-weight:500; margin-bottom:10px; }
   .h-notes li{ list-style:none; font-size:13.5px; font-weight:200; color:var(--silver);
     line-height:1.5; margin-bottom:8px; padding-left:15px; position:relative; }
@@ -150,7 +95,7 @@
   .modal{ position:fixed; inset:0; z-index:60; display:none; align-items:center; justify-content:center;
     padding:20px; background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }
   .modal.on{ display:flex; }
-  .modal .box{ width:min(94vw,440px); background:#0a0a0a; border:1px solid var(--hairline);
+  .modal .box{ width:min(94vw,440px); background:var(--sheet); border:1px solid var(--hairline);
     border-radius:24px; padding:26px; }
   .modal h3{ font-weight:400; font-size:21px; margin-bottom:6px; }
   .modal p.m-sub{ font-size:13px; color:var(--ash); font-weight:200; margin-bottom:18px; }
@@ -181,35 +126,25 @@
   /* на невысоких экранах ноутбуков сводка всё равно должна помещаться целиком */
   @media(min-width:1001px) and (max-height:800px){
     body main{ padding-top:92px; }
-    .top{ margin-bottom:12px; }
-    .hi{ font-size:26px; }
-    .os{ gap:10px; }
-    .b{ padding:14px 18px; }
-    .focus{ padding:19px 24px; }
-    .b .v{ font-size:26px; }
-    .focus .f-text{ font-size:21px; }
     /* ядро уступает место чату: на 720px иначе поле ввода уходит за экран */
     #coreStage{ padding:16px 0 6px; }
     .core-square{ width:min(76%,480px,50vh); }
     .log{ max-height:150px; }
   }
 
-  @media(max-width:1000px){ .os{ grid-template-columns:repeat(2,1fr); }
-    .b.wide,.advice,.feed{ grid-column:span 2; }
+  @media(max-width:1000px){
     .h-top{ flex-direction:column; gap:22px; align-items:flex-start; }
     .facts{ width:100%; } }
-  @media(max-width:620px){ .os{ grid-template-columns:1fr; }
-    .b.wide,.advice,.feed{ grid-column:span 1; }
+  @media(max-width:620px){
     /* на телефоне ядро тоже крупное, но чат должен оставаться в первом экране */
     body main{ padding-top:96px; }
-    .top{ margin-bottom:10px; }
     #coreStage{ padding:20px 0 6px; }
     .core-square{ width:min(78%,320px,34vh); }
     .log{ padding:16px; } .ask{ padding:14px 16px; }
     /* чипов стало на один больше — на телефоне листаем их вбок, а не переносим строкой */
     .roles{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
     .roles::-webkit-scrollbar{ display:none; }
-    .role{ flex:none; }
+    .role{ flex:none; min-height:44px; }
     .health{ padding:22px 20px; }
     .facts, .h-notes{ grid-template-columns:1fr; }
     .ring{ width:124px; height:124px; } .ring .num{ font-size:34px; } }
@@ -221,12 +156,25 @@
 <canvas id="ambientCanvas"></canvas>
 
 <main>
-  <div class="top">
-    <h1 class="hi">С возвращением, <b id="hiName">бизнес</b>.</h1>
-    <div class="pulse"><span class="dot"></span><span id="pulse">сотрудник на связи</span></div>
-  </div>
+  <header class="v-head">
+    <div>
+      <h1>AI-сотрудник</h1>
+      <p class="v-lead">Он читает вашу базу знаний, заказы, клиентов и деньги — и отвечает
+        по фактам, а не наугад. Спрашивайте как обычного сотрудника.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Проверяю, что он знает…</span>
+      </div>
+    </div>
+    <div class="v-acts">
+      <div class="pulse"><span class="dot"></span><span id="pulse">на связи</span></div>
+      <a class="v-btn ghost" href="memory.html">Чему научить</a>
+    </div>
+  </header>
 
-  <section class="talk">
+  <div id="failZone" role="alert"></div>
+
+  <section class="talk" aria-labelledby="talkTitle">
+    <h2 id="talkTitle" class="sr-only">Разговор с сотрудником</h2>
     <div class="emp">
       <div class="emp-badge" id="empBadge">V</div>
       <div>
@@ -248,12 +196,12 @@
     </div>
     <form class="ask" id="ask">
       <input id="askInput" placeholder="Спросите про заказы, клиентов или что подсказать по делу…" autocomplete="off">
-      <button type="submit" aria-label="Отправить">→</button>
+      <button class="v-btn" type="submit" aria-label="Отправить сообщение сотруднику">→</button>
     </form>
   </section>
 
   <section class="health" id="health">
-    <div class="sec-h">Здоровье бизнеса</div>
+    <h2 class="sec-h">Здоровье бизнеса</h2>
     <div class="h-top">
       <div class="ring">
         <svg viewBox="0 0 120 120">
@@ -266,13 +214,9 @@
       <div class="facts" id="hFacts"></div>
     </div>
     <div class="h-notes">
-      <div><h4>Что уже хорошо</h4><ul id="hGood"></ul></div>
-      <div class="bad"><h4>Что улучшить</h4><ul id="hBad"></ul></div>
+      <div><h3>Что уже хорошо</h3><ul id="hGood"></ul></div>
+      <div class="bad"><h3>Что улучшить</h3><ul id="hBad"></ul></div>
     </div>
-  </section>
-
-  <section class="os" id="os">
-    <div class="b focus"><div class="k">// Сегодня важно</div><div class="f-text">Смотрю, что у вас происходит…</div></div>
   </section>
 </main>
 
@@ -320,25 +264,6 @@ function toast(msg){
 }
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-document.getElementById('hiName').textContent = localStorage.getItem('coreon_biz_name') || 'бизнес';
-
-const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
-function chg(pct, goodWhenUp = true){
-  if (pct === null || pct === undefined) return '<span class="s">за 30 дней</span>';
-  if (pct === 0) return '<span class="s">без изменений</span>';
-  const good = goodWhenUp ? pct > 0 : pct < 0;
-  return `<span class="s ${good ? 'up' : 'down'}">${pct > 0 ? '+' : ''}${pct}% к прошлому месяцу</span>`;
-}
-function ago(iso){
-  const d = new Date((iso || '').replace(' ', 'T') + 'Z');
-  if (isNaN(d)) return '';
-  const m = Math.round((Date.now() - d) / 60000);
-  if (m < 1) return 'только что';
-  if (m < 60) return m + ' мин назад';
-  const h = Math.round(m / 60);
-  if (h < 24) return h + ' ч назад';
-  return Math.round(h / 24) + ' дн назад';
-}
 
 // утренний брифинг — всплывает один раз в день, при первом заходе
 (async () => {
@@ -375,7 +300,13 @@ function ago(iso){
 (async () => {
   let h;
   try{ h = await (await fetch('/api/health')).json(); }
-  catch{ document.getElementById('hLvl').textContent = 'нет связи'; return; }
+  catch{
+    document.getElementById('hLvl').textContent = 'нет связи';
+    document.getElementById('hFacts').innerHTML =
+      '<div class="v-empty"><strong>Оценка не посчиталась</strong>' +
+      'Сервер не ответил. Сам разговор с сотрудником это не ломает — попробуйте задать вопрос.</div>';
+    return;
+  }
 
   const arc = document.getElementById('hArc'), num = document.getElementById('hNum');
   const LEN = 326.7, score = h.score || 0;
@@ -401,6 +332,18 @@ function ago(iso){
     a => `<li><b>${esc(a.name)}.</b> ${esc(a.tip)}</li>`);
 
   document.getElementById('hLvl').textContent = h.level || '';
+
+  // Строка состояния наверху: чем сотрудник вооружён прямо сейчас.
+  const know = (h.factors || []).find(f => f.key === 'knowledge');
+  const box = document.getElementById('state');
+  if (know && know.value >= 60){
+    box.innerHTML = '<span class="v-badge good"><i></i>Готов к работе</span>' +
+      '<span>' + esc(know.fact) + ' · знает бизнес на ' + score + ' из 100</span>';
+  } else {
+    box.innerHTML = '<span class="v-badge warn"><i></i>Знает мало</span>' +
+      '<span>' + esc(know ? know.fact : 'база знаний пуста') +
+      ' — <a href="memory.html" style="color:var(--lilac)">дозаполните память</a>, иначе ответы будут общими</span>';
+  }
   // синхронно, без rAF: в скрытой вкладке rAF не срабатывает и кольцо остаётся пустым
   arc.style.setProperty('--arc', color);
   arc.style.stroke = color;          // и переменная, и прямой stroke — надёжнее в разных движках
@@ -425,77 +368,34 @@ function ago(iso){
   setTimeout(() => { clearInterval(tick); num.textContent = score; }, dur + 120);
 })();
 
-// первый экран — одним запросом, без обращений к ИИ
+// кто перед вами и что он успел узнать о бизнесе
 (async () => {
   let d;
-  try{ d = await (await fetch('/api/home')).json(); }
-  catch{ document.getElementById('os').innerHTML =
-    '<div class="b focus"><div class="k">// Сегодня важно</div><div class="f-text">Нет связи с сервером.</div></div>'; return; }
+  try{
+    const r = await fetch('/api/home');
+    if (!r.ok) throw 0;
+    d = await r.json();
+  }catch{
+    document.getElementById('state').innerHTML =
+      '<span class="v-badge bad"><i></i>Нет связи с сервером</span>' +
+      '<span>сотрудник ответить не сможет, пока сервер не отвечает</span>';
+    document.getElementById('pulse').textContent = 'офлайн';
+    document.getElementById('failZone').innerHTML =
+      '<div class="v-fail"><div><div class="t">Сервер не отвечает</div>' +
+      '<div class="d">Сотрудник не сможет ответить, пока нет связи. ' +
+      'Проверьте, что сервер запущен, и повторите.</div></div>' +
+      '<button class="v-btn" type="button" id="retryHome">Повторить</button></div>';
+    document.getElementById('retryHome').addEventListener('click', () => location.reload());
+    return;
+  }
 
   if (d.business.ai_name) {
-    document.getElementById('empName').innerHTML = esc(d.business.ai_name) + ' <span class="emp-role">· AI-сотрудник</span>';
+    document.getElementById('empName').innerHTML =
+      esc(d.business.ai_name) + ' <span class="emp-role">· AI-сотрудник</span>';
     document.getElementById('pulse').textContent = esc(d.business.ai_name) + ' на связи';
   }
   if (d.business.ai_avatar) document.getElementById('empBadge').textContent = d.business.ai_avatar;
-  document.getElementById('empKnows').textContent = 'Здоровье бизнеса — ' + d.health + ' из 100';
-
-  const f = d.focus;
-  const tile = (href, inner, cls) => href
-    ? `<a class="b ${cls || ''}" href="${href}">${inner}</a>`
-    : `<div class="b ${cls || ''}">${inner}</div>`;
-
-  const risk = d.risks.top
-    ? `<span class="tag risk">риск · ${d.risks.count}</span>
-       <div class="line">${esc(d.risks.top.title)}</div>
-       <div class="why">${esc(d.risks.top.why || '')}</div>`
-    : `<span class="tag calm">риски</span><div class="line">Пока ничего не тревожит</div>
-       <div class="why">Проверьте бизнес, когда накопятся данные за месяц.</div>`;
-
-  const opp = d.opportunities.top
-    ? `<span class="tag opp">возможность · ${d.opportunities.count}</span>
-       <div class="line">${esc(d.opportunities.top.title)}</div>
-       <div class="why">${esc(d.opportunities.top.why || '')}</div>`
-    : `<span class="tag calm">возможности</span><div class="line">Ещё не искали точки роста</div>
-       <div class="why">VELOR разберёт ваши цифры и предложит, за что взяться.</div>`;
-
-  const advice = d.advice
-    ? `<div class="advice-body"><div class="k">// Совет AI</div><div class="p">${esc(d.advice)}</div></div>`
-    : `<div class="advice-body"><div class="k">// Совет AI</div>
-       <div class="p">Появится в дневнике, как только за день что-то произойдёт.</div></div>`;
-
-  const feed = (d.activity || []).length
-    ? d.activity.slice(0, 4).map(e => `<div class="ev"><span class="pin"></span>
-        <span class="t">${esc(e.title)}</span>
-        ${e.detail ? `<span class="d">${esc(e.detail)}</span>` : ''}
-        <span class="w">${ago(e.created_at)}</span></div>`).join('')
-    : '<div class="ev"><span class="t" style="color:var(--ash)">Пока тихо — здесь появятся действия сотрудника.</span></div>';
-
-  document.getElementById('os').innerHTML = [
-    tile(f.href, `<div class="k">// Сегодня важно · ${esc(f.kind)}</div>
-      <div class="f-text">${esc(f.text)}</div>
-      ${f.note ? `<div class="f-note">${esc(f.note)}</div>` : ''}`, 'focus'),
-
-    tile('dashboard.html', `<div class="k">Новые заявки</div><div class="v">${d.orders.new}</div>
-      <span class="s">сегодня ${d.orders.today} · всего ${d.orders.total}</span>`),
-
-    tile('finance.html', `<div class="k">Доход · 30 дней</div><div class="v">${money(d.money.income)}</div>
-      ${chg(d.money.income_change)}`),
-
-    tile('finance.html', `<div class="k">Прибыль · 30 дней</div><div class="v">${money(d.money.profit)}</div>
-      ${chg(d.money.profit_change)}`),
-
-    tile('journal.html', `<div class="k">Дневник</div><div class="v">${d.health}</div>
-      <span class="s">здоровье бизнеса из 100</span>`),
-
-    tile('journal.html', `<span class="ic">V</span>${advice}`, 'advice'),
-    tile('risks.html', risk, 'wide'),
-    tile('opportunities.html', opp, 'wide'),
-
-    tile('timeline.html', `<div class="k">// Последние действия</div>
-      <div style="margin-top:14px">${feed}</div>`, 'feed'),
-  ].join('');
-
-  document.querySelectorAll('.os .b').forEach((el, i) => el.style.animationDelay = Math.min(i, 9) * 55 + 'ms');
+  document.getElementById('empKnows').textContent = 'Знает бизнес на ' + d.health + ' из 100';
 })();
 
 // ── диалог с сотрудником ──
@@ -605,7 +505,7 @@ document.getElementById('ask').addEventListener('submit', async e => {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ question: q, role: currentRole })
     });
-    const data = await r.json();
+    const data = await r.json().catch(() => ({}));
     think.remove();
     if (data.ok && data.answer){
       if (C) C.setState('generating');
@@ -613,9 +513,21 @@ document.getElementById('ask').addEventListener('submit', async e => {
       if (C) setTimeout(() => C.setState('idle'), 2200);   // плавно назад в покой
     } else {
       if (C) C.setState('error');
-      addMsg('Сейчас не могу ответить — попробуйте ещё раз.', 'core');
+      // «Не могу ответить» ничего не объясняет. Причин ровно три, и каждая
+      // лечится по-своему — говорим, какая именно случилась.
+      if (r.status === 429){
+        addMsg(data.detail || 'Слишком много вопросов подряд. Подождите минуту.', 'core');
+      } else if (data.locked){
+        addMsg(data.detail || 'Пробный период завершён — оформите подписку, чтобы ИИ снова отвечал.', 'core');
+      } else {
+        addMsg('Модель сейчас не отвечает. Заявки, клиенты и деньги в кабинете от этого '
+             + 'не зависят — они считаются на сервере. Проверить подключение модели: «Настройки → Источники знаний».', 'core');
+      }
     }
-  }catch{ think.remove(); if (C) C.setState('error'); addMsg('Нет связи с сервером.', 'core'); }
+  }catch{
+    think.remove(); if (C) C.setState('error');
+    addMsg('Нет связи с сервером — вопрос не ушёл. Повторите, когда связь вернётся.', 'core');
+  }
   btn.disabled = false; input.focus();
 });
 </script>

@@ -2293,15 +2293,37 @@ def get_or_create_client(business_id, tg_user_id, name=None):
     return dict(row)
 
 
-def list_clients(business_id, query=None, limit=50, offset=0):
+# Срезы базы клиентов. Список из тысячи имён не отвечает ни на один вопрос
+# владельца; вопросы у него другие: «кто пришёл недавно», «кто уже покупал» и
+# «кто перестал возвращаться». Считаем эти срезы по тем же данным, что уже есть
+# (дата появления клиента и дата его последнего заказа) — без новых таблиц.
+SLEEPING_DAYS = 60          # столько без заказа — и клиент считается «уснувшим»
+SEGMENTS = ("all", "new", "buyers", "sleeping")
+
+
+def _segment_having(segment):
+    """Условие сегмента: (кусок HAVING, параметры). Пустая строка — без фильтра."""
+    if segment == "new":
+        return "c.created_at >= date('now', '-30 day')", []
+    if segment == "buyers":
+        return "COUNT(o.id) > 0", []
+    if segment == "sleeping":
+        # Именно «перестал», а не «никогда не покупал»: заказы были, но давно.
+        return (f"COUNT(o.id) > 0 AND MAX(o.created_at) < date('now', '-{SLEEPING_DAYS} day')", [])
+    return "", []
+
+
+def list_clients(business_id, query=None, limit=50, offset=0, segment="all"):
     """Клиенты бизнеса + число заказов, сумма покупок, дата последнего заказа.
-    Поддерживает поиск по имени/телефону и постраничную загрузку."""
+    Поддерживает поиск по имени/телефону, срез базы и постраничную загрузку."""
     where = "c.business_id = ?"
     params = [business_id]
     if query:
         where += " AND (LOWER(c.name) LIKE ? OR c.phone LIKE ?)"
         like = "%" + query.strip().lower() + "%"
         params += [like, like]
+    having, hparams = _segment_having(segment)
+    having_sql = f"HAVING {having}" if having else ""
     with _connect() as conn:
         rows = conn.execute(
             f"""SELECT c.*,
@@ -2312,11 +2334,39 @@ def list_clients(business_id, query=None, limit=50, offset=0):
                LEFT JOIN orders o ON o.client_id = c.id
                WHERE {where}
                GROUP BY c.id
+               {having_sql}
                ORDER BY last_order_at DESC NULLS LAST, c.id DESC
                LIMIT ? OFFSET ?""",
-            (*params, limit, offset),
+            (*params, *hparams, limit, offset),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def count_segment(business_id, query=None, segment="all"):
+    """Сколько клиентов в срезе — для счётчика на чипе и постраничной загрузки."""
+    where = "c.business_id = ?"
+    params = [business_id]
+    if query:
+        where += " AND (LOWER(c.name) LIKE ? OR c.phone LIKE ?)"
+        like = "%" + query.strip().lower() + "%"
+        params += [like, like]
+    having, hparams = _segment_having(segment)
+    if not having:
+        with _connect() as conn:
+            return conn.execute(
+                f"SELECT COUNT(*) AS n FROM clients c WHERE {where}", tuple(params)
+            ).fetchone()["n"]
+    with _connect() as conn:
+        return conn.execute(
+            f"""SELECT COUNT(*) AS n FROM (
+                    SELECT c.id FROM clients c
+                    LEFT JOIN orders o ON o.client_id = c.id
+                    WHERE {where}
+                    GROUP BY c.id
+                    HAVING {having}
+                ) AS seg""",
+            (*params, *hparams),
+        ).fetchone()["n"]
 
 
 def count_clients(business_id, query=None):
@@ -2331,6 +2381,31 @@ def count_clients(business_id, query=None):
         return conn.execute(
             f"SELECT COUNT(*) AS n FROM clients WHERE {where}", tuple(params)
         ).fetchone()["n"]
+
+
+def active_clients(business_id, days=30):
+    """
+    Сколько клиентов живы: написали или заказали за последние N дней.
+
+    «Всего клиентов» растёт вечно и ничего не говорит владельцу — база в
+    тысячу человек, из которых пишут трое, выглядит успехом только на бумаге.
+    Активные считаются по обеим сторонам жизни клиента (заказ и обращение),
+    поэтому цифра не врёт ни у тех, кто работает заявками, ни у тех, кто
+    живёт перепиской.
+    """
+    window = f"-{int(days)} day"
+    with _connect() as conn:
+        return conn.execute(
+            """SELECT COUNT(*) AS n FROM (
+                   SELECT client_id FROM orders
+                    WHERE business_id = ? AND client_id IS NOT NULL
+                      AND date(created_at) >= date('now', ?)
+                   UNION
+                   SELECT client_id FROM messages
+                    WHERE business_id = ? AND client_id IS NOT NULL
+                      AND date(created_at) >= date('now', ?)
+               ) AS live""",
+            (business_id, window, business_id, window)).fetchone()["n"]
 
 
 def clients_overview(business_id, query=None):
@@ -2750,12 +2825,16 @@ def orders_overview(business_id):
                       COALESCE(SUM(CASE WHEN status = 'новый' THEN 1 ELSE 0 END), 0) AS new,
                       COALESCE(SUM(CASE WHEN status = 'выполнен' THEN 1 ELSE 0 END), 0) AS done,
                       COALESCE(SUM(CASE WHEN date(created_at) = date('now') THEN 1 ELSE 0 END), 0) AS today,
+                      COALESCE(SUM(CASE WHEN COALESCE(amount,0) > 0 THEN 1 ELSE 0 END), 0) AS with_amount,
                       COALESCE(SUM(amount), 0) AS turnover
                  FROM orders WHERE business_id = ?""",
             (business_id,),
         ).fetchone()
     return {"total": int(row["total"] or 0), "new": int(row["new"] or 0),
             "done": int(row["done"] or 0), "today": int(row["today"] or 0),
+            # Сколько заявок с проставленной суммой: по разнице с total видно,
+            # насколько можно верить обороту и среднему чеку.
+            "with_amount": int(row["with_amount"] or 0),
             "turnover": int(row["turnover"] or 0)}
 
 

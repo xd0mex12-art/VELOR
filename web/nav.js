@@ -85,7 +85,7 @@
     '.vn-right{ display:flex; align-items:center; gap:14px; flex:none; }',
     // колокольчик уведомлений — всегда справа; цифра непрочитанного гаснет, когда открыл
     '.vn-bell{ position:relative; display:flex; align-items:center; justify-content:center;',
-    '  width:40px; height:40px; border-radius:13px; color:#c9c9c9; background:rgba(255,255,255,.05);',
+    '  width:44px; height:44px; border-radius:14px; color:#c9c9c9; background:rgba(255,255,255,.05);',
     '  border:1px solid rgba(255,255,255,.09); transition:color .2s, background .2s; }',
     '.vn-bell:hover{ color:#fff; background:rgba(255,255,255,.1); }',
     '.vn-bell.on{ color:#fff; background:rgba(128,82,255,.20); border-color:transparent; }',
@@ -108,7 +108,7 @@
     '.vn-sub-lk.on{ color:#fff; background:rgba(128,82,255,.14); }',
     '.vn-spacer{ width:100%; height:47px; }',
     // бургер
-    '.vn-burger{ display:none; width:42px; height:42px; border-radius:14px; background:rgba(255,255,255,.05);',
+    '.vn-burger{ display:none; width:44px; height:44px; border-radius:14px; background:rgba(255,255,255,.05);',
     '  border:1px solid rgba(255,255,255,.1); cursor:pointer; padding:0; }',
     '.vn-burger span{ display:block; width:16px; height:1.5px; margin:3.5px auto; background:#fff;',
     '  transition:transform .3s, opacity .2s; }',

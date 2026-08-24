@@ -6,63 +6,66 @@
 <title>VELOR AI — Настройки</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{
-    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
-    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --magenta:#ff4fd8;
-    --hairline:rgba(255,255,255,.08);
-  }
+  /* Настройки — это подключение бизнеса, а не «форма».
+     Поэтому наверху сказано, что уже подключено и чего не хватает,
+     а кнопка сохранения живёт внизу экрана и просыпается только тогда,
+     когда есть что сохранять. Скелет экрана — из velor.css. */
   *{ margin:0; padding:0; box-sizing:border-box; }
-  body{ background:var(--void); color:var(--bone);
-    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
-  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   a{ text-decoration:none; color:inherit; }
   button{ font-family:inherit; cursor:pointer; }
-  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
-
-  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
-  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
-  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
-  .ghost:hover{ color:var(--bone); }
-
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
 
-  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
-    display:flex; align-items:center; justify-content:space-between;
-    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
-  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
-  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
-    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
-  .nav-links{ display:flex; gap:22px; align-items:center; }
-  .tone-row{ display:flex; gap:10px; flex-wrap:wrap; }
-  .tone{ padding:12px 20px; border-radius:16px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    color:var(--silver); font-weight:500; font-size:14px; transition:border-color .2s, background .2s, color .2s; }
-  .tone:hover{ color:#fff; }
-  .tone.sel{ border-color:var(--iris); background:rgba(128,82,255,.12); color:#fff; }
+  /* место под липкую панель сохранения, чтобы она не накрывала последнее поле */
+  body main{ padding-top:104px; padding-bottom:140px; }
 
-  main{ position:relative; z-index:1; max-width:720px; margin:0 auto; padding:150px 24px 90px; }
-  h1{ font-weight:400; font-size:clamp(38px,5.5vw,72px); line-height:1.1; letter-spacing:-0.04em; margin:18px 0 20px; }
-  .lead{ color:var(--silver); font-weight:200; margin-bottom:56px; max-width:560px; }
+  .f{ margin-bottom:var(--sp-8); }
+  .f label{ display:block; font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2); }
+  .f .hint{ display:block; font-weight:var(--fw-thin); font-size:var(--fs-sm); color:var(--ash);
+    margin-bottom:var(--sp-3); text-transform:none; letter-spacing:0; line-height:1.5; }
+  .f .hint a{ color:var(--lilac); }
+  .f input, .f textarea{ width:100%; min-height:48px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:14px 18px;
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:16px;
+    transition:border-color var(--dur), box-shadow var(--dur); }
+  .f textarea{ resize:vertical; min-height:110px; line-height:1.55; }
+  .f .count{ display:block; margin-top:var(--sp-2); font-size:var(--fs-caption); color:var(--ash); }
 
-  .f{ margin-bottom:32px; }
-  .f label{ display:block; font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:10px; }
-  .f .hint{ display:block; font-weight:200; font-size:13px; color:var(--ash); margin-bottom:12px; text-transform:none; letter-spacing:0; }
-  .f input, .f textarea{ width:100%; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    border-radius:16px; padding:14px 18px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; transition:border-color .3s, box-shadow .3s; }
-  .f textarea{ resize:vertical; min-height:100px; }
-  .f input:focus, .f textarea:focus{ border-color:var(--iris); box-shadow:0 0 18px rgba(128,82,255,.3); outline:none; }
+  /* токен бота — секрет, поэтому по умолчанию скрыт */
+  .secret{ display:flex; gap:var(--sp-2); align-items:stretch; }
+  .secret input{ flex:1; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:14px; }
 
-  .save{ min-height:52px; padding:14px 40px; border-radius:28px; background:var(--iris); border:none; color:#fff;
-    font-weight:600; font-size:14px; letter-spacing:.15em; text-transform:uppercase; transition:filter .2s; }
-  .save:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
-  .save:disabled{ opacity:.4; }
+  .tone-row{ display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+  .tone{ min-height:44px; padding:11px 20px; border-radius:var(--r-pill); background:var(--surface-2);
+    border:1px solid var(--hairline); color:var(--silver); font-weight:var(--fw-med);
+    font-size:var(--fs-sm); transition:border-color var(--dur), background var(--dur), color var(--dur); }
+  .tone:hover{ color:var(--bone); }
+  .tone[aria-pressed="true"]{ border-color:var(--iris); background:rgba(128,82,255,.14); color:var(--bone); }
 
-  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
-    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
-    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none;
-    transition:opacity .3s, transform .3s; text-shadow:0 0 12px rgba(128,82,255,.5); }
+  /* панель сохранения: всегда под рукой, но молчит, пока ничего не менялось */
+  .savebar{ position:fixed; left:0; right:0; bottom:0; z-index:55;
+    display:flex; align-items:center; justify-content:flex-end; gap:var(--sp-4);
+    padding:var(--sp-4) var(--sp-6); background:rgba(0,0,0,.82); backdrop-filter:blur(14px);
+    border-top:1px solid var(--hairline); transform:translateY(110%);
+    transition:transform var(--dur) var(--ease); }
+  .savebar.on{ transform:none; }
+  .savebar .what{ margin-right:auto; font-size:var(--fs-body); color:var(--silver);
+    font-weight:var(--fw-thin); }
+
+  #toast{ position:fixed; bottom:96px; left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.82); backdrop-filter:blur(10px); color:var(--bone);
+    font-weight:var(--fw-reg); font-size:var(--fs-body); padding:14px 28px;
+    border-radius:var(--r-pill); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
+  @media(max-width:560px){
+    body main{ padding-top:92px; }
+    .savebar{ flex-wrap:wrap; }
+    .savebar .what{ width:100%; margin:0 0 var(--sp-2); font-size:var(--fs-sm); }
+    .savebar .v-btn{ flex:1; }
+  }
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
 <link rel="stylesheet" href="velor.css">
@@ -71,54 +74,79 @@
 
 <canvas id="ambientCanvas"></canvas>
 
-
 <main>
-  <span class="label">// Подключение бизнеса</span>
-  <h1>Настройки.</h1>
-  <p class="lead">Заполни три поля — и VELOR AI заговорит от лица твоего бизнеса. Никакого кода: сохранил здесь — бот и ядро сразу подстроились.</p>
-
-  <div class="f">
-    <label>Название бизнеса</label>
-    <span class="hint">Как называется твоё дело. Например: «Кофейня Utro», «Барбершоп BRODA».</span>
-    <input id="name" maxlength="120" placeholder="Название">
-  </div>
-
-  <div class="f">
-    <label>Чем занимается</label>
-    <span class="hint">Коротко, для ИИ — чтобы он понимал контекст. Например: «кофейня с доставкой» или «барбершоп: стрижки и бороды, запись по времени».</span>
-    <input id="about" maxlength="200" placeholder="Вид бизнеса и что вы делаете">
-  </div>
-
-  <div class="f">
-    <label>Приветствие в боте</label>
-    <span class="hint">Первое, что видит клиент после /start. Например: «Здравствуйте! Напишите, что хотите — приму заявку и всё оформлю.»</span>
-    <textarea id="greeting" maxlength="500" placeholder="Приветствие клиенту"></textarea>
-  </div>
-
-  <div class="f">
-    <label>Стиль общения</label>
-    <span class="hint">Как AI-сотрудник разговаривает с клиентами. Влияет на тон всех ответов.</span>
-    <div class="tone-row" id="toneRow">
-      <button type="button" class="tone" data-tone="professional">Профессиональный</button>
-      <button type="button" class="tone" data-tone="friendly">Дружелюбный</button>
-      <button type="button" class="tone" data-tone="strict">Строгий</button>
+  <header class="v-head">
+    <div>
+      <h1>Настройки</h1>
+      <p class="v-lead">Здесь бизнес подключается к VELOR. Заполните профиль и вставьте токен
+        бота — сотрудник сразу начнёт отвечать вашим клиентам от лица компании.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Загружаю настройки…</span>
+      </div>
     </div>
-  </div>
+  </header>
 
-  <div class="f">
-    <label>База знаний</label>
-    <span class="hint">Всё, что ядро должно знать о бизнесе, чтобы отвечать по фактам: прайс, услуги, часы работы, доставка, частые вопросы и ответы. Пиши свободно, простым текстом — чем подробнее, тем умнее ядро. Например: «Букет из 15 роз — 2500₽. Доставка по городу 300₽, бесплатно от 5000₽. Работаем 9:00–21:00.»</span>
-    <textarea id="knowledge" maxlength="4000" placeholder="Прайс, услуги, условия, ответы на частые вопросы…" style="min-height:180px"></textarea>
-  </div>
+  <div id="failZone" role="alert"></div>
 
-  <div class="f">
-    <label>Токен Telegram-бота</label>
-    <span class="hint">Строка от @BotFather — через неё работает бот. Не знаете, где взять? <a href="guide.html" style="color:var(--iris)">Пошаговая инструкция →</a></span>
-    <input id="tg_bot_token" placeholder="8521842437:AAF8K8zwVmmHPpg..." autocomplete="off">
-  </div>
+  <form id="form" autocomplete="off" inert>
+    <div class="f">
+      <label for="name">Название бизнеса</label>
+      <span class="hint">Как называется ваше дело. Например: «Кофейня Utro», «Барбершоп BRODA».</span>
+      <input id="name" name="name" maxlength="120" placeholder="Название" autocomplete="organization">
+    </div>
 
-  <button class="save" id="saveBtn">Сохранить</button>
+    <div class="f">
+      <label for="about">Чем занимается</label>
+      <span class="hint">Коротко, для ИИ — чтобы он понимал контекст. Например: «кофейня с доставкой»
+        или «барбершоп: стрижки и бороды, запись по времени».</span>
+      <input id="about" name="about" maxlength="200" placeholder="Вид бизнеса и что вы делаете">
+    </div>
+
+    <div class="f">
+      <label for="greeting">Приветствие в боте</label>
+      <span class="hint">Первое, что видит клиент после /start. Например: «Здравствуйте! Напишите,
+        что хотите — приму заявку и всё оформлю.»</span>
+      <textarea id="greeting" name="greeting" maxlength="500" placeholder="Приветствие клиенту"></textarea>
+    </div>
+
+    <div class="f">
+      <label id="toneLabel">Стиль общения</label>
+      <span class="hint">Как AI-сотрудник разговаривает с клиентами. Влияет на тон всех ответов.</span>
+      <div class="tone-row" id="toneRow" role="group" aria-labelledby="toneLabel">
+        <button type="button" class="tone" data-tone="professional" aria-pressed="false">Профессиональный</button>
+        <button type="button" class="tone" data-tone="friendly" aria-pressed="false">Дружелюбный</button>
+        <button type="button" class="tone" data-tone="strict" aria-pressed="false">Строгий</button>
+      </div>
+    </div>
+
+    <div class="f">
+      <label for="knowledge">База знаний</label>
+      <span class="hint">Всё, что ядро должно знать о бизнесе, чтобы отвечать по фактам: прайс, услуги,
+        часы работы, доставка, частые вопросы. Пишите свободно — чем подробнее, тем умнее ядро.
+        Например: «Букет из 15 роз — 2500 ₽. Доставка по городу 300 ₽, бесплатно от 5000 ₽.
+        Работаем 9:00–21:00.» Здесь же можно <a href="memory.html">разложить знания по полочкам</a>.</span>
+      <textarea id="knowledge" name="knowledge" maxlength="4000" style="min-height:180px"
+        placeholder="Прайс, услуги, условия, ответы на частые вопросы…"></textarea>
+      <span class="count" id="knowCount"></span>
+    </div>
+
+    <div class="f">
+      <label for="tg_bot_token">Токен Telegram-бота</label>
+      <span class="hint">Строка от @BotFather — через неё работает бот. Не знаете, где взять?
+        <a href="guide.html">Пошаговая инструкция →</a></span>
+      <div class="secret">
+        <input id="tg_bot_token" name="tg_bot_token" type="password" placeholder="8521842437:AAF8K8zwVmmHPpg…">
+        <button class="v-btn ghost" type="button" id="peek" aria-pressed="false">Показать</button>
+      </div>
+    </div>
+  </form>
 </main>
+
+<div class="savebar" id="savebar">
+  <span class="what" id="what">Есть несохранённые изменения</span>
+  <button class="v-btn ghost" type="button" id="resetBtn">Отменить</button>
+  <button class="v-btn" type="button" id="saveBtn">Сохранить</button>
+</div>
 
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -126,51 +154,148 @@
 <script src="nav.js"></script>
 <script src="core-live.js?v=10"></script>
 <script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let toastT;
-let selectedTone = '';
-document.getElementById('toneRow').addEventListener('click', e => {
-  const b = e.target.closest('.tone'); if(!b) return;
-  selectedTone = b.dataset.tone;
-  document.querySelectorAll('.tone').forEach(t => t.classList.toggle('sel', t===b));
-});
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
 }
 
-async function load(){
-  try{
-    const b = await (await fetch('/api/business')).json();
-    document.getElementById('name').value = b.name || '';
-    document.getElementById('about').value = b.about || '';
-    document.getElementById('greeting').value = b.greeting || '';
-    document.getElementById('knowledge').value = b.knowledge || '';
-    document.getElementById('tg_bot_token').value = b.tg_bot_token || '';
-    selectedTone = b.tone || '';
-    document.querySelectorAll('.tone').forEach(t => t.classList.toggle('sel', t.dataset.tone===selectedTone));
-  }catch{ toast('Сервер не отвечает — запусти python server.py'); }
+const FIELDS = ['name', 'about', 'greeting', 'knowledge', 'tg_bot_token'];
+const el = id => document.getElementById(id);
+let saved = {};            // что лежит на сервере — с этим сравниваем
+let selectedTone = '';
+
+function current(){
+  const d = { tone: selectedTone };
+  FIELDS.forEach(f => d[f] = el(f).value.trim());
+  return d;
 }
 
-document.getElementById('saveBtn').addEventListener('click', async e => {
-  const btn = e.currentTarget; btn.disabled = true;
-  const data = {
-    name: document.getElementById('name').value.trim(),
-    about: document.getElementById('about').value.trim(),
-    greeting: document.getElementById('greeting').value.trim(),
-    knowledge: document.getElementById('knowledge').value.trim(),
-    tone: selectedTone,
-    tg_bot_token: document.getElementById('tg_bot_token').value.trim(),
-  };
-  if (!data.name){ toast('Впиши хотя бы название'); btn.disabled = false; return; }
+function dirty(){
+  const c = current();
+  return Object.keys(c).some(k => (c[k] || '') !== (saved[k] || ''));
+}
+
+// ── что сейчас подключено: одна строка вместо угадывания ──
+function paintState(){
+  const box = el('state');
+  const d = saved;
+  const bot = !!(d.tg_bot_token || '').trim();
+  const know = (d.knowledge || '').trim().length;
+
+  if (!bot){
+    box.innerHTML = '<span class="v-badge warn"><i></i>Бот не подключён</span>' +
+      '<span>клиенты пока не могут вам написать — нужен токен внизу страницы</span>';
+    return;
+  }
+  if (know < 200){
+    box.innerHTML = '<span class="v-badge warn"><i></i>Бот подключён, знаний мало</span>' +
+      '<span>сотрудник отвечает общими словами — допишите прайс и условия</span>';
+    return;
+  }
+  box.innerHTML = '<span class="v-badge good"><i></i>Всё подключено</span>' +
+    '<span>бот на связи, база знаний заполнена — сотрудник работает</span>';
+}
+
+function paintCount(){
+  const n = el('knowledge').value.trim().length;
+  el('knowCount').textContent = n
+    ? n.toLocaleString('ru-RU') + ' из 4 000 символов'
+    : 'пусто — без этого сотрудник отвечает общими словами';
+}
+
+function syncBar(){
+  const on = dirty();
+  el('savebar').classList.toggle('on', on);
+  el('what').textContent = on ? 'Есть несохранённые изменения' : '';
+}
+
+function fill(b){
+  FIELDS.forEach(f => el(f).value = b[f] || '');
+  selectedTone = b.tone || '';
+  document.querySelectorAll('.tone').forEach(t =>
+    t.setAttribute('aria-pressed', String(t.dataset.tone === selectedTone)));
+  saved = current();
+  paintState(); paintCount(); syncBar();
+}
+
+function paintFail(){
+  el('failZone').innerHTML = `
+    <div class="v-fail"><div><div class="t">Настройки не загрузились</div>
+      <div class="d">Сервер не ответил. Ничего не заполняйте, пока не загрузятся —
+        иначе сохранение затрёт то, что уже настроено.</div></div>
+      <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  el('form').style.opacity = '.45';
+  el('form').inert = true;
+  el('retry').addEventListener('click', () => { el('failZone').innerHTML = ''; load(); });
+}
+
+async function load(){
+  el('state').innerHTML = '<span class="v-badge calm"><i></i>Загружаю настройки…</span>';
+  // Пока значения не пришли, поля закрыты: иначе ответ сервера затрёт то,
+  // что человек успел напечатать в пустую форму.
+  el('form').inert = true;
   try{
-    await fetch('/api/business', {
+    const r = await fetch('/api/business');
+    if (!r.ok) throw 0;
+    fill(await r.json());
+    el('failZone').innerHTML = '';
+    el('form').style.opacity = '';
+    el('form').inert = false;
+  }catch{ paintFail(); }
+}
+
+el('toneRow').addEventListener('click', e => {
+  const b = e.target.closest('.tone'); if(!b) return;
+  selectedTone = b.dataset.tone;
+  document.querySelectorAll('.tone').forEach(t => t.setAttribute('aria-pressed', String(t === b)));
+  syncBar();
+});
+
+el('form').addEventListener('input', () => { paintCount(); syncBar(); });
+
+el('peek').addEventListener('click', e => {
+  const input = el('tg_bot_token');
+  const hidden = input.type === 'password';
+  input.type = hidden ? 'text' : 'password';
+  e.currentTarget.textContent = hidden ? 'Скрыть' : 'Показать';
+  e.currentTarget.setAttribute('aria-pressed', String(hidden));
+});
+
+el('resetBtn').addEventListener('click', () => {
+  fill(saved);
+  toast('Изменения отменены');
+});
+
+el('saveBtn').addEventListener('click', async () => {
+  const data = current();
+  if (!data.name){ toast('Впишите хотя бы название'); el('name').focus(); return; }
+  const btn = el('saveBtn'); btn.disabled = true; btn.textContent = 'Сохраняю…';
+  try{
+    const r = await fetch('/api/business', {
       method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)
     });
+    if (!r.ok){
+      // 409 — токен уже привязан к другой компании; сервер объясняет, к какой
+      let why = 'Не сохранилось — проверьте связь с сервером.';
+      try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
+      toast(why);
+      btn.disabled = false; btn.textContent = 'Сохранить';
+      return;
+    }
+    saved = data;
     if (window.ARINA_CORE_PULSE) ARINA_CORE_PULSE();
-    toast('Сохранено — VELOR AI подстроился ✨');
-  }catch{ toast('Не сохранилось — проверь сервер'); }
-  btn.disabled = false;
+    paintState(); syncBar();
+    toast('Сохранено — VELOR подстроился');
+  }catch{ toast('Не сохранилось — проверьте, что сервер запущен'); }
+  btn.disabled = false; btn.textContent = 'Сохранить';
+});
+
+// уход со страницы с несохранённым — предупреждаем
+window.addEventListener('beforeunload', e => {
+  if (dirty()){ e.preventDefault(); e.returnValue = ''; }
 });
 
 load();

@@ -6,156 +6,195 @@
 <title>VELOR AI — Финансы</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{
-    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
-    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --coral:#ff6b6b;
-    --hairline:rgba(255,255,255,.08);
-  }
+  /* Финансы отвечают на два вопроса: сколько осталось и куда уходит.
+     Первый — цифрами вверху, второй — разбивкой по категориям, которая
+     считается из тех же записей. Ввод и разбор — ниже, они нужны реже,
+     чем ответ. Скелет экрана берётся из velor.css. */
   *{ margin:0; padding:0; box-sizing:border-box; }
-  body{ background:var(--void); color:var(--bone);
-    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden; }
-  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   a{ text-decoration:none; color:inherit; }
   button{ font-family:inherit; cursor:pointer; }
-  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
 
-  .label{ font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
-  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
-  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
-  .ghost:hover{ color:var(--bone); }
+  body main{ padding-top:104px; padding-bottom:80px; }
+  section{ margin-bottom:var(--sp-10); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
 
-  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
-    display:flex; align-items:center; justify-content:space-between;
-    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
-  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; }
-  .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
-    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
-  .nav-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
+  .v-kpi .v.income{ color:var(--verdant); }
+  .v-kpi .v.expense{ color:var(--coral); }
+  .v-kpi .v.minus{ color:var(--coral); }
 
-  main{ position:relative; z-index:1; max-width:960px; margin:0 auto; padding:140px 24px 100px; }
-  h1{ font-weight:400; font-size:clamp(38px,5.5vw,64px); line-height:1.1; letter-spacing:-0.04em; margin:16px 0 12px; }
-  .lead{ color:var(--silver); font-weight:200; margin-bottom:48px; max-width:560px; }
+  /* куда уходят деньги — доля категории видна и без цвета: она подписана */
+  .cats{ display:grid; gap:var(--sp-4); }
+  .cat .top{ display:flex; align-items:baseline; justify-content:space-between;
+    gap:var(--sp-4); margin-bottom:var(--sp-2); }
+  .cat .nm{ font-size:var(--fs-body); font-weight:var(--fw-reg); }
+  .cat .val{ font-size:var(--fs-body); color:var(--silver); white-space:nowrap; }
+  .cat .val i{ font-style:normal; color:var(--ash); font-size:var(--fs-sm); margin-left:6px; }
+  .cat .bar{ height:6px; border-radius:3px; background:var(--surface-2); overflow:hidden; }
+  .cat .bar span{ display:block; height:100%; border-radius:3px; background:var(--coral);
+    transition:width .8s var(--ease); }
+  .cat.income .bar span{ background:var(--verdant); }
 
-  /* Метрики */
-  .cards{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:48px; }
-  .card{ background:rgba(255,255,255,.04); border:1px solid var(--hairline); border-radius:22px; padding:26px 24px; }
-  .card .k{ font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); }
-  .card .v{ font-weight:400; font-size:clamp(26px,3.2vw,38px); letter-spacing:-.02em; margin-top:12px; }
-  .card.income .v{ color:var(--verdant); }
-  .card.expense .v{ color:var(--coral); }
-  .card.profit .v{ color:var(--bone); }
+  /* форма ввода */
+  .form{ background:var(--surface); border:1px solid var(--hairline);
+    border-radius:var(--r-lg); padding:var(--sp-6); }
+  .kind-row{ display:flex; gap:var(--sp-2); margin-bottom:var(--sp-4); }
+  .kind{ min-height:44px; padding:11px 22px; border-radius:var(--r-pill); background:var(--surface-2);
+    border:1px solid var(--hairline); color:var(--silver); font-weight:var(--fw-med);
+    font-size:var(--fs-sm); transition:border-color var(--dur), background var(--dur), color var(--dur); }
+  .kind:hover{ color:var(--bone); }
+  .kind[aria-pressed="true"][data-kind="income"]{ border-color:var(--verdant); background:rgba(47,212,178,.14); color:var(--bone); }
+  .kind[aria-pressed="true"][data-kind="expense"]{ border-color:var(--coral); background:rgba(255,107,107,.14); color:var(--bone); }
+  .grid{ display:grid; grid-template-columns:1.4fr 1fr; gap:var(--sp-3); margin-bottom:var(--sp-3); }
+  .form label{ display:block; font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2); }
+  .form input{ width:100%; min-height:48px; background:var(--surface-2); border:1px solid var(--hairline);
+    border-radius:var(--r-sm); padding:12px 16px; color:var(--bone); font-family:inherit;
+    font-weight:var(--fw-thin); font-size:16px; }
+  .form .hint{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-2); }
+  .form .go{ margin-top:var(--sp-4); }
 
-  section{ margin-bottom:44px; }
-  .sec-h{ font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--ash); margin-bottom:18px; }
-
-  /* Форма */
-  .form{ background:rgba(255,255,255,.03); border:1px solid var(--hairline); border-radius:22px; padding:24px; }
-  .kind-row{ display:flex; gap:10px; margin-bottom:18px; }
-  .kind{ padding:11px 22px; border-radius:14px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    color:var(--silver); font-weight:500; font-size:14px; transition:.2s; }
-  .kind:hover{ color:#fff; }
-  .kind.sel[data-kind="income"]{ border-color:var(--verdant); background:rgba(47,212,178,.14); color:#fff; }
-  .kind.sel[data-kind="expense"]{ border-color:var(--coral); background:rgba(255,107,107,.14); color:#fff; }
-  .row{ display:grid; grid-template-columns:1.4fr 1fr; gap:12px; margin-bottom:12px; }
-  input{ width:100%; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    border-radius:14px; padding:12px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px; transition:.3s; }
-  input:focus{ border-color:var(--iris); box-shadow:0 0 16px rgba(128,82,255,.28); outline:none; }
-  .add{ min-height:50px; padding:12px 34px; border-radius:26px; background:var(--iris); border:none; color:#fff;
-    font-weight:600; font-size:14px; letter-spacing:.12em; text-transform:uppercase; transition:filter .2s; margin-top:6px; }
-  .add:hover{ filter:brightness(1.2) drop-shadow(0 0 16px rgba(128,82,255,.5)); }
-
-  /* Список */
-  .entry{ display:flex; align-items:center; gap:14px; padding:14px 4px; border-bottom:1px solid var(--hairline); }
-  .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  /* записи */
+  .entry{ display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-3) 0;
+    border-bottom:1px solid var(--hairline); min-height:56px; }
+  .entry:last-child{ border-bottom:none; }
+  .entry .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
   .dot.income{ background:var(--verdant); } .dot.expense{ background:var(--coral); }
-  .entry .cat{ font-weight:400; font-size:16px; }
-  .entry .note{ font-size:13px; color:var(--ash); }
-  .entry .amt{ margin-left:auto; font-weight:400; font-size:17px; }
+  .entry .cat-nm{ font-weight:var(--fw-reg); font-size:var(--fs-body); }
+  .entry .note{ font-size:var(--fs-sm); color:var(--ash); margin-top:2px; }
+  .entry .amt{ margin-left:auto; font-weight:var(--fw-reg); font-size:var(--fs-base);
+    white-space:nowrap; font-variant-numeric:tabular-nums; }
   .entry .amt.income{ color:var(--verdant); } .entry .amt.expense{ color:var(--coral); }
-  .entry .del{ background:none; border:none; color:var(--ash); font-size:20px; line-height:1; padding:4px 8px; transition:color .2s; }
-  .entry .del:hover{ color:var(--coral); }
-  .empty{ color:var(--ash); font-size:15px; padding:18px 0; }
+  .entry .del{ width:44px; height:44px; flex:none; background:none; border:none; color:var(--ash);
+    font-size:20px; line-height:1; border-radius:var(--r-sm); transition:color var(--dur-fast), background var(--dur-fast); }
+  .entry .del:hover{ color:var(--coral); background:rgba(255,107,107,.1); }
+  /* подтверждение удаления живёт в самой строке — без системного окна поверх экрана */
+  .entry.confirm{ background:rgba(255,107,107,.07); }
+  .entry .ask{ margin-left:auto; display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+  .entry .ask span{ font-size:var(--fs-sm); color:var(--silver); }
 
-  /* AI-инсайты */
-  .ai{ background:linear-gradient(160deg,rgba(128,82,255,.10),rgba(255,255,255,.02));
-    border:1px solid rgba(128,82,255,.25); border-radius:22px; padding:26px 24px; }
-  .ai .top{ display:flex; align-items:center; justify-content:space-between; gap:14px; margin-bottom:8px; }
-  .ai h3{ font-weight:400; font-size:20px; letter-spacing:-.01em; }
-  .ai-btn{ padding:10px 22px; border-radius:22px; background:rgba(128,82,255,.16); border:1px solid rgba(128,82,255,.4);
-    color:#fff; font-weight:500; font-size:13px; letter-spacing:.06em; transition:.2s; }
-  .ai-btn:hover{ background:rgba(128,82,255,.28); }
-  .ai .out{ margin-top:14px; color:var(--silver); font-weight:200; font-size:16px; white-space:pre-line; min-height:24px; }
+  /* разбор ИИ */
+  .ai{ background:linear-gradient(150deg,rgba(128,82,255,.12),rgba(255,255,255,.02));
+    border:1px solid rgba(128,82,255,.25); border-radius:var(--r-xl); padding:var(--sp-6); }
+  .ai .top{ display:flex; align-items:center; justify-content:space-between;
+    gap:var(--sp-4); flex-wrap:wrap; margin-bottom:var(--sp-2); }
+  .ai h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .ai .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:var(--fw-thin); margin-top:3px; }
+  .ai .out{ margin-top:var(--sp-4); color:var(--silver); font-weight:var(--fw-thin);
+    font-size:var(--fs-body); line-height:1.55; white-space:pre-line; }
 
-  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
-    background:rgba(0,0,0,.75); backdrop-filter:blur(8px); color:var(--bone); font-weight:400; font-size:15px;
-    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none; transition:.3s; }
+  /* быстрый путь к выписке — заметный, но не спорит с главным действием */
+  .import-cta{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px var(--sp-5);
+    border:1px solid rgba(128,82,255,.3); background:var(--tint-iris); border-radius:var(--r-lg);
+    padding:var(--sp-5) var(--sp-6); margin-bottom:var(--sp-10);
+    transition:background var(--dur), border-color var(--dur); }
+  .import-cta:hover{ background:rgba(128,82,255,.13); border-color:var(--lilac); }
+  .import-cta .t{ font-size:var(--fs-base); font-weight:var(--fw-med); }
+  .import-cta .s{ grid-column:1; font-size:var(--fs-sm); color:var(--ash); }
+  .import-cta .go{ grid-row:1/3; grid-column:2; font-size:22px; color:var(--lilac); }
+
+  #toast{ position:fixed; bottom:var(--sp-8); left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone);
+    font-weight:var(--fw-reg); font-size:var(--fs-body); padding:14px 28px;
+    border-radius:var(--r-pill); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
-  @media (max-width:720px){ .cards{ grid-template-columns:1fr; } .row{ grid-template-columns:1fr; } }
+  @media(max-width:620px){
+    body main{ padding-top:92px; }
+    .grid{ grid-template-columns:1fr; }
+    .import-cta{ grid-template-columns:1fr; }
+    .import-cta .go{ display:none; }
+    .form .go{ width:100%; }
+  }
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
 <link rel="stylesheet" href="velor.css">
 </head>
 <body>
 
-
 <main>
-  <span class="label">// Finance · Деньги бизнеса</span>
-  <h1>Финансы.</h1>
-  <p class="lead">Вносите доходы и расходы — VELOR считает прибыль и подсказывает, где вы теряете деньги, а где точка роста.</p>
+  <header class="v-head">
+    <div>
+      <h1>Финансы</h1>
+      <p class="v-lead">Доходы и расходы бизнеса в одном месте. VELOR считает прибыль,
+        показывает, куда уходят деньги, и разбирает цифры на человеческом языке.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Считаю деньги…</span>
+      </div>
+    </div>
+    <div class="v-acts">
+      <a class="v-btn" href="import.html">Загрузить выписку</a>
+      <a class="v-btn ghost" href="export.html">Экспорт</a>
+    </div>
+  </header>
 
-  <a class="import-cta" href="import.html">
-    <span class="ic-t">Загрузить выписку из банка</span>
-    <span class="ic-s">CSV, XLSX или PDF — сотрудник сам разберёт операции и разложит расходы по категориям</span>
-    <span class="ic-go">→</span>
-  </a>
-  <style>
-    .import-cta{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:4px 18px;
-      border:1px solid rgba(128,82,255,.3); background:rgba(128,82,255,.07); border-radius:18px;
-      padding:20px 24px; margin:26px 0 34px; transition:background .25s, border-color .25s; }
-    .import-cta:hover{ background:rgba(128,82,255,.13); border-color:#a99cff; }
-    .import-cta .ic-t{ font-size:17px; font-weight:500; }
-    .import-cta .ic-s{ grid-column:1; font-size:13.5px; color:#9a9a9a; }
-    .import-cta .ic-go{ grid-row:1/3; grid-column:2; font-size:22px; color:#a99cff; }
-    @media(max-width:620px){ .import-cta{ grid-template-columns:1fr; }
-      .import-cta .ic-go{ display:none; } }
-  </style>
+  <div id="failZone" role="alert"></div>
 
-  <div class="cards">
-    <div class="card income"><div class="k">Выручка</div><div class="v num" id="mIncome">0 ₽</div></div>
-    <div class="card expense"><div class="k">Расходы</div><div class="v num" id="mExpense">0 ₽</div></div>
-    <div class="card profit"><div class="k">Прибыль</div><div class="v num" id="mProfit">0 ₽</div></div>
-  </div>
-
+  <!-- сколько денег -->
   <section>
-    <div class="sec-h">Добавить запись</div>
-    <div class="form">
-      <div class="kind-row" id="kindRow">
-        <button type="button" class="kind sel" data-kind="income">Доход</button>
-        <button type="button" class="kind" data-kind="expense">Расход</button>
-      </div>
-      <div class="row">
-        <input id="fCategory" maxlength="80" placeholder="Категория — напр. «продажи», «аренда», «реклама»">
-        <input id="fAmount" type="number" min="0" inputmode="numeric" placeholder="Сумма, ₽">
-      </div>
-      <input id="fNote" maxlength="160" placeholder="Заметка (необязательно)">
-      <button class="add" id="addBtn">Добавить</button>
+    <div class="v-kpi three" id="kpi" aria-live="polite">
+      <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
     </div>
   </section>
 
+  <!-- куда уходят -->
+  <section id="catsSec">
+    <h2 class="sec-h">Куда уходят деньги</h2>
+    <div class="cats" id="cats"><div class="v-sk line"></div><div class="v-sk line"></div><div class="v-sk line"></div></div>
+  </section>
+
+  <!-- что об этом думает VELOR -->
   <section class="ai">
     <div class="top">
-      <h3>AI-инсайты по деньгам</h3>
-      <button class="ai-btn" id="insBtn">Проанализировать</button>
+      <div>
+        <h2>Разбор от VELOR</h2>
+        <div class="sub">Смотрит на ваши цифры и говорит, что с ними не так</div>
+      </div>
+      <button class="v-btn ghost" id="insBtn">Проанализировать</button>
     </div>
-    <div class="out" id="insOut">Нажмите «Проанализировать» — VELOR разберёт ваши цифры.</div>
+    <div class="out" id="insOut">Нажмите «Проанализировать» — VELOR разберёт доходы, расходы и структуру трат.</div>
   </section>
 
+  <!-- добавить запись -->
   <section>
-    <div class="sec-h">Последние записи</div>
-    <div id="list"></div>
+    <h2 class="sec-h">Добавить запись</h2>
+    <div class="form">
+      <div class="kind-row" id="kindRow" role="group" aria-label="Тип записи">
+        <button type="button" class="kind" data-kind="income" aria-pressed="true">Доход</button>
+        <button type="button" class="kind" data-kind="expense" aria-pressed="false">Расход</button>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="fCategory">Категория</label>
+          <input id="fCategory" maxlength="80" placeholder="продажи, аренда, реклама…">
+        </div>
+        <div>
+          <label for="fAmount">Сумма, ₽</label>
+          <input id="fAmount" type="number" min="1" inputmode="numeric" placeholder="0">
+        </div>
+      </div>
+      <label for="fNote">Заметка</label>
+      <input id="fNote" maxlength="160" placeholder="Необязательно — что это было">
+      <div class="hint">Категория нужна, чтобы разбивка выше показывала правду. Без неё запись попадёт в «Без категории».</div>
+      <button class="v-btn go" id="addBtn">Добавить</button>
+    </div>
+  </section>
+
+  <a class="import-cta" href="import.html">
+    <span class="t">Не вносить руками — загрузить выписку</span>
+    <span class="s">CSV, XLSX или PDF: сотрудник сам разберёт операции и разложит по категориям</span>
+    <span class="go" aria-hidden="true">→</span>
+  </a>
+
+  <!-- последние записи -->
+  <section>
+    <h2 class="sec-h">Последние записи <span class="n" id="cnt"></span></h2>
+    <div id="list"><div class="v-sk row"></div><div class="v-sk row"></div><div class="v-sk row"></div></div>
   </section>
 </main>
 
@@ -164,49 +203,137 @@
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
 <script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽';
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
 let toastT, selectedKind = 'income';
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3000);
 }
-function money(n){ return (n||0).toLocaleString('ru-RU') + ' ₽'; }
 
 document.getElementById('kindRow').addEventListener('click', e => {
   const b = e.target.closest('.kind'); if(!b) return;
   selectedKind = b.dataset.kind;
-  document.querySelectorAll('.kind').forEach(k => k.classList.toggle('sel', k===b));
+  document.querySelectorAll('.kind').forEach(k => k.setAttribute('aria-pressed', String(k === b)));
 });
+
+// ── состояние: одна строка о том, в плюсе бизнес или в минусе ──
+function paintState(s, entries){
+  const box = document.getElementById('state');
+  if (!entries.length){
+    box.innerHTML = '<span class="v-badge calm"><i></i>Записей нет</span>' +
+      '<span>внесите первый доход или загрузите выписку — тогда появятся и цифры, и разбор</span>';
+    return;
+  }
+  // Ноль — это не плюс: «в плюсе» при нулевой прибыли читается как ложь.
+  const cls = s.profit > 0 ? 'good' : (s.profit < 0 ? 'bad' : 'warn');
+  const word = s.profit > 0 ? 'В плюсе' : (s.profit < 0 ? 'В минусе' : 'В ноль');
+  box.innerHTML = `<span class="v-badge ${cls}"><i></i>${word}</span>` +
+    `<span>прибыль ${money(s.profit)} за всё время · ${entries.length} ` +
+    `${plural(entries.length, 'запись', 'записи', 'записей')}</span>`;
+}
+
+function paintKpi(s){
+  const cards = [
+    ['Выручка · всё время', money(s.income), 'income',
+     s.income ? '' : 'доходов пока не вносили'],
+    ['Расходы · всё время', money(s.expense), 'expense',
+     s.expense ? (s.income ? Math.round(s.expense / s.income * 100) + '% от выручки' : '') : 'расходов пока не вносили'],
+    ['Прибыль · всё время', money(s.profit), s.profit < 0 ? 'minus' : '',
+     s.income ? (s.profit > 0 ? 'остаётся ' + Math.round(s.profit / s.income * 100) + '% выручки'
+              : (s.profit < 0 ? 'расходы больше доходов' : 'расходы съели всю выручку')) : ''],
+  ];
+  document.getElementById('kpi').innerHTML = cards.map(([k, v, cls, sub]) => `
+    <div class="v-kpi-card">
+      <div class="k">${k}</div>
+      <div class="v num ${cls}">${v}</div>
+      <div class="s">${esc(sub)}</div>
+    </div>`).join('');
+}
+
+// ── куда уходят: разбивка по категориям из тех же записей ──
+function paintCats(s){
+  const box = document.getElementById('cats');
+  const exp = (s.by_category || []).filter(c => c.kind === 'expense' && c.total > 0);
+  if (!exp.length){
+    box.innerHTML = `<div class="v-empty"><strong>Разбивки пока нет</strong>
+      Она появится, как только будут расходы с категориями. Категория — это просто слово:
+      «аренда», «реклама», «закупка».</div>`;
+    return;
+  }
+  const max = Math.max(...exp.map(c => c.total));
+  const sum = exp.reduce((a, c) => a + c.total, 0);
+  box.innerHTML = exp.slice(0, 8).map(c => `
+    <div class="cat">
+      <div class="top">
+        <span class="nm">${esc(c.category)}</span>
+        <span class="val num">${money(c.total)}<i>${Math.round(c.total / sum * 100)}%</i></span>
+      </div>
+      <div class="bar"><span style="width:${Math.max(2, Math.round(c.total / max * 100))}%"></span></div>
+    </div>`).join('');
+}
+
+function paintList(rows){
+  const list = document.getElementById('list');
+  document.getElementById('cnt').textContent = rows.length ? rows.length : '';
+  if (!rows.length){
+    list.innerHTML = `<div class="v-empty"><strong>Пока пусто</strong>
+      Добавьте первый доход или расход выше — или <a href="import.html">загрузите выписку из банка</a>,
+      и VELOR разложит операции сам.</div>`;
+    return;
+  }
+  list.innerHTML = rows.map(r => `
+    <div class="entry" data-id="${r.id}">
+      <span class="dot ${r.kind === 'expense' ? 'expense' : 'income'}"></span>
+      <div>
+        <div class="cat-nm">${esc(r.category || 'Без категории')}</div>
+        ${r.note ? `<div class="note">${esc(r.note)}</div>` : ''}
+      </div>
+      <div class="amt ${r.kind === 'expense' ? 'expense' : 'income'}">${r.kind === 'expense' ? '−' : '+'}${money(r.amount)}</div>
+      <button class="del" type="button" aria-label="Удалить запись «${esc(r.category || 'без категории')}»">×</button>
+    </div>`).join('');
+}
+
+function paintFail(){
+  document.getElementById('failZone').innerHTML = `
+    <div class="v-fail"><div><div class="t">Финансы не загрузились</div>
+      <div class="d">Сервер не ответил. Ваши записи целы — попробуйте ещё раз.</div></div>
+      <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => {
+    document.getElementById('failZone').innerHTML = ''; load();
+  });
+}
 
 async function load(){
   try{
-    const d = await (await fetch('/api/finance')).json();
-    const s = d.summary || {};
-    document.getElementById('mIncome').textContent  = money(s.income);
-    document.getElementById('mExpense').textContent = money(s.expense);
-    document.getElementById('mProfit').textContent  = money(s.profit);
-    const list = document.getElementById('list');
-    const rows = d.entries || [];
-    if(!rows.length){ list.innerHTML = '<div class="empty">Пока пусто. Добавьте первый доход или расход выше.</div>'; return; }
-    list.innerHTML = rows.map(r => `
-      <div class="entry">
-        <span class="dot ${r.kind}"></span>
-        <div>
-          <div class="cat">${(r.category||'Без категории')}</div>
-          ${r.note ? `<div class="note">${r.note}</div>` : ''}
-        </div>
-        <div class="amt ${r.kind} num">${r.kind==='expense'?'−':'+'}${money(r.amount)}</div>
-        <button class="del" data-id="${r.id}" title="Удалить">×</button>
-      </div>`).join('');
-  }catch{ toast('Сервер не отвечает — запусти server.py'); }
+    const r = await fetch('/api/finance');
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    const s = d.summary || {}, rows = d.entries || [];
+    document.getElementById('failZone').innerHTML = '';
+    paintState(s, rows); paintKpi(s); paintCats(s); paintList(rows);
+  }catch{
+    paintFail();
+    document.getElementById('kpi').innerHTML = '';
+    document.getElementById('cats').innerHTML = '';
+    document.getElementById('list').innerHTML = '';
+  }
 }
 
 document.getElementById('addBtn').addEventListener('click', async e => {
   const amount = parseInt(document.getElementById('fAmount').value, 10);
-  if(!amount || amount <= 0){ toast('Впиши сумму'); return; }
-  e.currentTarget.disabled = true;
+  if(!amount || amount <= 0){ toast('Впишите сумму больше нуля'); document.getElementById('fAmount').focus(); return; }
+  const btn = e.currentTarget, was = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Сохраняю…';
   try{
-    await fetch('/api/finance', {
+    const r = await fetch('/api/finance', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         kind: selectedKind,
@@ -214,28 +341,61 @@ document.getElementById('addBtn').addEventListener('click', async e => {
         amount, note: document.getElementById('fNote').value.trim()
       })
     });
+    if (!r.ok) throw 0;
     document.getElementById('fCategory').value = '';
     document.getElementById('fAmount').value = '';
     document.getElementById('fNote').value = '';
-    toast('Записано ✓'); await load();
-  }catch{ toast('Не сохранилось — проверь сервер'); }
-  e.currentTarget.disabled = false;
+    toast(selectedKind === 'income' ? 'Доход записан' : 'Расход записан');
+    await load();
+  }catch{ toast('Не сохранилось — проверьте связь с сервером'); }
+  btn.disabled = false; btn.textContent = was;
 });
 
+// Удаление — необратимо, поэтому спрашиваем прямо в строке.
 document.getElementById('list').addEventListener('click', async e => {
-  const b = e.target.closest('.del'); if(!b) return;
-  try{ await fetch(`/api/finance/${b.dataset.id}/delete`, {method:'POST'}); await load(); }
-  catch{ toast('Не удалилось'); }
+  const row = e.target.closest('.entry'); if (!row) return;
+
+  if (e.target.closest('.del')){
+    if (row.classList.contains('confirm')) return;
+    row.classList.add('confirm');
+    row.querySelector('.amt').insertAdjacentHTML('afterend',
+      `<div class="ask"><span>Удалить?</span>
+        <button class="v-btn danger sm yes" type="button">Удалить</button>
+        <button class="v-btn ghost sm no" type="button">Отмена</button></div>`);
+    row.querySelector('.del').style.display = 'none';
+    return;
+  }
+  if (e.target.closest('.no')){
+    row.classList.remove('confirm');
+    row.querySelector('.ask').remove();
+    row.querySelector('.del').style.display = '';
+    return;
+  }
+  if (e.target.closest('.yes')){
+    const btn = e.target.closest('.yes'); btn.disabled = true;
+    try{
+      const r = await fetch(`/api/finance/${row.dataset.id}/delete`, {method:'POST'});
+      if (!r.ok) throw 0;
+      toast('Запись удалена');
+      await load();
+    }catch{ toast('Не удалилось — попробуйте ещё раз'); btn.disabled = false; }
+  }
 });
 
 document.getElementById('insBtn').addEventListener('click', async e => {
   const out = document.getElementById('insOut');
-  e.currentTarget.disabled = true; out.textContent = 'VELOR анализирует цифры…';
+  const btn = e.currentTarget, was = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Думаю…';
+  out.textContent = 'VELOR читает ваши цифры…';
   try{
-    const d = await (await fetch('/api/finance/insights')).json();
-    out.textContent = d.ok && d.answer ? d.answer : 'ИИ сейчас недоступен — попробуйте позже.';
-  }catch{ out.textContent = 'Не удалось получить инсайты — проверьте сервер.'; }
-  e.currentTarget.disabled = false;
+    const r = await fetch('/api/finance/insights');
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    out.textContent = d.ok && d.answer
+      ? d.answer
+      : 'ИИ сейчас недоступен — цифры выше от этого не зависят, они посчитаны на сервере.';
+  }catch{ out.textContent = 'Не удалось получить разбор. Проверьте связь с сервером и попробуйте ещё раз.'; }
+  btn.disabled = false; btn.textContent = was;
 });
 
 load();
