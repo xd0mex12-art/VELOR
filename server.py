@@ -39,6 +39,7 @@ import storage
 import understanding
 import entities
 import graph
+import director
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -963,6 +964,24 @@ def api_update_business(body: BusinessPatch, x_auth: str = Header(default="")):
     return {"ok": True, "webhook": webhook}
 
 
+@app.get("/api/director")
+def api_director(business_id: int = 0, days: int = 30, x_auth: str = Header(default="")):
+    """
+    Что происходит с бизнесом: исполнительная сводка и разбор.
+
+    Ни одного обращения к модели: каждая цифра приходит запросом к базе, и у
+    каждой указано, из чего она сложилась. Там, где данных мало, Директор
+    молчит и говорит об этом прямо — выдуманная аналитика опаснее пустой.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    days = 7 if days <= 7 else (90 if days >= 90 else 30)
+    try:
+        return director.briefing(bid, days)
+    except Exception:
+        logging.exception("Директор не собрался (biz %s)", bid)
+        raise HTTPException(status_code=502, detail="Не удалось собрать сводку.")
+
+
 @app.get("/api/stats")
 def api_stats(business_id: int = 0, x_auth: str = Header(default="")):
     """Аналитика пользы VELOR: обработано сообщений, заказов, сэкономлено времени."""
@@ -1068,6 +1087,15 @@ def _velor_says(bid, sig, totals, risks, opps, advice, business):
 
     return {"observation": observation, "problem": problem,
             "recommendation": recommendation, "opportunity": opportunity}
+
+
+def _safe_director(bid: int):
+    """Сводка Директора для главной. Упал — главная всё равно открывается."""
+    try:
+        return director.briefing(bid)
+    except Exception:
+        logging.exception("Директор не собрался для главной (biz %s)", bid)
+        return None
 
 
 def _attention(bid, sig, totals, risks, business):
@@ -1195,6 +1223,9 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
         "opportunities": {"count": len(opps), "top": opps[0] if opps else None},
         "activity": database.list_events(bid, limit=6),
         "health": database.business_health(bid)["score"],
+        # Директор считается здесь же: главная должна отвечать на «что
+        # происходит с бизнесом» одним запросом, а не пятью.
+        "director": _safe_director(bid),
     }
 
 

@@ -1160,6 +1160,180 @@ def delete_fact(fact_id, business_id):
         log_event(business_id, "memory", f"Из памяти удалено: {row['title']}")
 
 
+# ---------- ЦИФРЫ ДЛЯ ДИРЕКТОРА ----------
+# Директор не считает ничего «в уме»: каждая цифра приходит запросом, и у
+# каждой известно, из чего она сложилась — сколько операций, за какой период.
+# Без этого вывод «расходы выросли на 31%» невозможно проверить, а значит, и
+# доверять ему нельзя.
+#
+# Дата операции важнее даты записи: чек могли внести через неделю, но потратили
+# деньги тогда, когда потратили. Поэтому везде COALESCE(op_date, дата записи).
+
+_OP_DAY = "COALESCE(f.op_date, date(f.created_at))"
+
+
+def _window(days, offset=0):
+    """Границы окна в днях назад: (начало, конец). Конец не включается."""
+    end = -int(offset)
+    start = -(int(offset) + int(days))
+    return (f"{start} day", f"{end} day" if end else "+1 day")
+
+
+def money_period(business_id, days=30, offset=0):
+    """
+    Деньги за окно: доход, расход, прибыль и сколько операций их дало.
+
+    Количество операций возвращаем всегда: процент, посчитанный по одной
+    записи, — это не тренд, и решать это должен тот, кто читает.
+    """
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        row = conn.execute(
+            f"""SELECT
+                   COALESCE(SUM(CASE WHEN f.kind='income'  THEN f.amount END),0) AS income,
+                   COALESCE(SUM(CASE WHEN f.kind='expense' THEN f.amount END),0) AS expense,
+                   SUM(CASE WHEN f.kind='income'  THEN 1 ELSE 0 END) AS income_n,
+                   SUM(CASE WHEN f.kind='expense' THEN 1 ELSE 0 END) AS expense_n
+                 FROM finance_entries f
+                WHERE f.business_id = ?
+                  AND {_OP_DAY} >= date('now', ?) AND {_OP_DAY} < date('now', ?)""",
+            (business_id, frm, to)).fetchone()
+    income, expense = int(row["income"] or 0), int(row["expense"] or 0)
+    return {"income": income, "expense": expense, "profit": income - expense,
+            "income_n": int(row["income_n"] or 0), "expense_n": int(row["expense_n"] or 0),
+            "entries": int(row["income_n"] or 0) + int(row["expense_n"] or 0)}
+
+
+def category_period(business_id, kind="expense", days=14, offset=0):
+    """Разбивка по категориям за окно: {категория: (сумма, число операций)}."""
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT COALESCE(f.category,'без категории') AS category,
+                       SUM(f.amount) AS total, COUNT(*) AS n
+                  FROM finance_entries f
+                 WHERE f.business_id = ? AND f.kind = ?
+                   AND {_OP_DAY} >= date('now', ?) AND {_OP_DAY} < date('now', ?)
+                 GROUP BY COALESCE(f.category,'без категории')""",
+            (business_id, kind, frm, to)).fetchall()
+    return {r["category"]: {"total": int(r["total"] or 0), "n": int(r["n"] or 0)} for r in rows}
+
+
+def counts_period(business_id, table, days=30, offset=0, extra=""):
+    """Сколько записей появилось за окно (клиенты, заявки, обращения)."""
+    if table not in ("clients", "orders", "messages", "documents"):
+        return 0
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        row = conn.execute(
+            f"""SELECT COUNT(*) AS n FROM {table}
+                 WHERE business_id = ? {extra}
+                   AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)""",
+            (business_id, frm, to)).fetchone()
+    return int(row["n"] or 0)
+
+
+def orders_period(business_id, days=30, offset=0):
+    """Заявки за окно: сколько, на какую сумму и у скольких сумма проставлена."""
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total,
+                      SUM(CASE WHEN amount > 0 THEN 1 ELSE 0 END) AS with_amount
+                 FROM orders
+                WHERE business_id = ?
+                  AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)""",
+            (business_id, frm, to)).fetchone()
+    n = int(row["n"] or 0)
+    with_amount = int(row["with_amount"] or 0)
+    total = int(row["total"] or 0)
+    return {"count": n, "amount": total, "with_amount": with_amount,
+            "avg": round(total / with_amount) if with_amount else None}
+
+
+def service_revenue(business_id, days=30):
+    """
+    Выручка по услугам и товарам за окно — через связи «заявка включает услугу».
+
+    Считаем по сумме заявок: это единственная цифра, которая у позиции есть.
+    Заявка с двумя услугами даст обеим одну и ту же сумму, поэтому доли по
+    услугам не складываются в 100% — и Директор об этом не врёт.
+    """
+    frm, to = _window(days, 0)
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT l.dst_type AS type, l.dst_id AS id, mf.title AS title,
+                      COUNT(DISTINCT o.id) AS orders, COALESCE(SUM(o.amount),0) AS amount
+                 FROM entity_links l
+                 JOIN orders o ON o.id = l.src_id AND o.business_id = l.business_id
+                 LEFT JOIN memory_facts mf ON mf.id = l.dst_id AND mf.business_id = l.business_id
+                WHERE l.business_id = ? AND l.src_type = 'order'
+                  AND l.dst_type IN ('service','product')
+                  AND date(o.created_at) >= date('now', ?) AND date(o.created_at) < date('now', ?)
+                GROUP BY l.dst_type, l.dst_id, mf.title
+                ORDER BY amount DESC, orders DESC""",
+            (business_id, frm, to)).fetchall()
+    return [{"type": r["type"], "id": r["id"], "title": r["title"] or "без названия",
+             "orders": int(r["orders"] or 0), "amount": int(r["amount"] or 0)} for r in rows]
+
+
+def payroll_period(business_id, days=30, offset=0):
+    """Сколько ушло людям за окно: выплаты сотрудникам и всё с пометкой «зарплата»."""
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        row = conn.execute(
+            f"""SELECT COALESCE(SUM(f.amount),0) AS total, COUNT(*) AS n,
+                       COUNT(DISTINCT f.employee_id) AS people
+                  FROM finance_entries f
+                 WHERE f.business_id = ? AND f.kind = 'expense'
+                   AND (f.employee_id IS NOT NULL OR f.doc_type = 'salary')
+                   AND {_OP_DAY} >= date('now', ?) AND {_OP_DAY} < date('now', ?)""",
+            (business_id, frm, to)).fetchone()
+    return {"total": int(row["total"] or 0), "n": int(row["n"] or 0),
+            "people": int(row["people"] or 0)}
+
+
+def sleeping_clients(business_id, days=30, limit=5):
+    """Кто покупал, но давно не возвращался, — с суммой, которую они приносили."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT c.id, c.name, COUNT(o.id) AS orders,
+                      COALESCE(SUM(o.amount),0) AS spent, MAX(o.created_at) AS last_at
+                 FROM clients c JOIN orders o ON o.client_id = c.id
+                WHERE c.business_id = ? AND c.archived_at IS NULL
+                GROUP BY c.id
+                HAVING COUNT(o.id) > 0 AND MAX(o.created_at) < date('now', ?)
+                ORDER BY spent DESC LIMIT ?""",
+            (business_id, f"-{int(days)} day", int(limit))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def data_span(business_id):
+    """
+    С какого дня у бизнеса вообще есть данные и сколько их.
+
+    Нужно, чтобы честно сказать «недостаточно данных»: сравнивать два периода
+    у бизнеса, который живёт в системе четыре дня, — это выдумывать тренды.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT MIN(d) AS first_day, SUM(n) AS rows FROM (
+                   SELECT MIN(COALESCE(op_date, date(created_at))) AS d, COUNT(*) AS n
+                     FROM finance_entries WHERE business_id = ?
+                   UNION ALL
+                   SELECT MIN(date(created_at)), COUNT(*) FROM orders  WHERE business_id = ?
+                   UNION ALL
+                   SELECT MIN(date(created_at)), COUNT(*) FROM clients WHERE business_id = ?
+               ) AS all_data""",
+            (business_id, business_id, business_id)).fetchone()
+        days = conn.execute(
+            "SELECT CAST(julianday('now') - julianday(?) AS INTEGER) AS d",
+            (row["first_day"],)).fetchone()["d"] if row and row["first_day"] else None
+    return {"first_day": row["first_day"] if row else None,
+            "rows": int((row["rows"] if row else 0) or 0),
+            "days": int(days) if days is not None else 0}
+
+
 # ---------- СВЯЗИ МЕЖДУ ЗАПИСЯМИ ----------
 # Ребро всегда двунаправленное по смыслу: если заявка включает услугу, то
 # услуга участвует в заявке. Поэтому храним его один раз, а читаем с обеих
