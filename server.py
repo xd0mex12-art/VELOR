@@ -35,6 +35,8 @@ import botcore
 import connectors
 import trial
 import identity
+import storage
+from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
 
@@ -2793,6 +2795,283 @@ def _extract_text(filename: str, data: bytes) -> str:
             except UnicodeDecodeError:
                 continue
     return ""
+
+
+# ============================================================
+#  UNIVERSAL INBOX — одно место для любого материала о бизнесе
+# ============================================================
+# Смысл: владелец не должен заранее решать, «это финансы или клиенты».
+# Он бросает сюда что угодно — заметку, скриншот, счёт, выписку, прайс, —
+# а разбор появится отдельным слоем позже. Поэтому здесь НЕТ ни одной
+# догадки о содержимом: мы принимаем, сохраняем оригинал, пишем метаданные
+# и ставим статус RECEIVED.
+
+INBOX_MAX_BYTES = int(_os.getenv("INBOX_MAX_MB", "25")) * 1024 * 1024
+INBOX_MAX_FILES = 10          # за один заход — чтобы одна форма не легла на минуту
+INBOX_NOTE_MAX = 20000        # знаков в заметке
+
+# Что принимаем. Список нарочно широкий: Inbox — приёмник, а не фильтр.
+# Но исполняемое и активное содержимое не принимаем совсем: такой файл
+# бесполезен для разбора и опасен на выдаче.
+INBOX_TYPES = {
+    # изображения и скриншоты
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp",
+    "heic": "image/heic", "heif": "image/heif", "tif": "image/tiff", "tiff": "image/tiff",
+    # документы
+    "pdf": "application/pdf",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "rtf": "application/rtf", "odt": "application/vnd.oasis.opendocument.text",
+    # таблицы
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "ods": "application/vnd.oasis.opendocument.spreadsheet",
+    "csv": "text/csv", "tsv": "text/tab-separated-values",
+    # текст и данные
+    "txt": "text/plain", "md": "text/markdown", "json": "application/json",
+    "xml": "application/xml", "zip": "application/zip",
+}
+
+# Показать в браузере можно только то, что браузер не исполнит. SVG сюда не
+# входит намеренно: это документ со скриптами, отданный inline — готовый XSS
+# на нашем домене. Всё остальное уходит вложением.
+INBOX_INLINE = {"image/jpeg", "image/png", "image/gif", "image/webp",
+                "image/bmp", "application/pdf"}
+
+
+def _inbox_ext(filename: str) -> str:
+    """Расширение из имени файла — в нижнем регистре, без точки."""
+    name = (filename or "").strip().replace("\\", "/").split("/")[-1]
+    dot = name.rfind(".")
+    return name[dot + 1:].lower() if dot > 0 else ""
+
+
+def _inbox_safe_name(filename: str) -> str:
+    """
+    Имя для показа и для скачивания. Путь из него убираем полностью: имя
+    приходит от пользователя, а в файловую систему оно и так не попадает —
+    там своё имя из storage.new_key(). Здесь важно другое: не дать управляющим
+    символам и переводам строк уехать в заголовок Content-Disposition.
+    """
+    name = (filename or "").strip().replace("\\", "/").split("/")[-1]
+    name = re.sub(r"[\x00-\x1f\x7f\"]", "", name)[:180]
+    return name or "файл"
+
+
+def _inbox_disposition(kind: str, filename: str) -> str:
+    """
+    Заголовок Content-Disposition для имени, в котором может быть кириллица.
+
+    В HTTP-заголовок помещается только latin-1, поэтому «счёт.pdf» валил
+    выдачу файла с UnicodeEncodeError. По RFC 5987 имя кладут дважды: ASCII-
+    запасное для старых клиентов и filename* в UTF-8 для всех остальных.
+    """
+    name = _inbox_safe_name(filename)
+    # Запасное имя — только печатные ASCII без кавычек, точки с запятой и
+    # управляющих символов: всё, чем можно было бы разорвать заголовок.
+    ascii_name = re.sub(r"[^A-Za-z0-9._ -]", "", name).strip()
+    # У полностью кириллического имени от ASCII остаётся одно расширение
+    # («.png»). Такое имя браузер предложит сохранить как файл без названия —
+    # даём внятную основу; полное имя всё равно приедет в filename*.
+    if not ascii_name or ascii_name.lstrip(".") == _inbox_ext(name):
+        ascii_name = "file" + ("." + _inbox_ext(name) if _inbox_ext(name) else "")
+    quoted = _urlquote(name, safe="")
+    # filename* по RFC 5987: charset'language'значение — язык не указываем,
+    # поэтому между апострофами пусто.
+    return (kind + '; filename="' + ascii_name + '"'
+            + "; filename*=UTF-8''" + quoted)
+
+
+def _inbox_public(item: dict) -> dict:
+    """Что отдаём наружу. storage_key наружу не уходит: это внутреннее имя
+    в хранилище, и знать его клиенту незачем — файл отдаётся по id записи."""
+    out = {k: item.get(k) for k in
+           ("id", "kind", "title", "body", "filename", "mime", "size",
+            "source", "status", "error", "archived_at", "created_at", "updated_at")}
+    out["has_file"] = bool(item.get("storage_key"))
+    out["can_preview"] = bool(item.get("storage_key")) and item.get("mime") in INBOX_INLINE
+    return out
+
+
+@app.get("/api/inbox")
+def api_inbox_list(business_id: int = 0, status: str = "", archived: int = 0,
+                   limit: int = 50, offset: int = 0, x_auth: str = Header(default="")):
+    """Лента входящих + разбивка по статусам для фильтров."""
+    bid = _resolve_bid(x_auth, business_id)
+    status = status if status in database.INBOX_STATUSES else None
+    arch = bool(archived)
+    items = database.list_inbox(bid, status=status, archived=arch,
+                               limit=limit, offset=offset)
+    return {
+        "items": [_inbox_public(i) for i in items],
+        "total": database.count_inbox(bid, status=status, archived=arch),
+        "overview": database.inbox_overview(bid),
+        "statuses": list(database.INBOX_STATUSES),
+        "max_mb": INBOX_MAX_BYTES // (1024 * 1024),
+        "max_files": INBOX_MAX_FILES,
+        "accept": sorted(INBOX_TYPES),
+    }
+
+
+class InboxNote(BaseModel):
+    text: str = ""
+    title: str | None = None
+    source: str = "web"
+    business_id: int = 0
+
+
+@app.post("/api/inbox")
+def api_inbox_note(body: InboxNote, x_auth: str = Header(default="")):
+    """Текстовая заметка: самый частый способ что-то «скинуть» на ходу."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Пустая заметка — напишите хоть слово.")
+    if len(text) > INBOX_NOTE_MAX:
+        raise HTTPException(status_code=413,
+                            detail=f"Заметка длиннее {INBOX_NOTE_MAX} знаков — сократите или приложите файлом.")
+    title = (body.title or "").strip() or (text.splitlines()[0][:120] if text else "Заметка")
+    item_id = database.add_inbox_item(
+        bid, kind="text", title=title, body=text,
+        size=len(text.encode("utf-8")), source=body.source)
+    return {"ok": True, "item": _inbox_public(database.get_inbox_item(item_id, bid))}
+
+
+@app.post("/api/inbox/upload")
+async def api_inbox_upload(files: list[UploadFile] = File(...),
+                           business_id: int = 0, source: str = "web",
+                           x_auth: str = Header(default="")):
+    """
+    Приём файлов. Одним запросом можно прислать несколько — результат по
+    каждому отдельный: один битый файл не должен отменять остальные.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    if not files:
+        raise HTTPException(status_code=400, detail="Не выбран ни один файл.")
+    if len(files) > INBOX_MAX_FILES:
+        raise HTTPException(status_code=413,
+                            detail=f"За один раз — не больше {INBOX_MAX_FILES} файлов.")
+
+    saved, failed = [], []
+    for f in files:
+        name = _inbox_safe_name(f.filename)
+        ext = _inbox_ext(f.filename)
+        try:
+            data = await f.read()
+        except Exception:
+            failed.append({"filename": name, "error": "Файл не удалось прочитать"})
+            continue
+        if not data:
+            failed.append({"filename": name, "error": "Файл пустой"})
+            continue
+        if len(data) > INBOX_MAX_BYTES:
+            failed.append({"filename": name,
+                           "error": f"Больше {INBOX_MAX_BYTES // (1024*1024)} МБ"})
+            continue
+        if ext not in INBOX_TYPES:
+            failed.append({"filename": name,
+                           "error": "Такой тип файла пока не принимаем"})
+            continue
+        # Тип берём по расширению, а не из заголовка запроса: заголовок
+        # присылает клиент, и верить ему при выдаче файла нельзя.
+        mime = INBOX_TYPES[ext]
+        key = storage.new_key(name)
+        try:
+            storage.put(bid, key, data)
+        except Exception:
+            logging.exception("Inbox: не удалось сохранить файл (biz %s)", bid)
+            failed.append({"filename": name, "error": "Хранилище недоступно"})
+            continue
+        item_id = database.add_inbox_item(
+            bid, kind="file", title=name, filename=name, mime=mime,
+            size=len(data), storage_key=key, source=source)
+        saved.append(_inbox_public(database.get_inbox_item(item_id, bid)))
+
+    return {"ok": bool(saved), "saved": saved, "failed": failed}
+
+
+@app.get("/api/inbox/{item_id}")
+def api_inbox_item(item_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """Одна запись целиком — для просмотра."""
+    bid = _resolve_bid(x_auth, business_id)
+    item = database.get_inbox_item(item_id, bid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    return {"item": _inbox_public(item)}
+
+
+@app.get("/api/inbox/{item_id}/file")
+def api_inbox_file(item_id: int, business_id: int = 0, download: int = 0,
+                   x_auth: str = Header(default="")):
+    """
+    Отдать оригинал. Проверка владельца здесь обязательна и делается по базе,
+    а не по ключу: ключ нигде не публикуется, но право на файл определяет
+    именно запись, а не знание имени.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    item = database.get_inbox_item(item_id, bid)
+    if not item or not item.get("storage_key"):
+        raise HTTPException(status_code=404, detail="У этого материала нет файла.")
+    try:
+        data = storage.get(bid, item["storage_key"])
+    except storage.StorageError:
+        # Запись есть, а файла нет — честно говорим, что оригинал потерян,
+        # и помечаем материал, чтобы это было видно в ленте.
+        database.set_inbox_status(item_id, bid, "FAILED", "Оригинал не найден в хранилище")
+        raise HTTPException(status_code=410, detail="Оригинал файла не найден в хранилище.")
+
+    mime = item.get("mime") or "application/octet-stream"
+    inline = (not download) and mime in INBOX_INLINE
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={
+            "Content-Disposition": _inbox_disposition(
+                "inline" if inline else "attachment", item.get("filename")),
+            # Браузер не должен угадывать тип сам: угаданный text/html из
+            # пользовательского файла — это выполнение чужой разметки на нашем домене.
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+            # Кэш короткий и только приватный: повторный просмотр не тянет
+            # файл заново, но удалённый материал не живёт в браузере полчаса.
+            "Cache-Control": "private, max-age=60",
+        },
+    )
+
+
+@app.post("/api/inbox/{item_id}/archive")
+def api_inbox_archive(item_id: int, business_id: int = 0, undo: int = 0,
+                      x_auth: str = Header(default="")):
+    """Убрать из ленты, не теряя материал (undo=1 — вернуть обратно)."""
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    if not database.archive_inbox_item(item_id, bid, archived=not undo):
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    return {"ok": True, "item": _inbox_public(database.get_inbox_item(item_id, bid))}
+
+
+@app.post("/api/inbox/{item_id}/delete")
+def api_inbox_delete(item_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Удалить материал вместе с оригиналом. Сначала запись, потом файл: если
+    упасть между шагами, лучше остаться с осиротевшим файлом в хранилище,
+    чем со ссылкой на файл, которого уже нет.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    item = database.get_inbox_item(item_id, bid)
+    if not item:
+        raise HTTPException(status_code=404, detail="Материал не найден.")
+    database.delete_inbox_item(item_id, bid)
+    if item.get("storage_key"):
+        try:
+            storage.delete(bid, item["storage_key"])
+        except Exception:
+            logging.exception("Inbox: запись удалена, оригинал остался (biz %s)", bid)
+    return {"ok": True}
 
 
 @app.get("/api/documents")

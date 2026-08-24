@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Входящие</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Входящие — одно место, куда владелец сбрасывает что угодно о бизнесе,
+     не выбирая заранее категорию. Поэтому приём стоит первым и крупным, а
+     всё остальное (фильтры, лента) — под ним. Скелет экрана, кнопки,
+     состояния и цвета берутся из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  body main{ padding-top:104px; padding-bottom:80px; }
+  section{ margin-bottom:var(--sp-8); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
+
+  /* ── приёмник ── */
+  .drop{ position:relative; border:1px dashed var(--hairline-2); border-radius:var(--r-xl);
+    background:var(--surface); padding:var(--sp-8) var(--sp-6); text-align:center;
+    transition:border-color var(--dur), background var(--dur); }
+  .drop.over{ border-color:var(--lilac); background:var(--tint-iris); }
+  .drop .big{ font-size:var(--fs-lead); font-weight:var(--fw-reg); letter-spacing:-.02em; }
+  .drop .small{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); line-height:1.5; }
+  .drop .row{ margin-top:var(--sp-5); display:flex; gap:var(--sp-3);
+    justify-content:center; flex-wrap:wrap; }
+
+  .note{ margin-top:var(--sp-4); }
+  .note textarea{ width:100%; min-height:96px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:14px 16px;
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin);
+    font-size:16px; line-height:1.55; resize:vertical; }
+  .note .foot{ display:flex; align-items:center; gap:var(--sp-3);
+    flex-wrap:wrap; margin-top:var(--sp-3); }
+  .note .foot .sub{ font-size:var(--fs-sm); color:var(--ash); margin-right:auto; }
+
+  /* очередь отправки: видно, что происходит с каждым файлом */
+  .queue{ margin-top:var(--sp-4); display:grid; gap:var(--sp-2); }
+  .q{ display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) var(--sp-4);
+    border:1px solid var(--hairline); border-radius:var(--r-md); background:var(--surface-2);
+    font-size:var(--fs-body); }
+  .q .nm{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .q .st{ margin-left:auto; font-size:var(--fs-sm); color:var(--ash); white-space:nowrap; }
+  .q.bad{ border-color:rgba(255,107,107,.35); background:rgba(255,107,107,.07); }
+  .q.bad .st{ color:var(--ink-coral); }
+  .q.good .st{ color:var(--verdant); }
+
+  /* ── лента ── */
+  .filters{ display:flex; align-items:center; gap:var(--sp-4);
+    flex-wrap:wrap; margin-bottom:var(--sp-5); }
+
+  .item{ display:flex; align-items:flex-start; gap:var(--sp-4);
+    padding:var(--sp-4) 0; border-bottom:1px solid var(--hairline); min-height:64px; }
+  .item:last-child{ border-bottom:none; }
+  .item .ic{ width:40px; height:40px; flex:none; border-radius:var(--r-sm);
+    background:var(--surface-2); display:flex; align-items:center; justify-content:center;
+    font-size:11px; font-weight:var(--fw-semi); letter-spacing:.04em; color:var(--lilac);
+    text-transform:uppercase; overflow:hidden; }
+  .item .ic img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .item .txt{ flex:1; min-width:0; }
+  .item .t{ font-size:var(--fs-body); font-weight:var(--fw-reg); word-break:break-word; }
+  .item .d{ margin-top:3px; font-size:var(--fs-sm); color:var(--ash); }
+  .item .preview{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--silver);
+    font-weight:var(--fw-thin); line-height:1.5;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .item .acts{ display:flex; align-items:center; gap:var(--sp-1); flex:none; }
+  .item .acts button, .item .acts a{ width:44px; height:44px; display:flex;
+    align-items:center; justify-content:center; border:none; background:none;
+    color:var(--ash); border-radius:var(--r-sm); font-size:15px;
+    transition:color var(--dur-fast), background var(--dur-fast); }
+  .item .acts button:hover, .item .acts a:hover{ color:var(--bone); background:var(--surface-2); }
+  .item .acts .rm:hover{ color:var(--coral); background:rgba(255,107,107,.1); }
+  .item.confirm{ background:rgba(255,107,107,.07); }
+  .item .ask{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+  .item .ask span{ font-size:var(--fs-sm); color:var(--silver); }
+
+  /* статус — словом и цветом сразу */
+  .st-tag{ display:inline-flex; align-items:center; gap:6px; padding:3px 9px;
+    border-radius:var(--r-pill); font-size:10px; font-weight:var(--fw-semi);
+    letter-spacing:.1em; text-transform:uppercase; background:var(--surface-2); color:var(--ash); }
+  .st-tag i{ width:6px; height:6px; border-radius:50%; background:currentColor; flex:none; }
+  .st-RECEIVED{ color:var(--lilac); }
+  .st-PROCESSING{ color:var(--saffron); }
+  .st-PROCESSED{ color:var(--verdant); }
+  .st-NEEDS_REVIEW{ color:var(--saffron); }
+  .st-FAILED{ color:var(--ink-coral); }
+
+  /* ── просмотр материала ── */
+  .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
+    justify-content:center; padding:var(--sp-5); background:rgba(0,0,0,.75);
+    backdrop-filter:blur(6px); }
+  .modal.on{ display:flex; }
+  .modal .box{ width:min(94vw,760px); max-height:90vh; overflow:auto; background:var(--sheet);
+    border:1px solid var(--hairline); border-radius:var(--r-xl); padding:var(--sp-6); }
+  .modal h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em;
+    word-break:break-word; }
+  .modal .meta{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); }
+  .modal .view{ margin-top:var(--sp-5); }
+  .modal .view img{ max-width:100%; border-radius:var(--r-lg); display:block; }
+  .modal .view pre{ white-space:pre-wrap; word-break:break-word; font-family:inherit;
+    font-weight:var(--fw-thin); font-size:var(--fs-body); line-height:1.6; color:var(--silver); }
+  .modal .view embed{ width:100%; height:min(60vh,560px); border-radius:var(--r-lg);
+    border:1px solid var(--hairline); background:#fff; }
+  .modal .foot{ margin-top:var(--sp-6); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+  .modal .foot .close{ margin-left:auto; }
+
+  #toast{ position:fixed; bottom:var(--sp-8); left:50%; transform:translate(-50%,20px); z-index:120;
+    background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone);
+    font-weight:var(--fw-reg); font-size:var(--fs-body); padding:14px 28px;
+    border-radius:var(--r-pill); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:560px){
+    body main{ padding-top:92px; }
+    .drop{ padding:var(--sp-6) var(--sp-4); }
+    .drop .row > *{ flex:1 1 auto; }
+    .v-segs{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin:0 -18px; padding:0 18px; }
+    .v-segs::-webkit-scrollbar{ display:none; }
+    .v-seg{ flex:none; }
+  }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Входящие</h1>
+      <p class="v-lead">Одно место для всего, что касается бизнеса. Не нужно решать,
+        «это финансы или клиенты» — бросьте сюда заметку, скриншот, счёт, выписку
+        или прайс. VELOR сохранит оригинал и разберётся позже.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Открываю ящик…</span>
+      </div>
+    </div>
+    <div class="v-acts">
+      <button class="v-btn" type="button" id="pickBtn">Выбрать файлы</button>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+
+  <!-- приём -->
+  <section>
+    <div class="drop" id="drop">
+      <div class="big">Перетащите файлы сюда</div>
+      <div class="small" id="dropHint">или вставьте скриншот из буфера обмена (Ctrl+V).<br>
+        Принимаем изображения, PDF, Word, Excel, CSV и текст.</div>
+      <div class="row">
+        <button class="v-btn" type="button" id="pickBtn2">Выбрать файлы</button>
+      </div>
+      <input type="file" id="fileInput" multiple hidden>
+    </div>
+
+    <div class="note">
+      <label for="noteText" class="sec-h" style="margin-bottom:var(--sp-2)">Или просто напишите</label>
+      <textarea id="noteText" maxlength="20000"
+        placeholder="Поставщик поднял цену на розы до 180 ₽ · Клиент просил доставку к 8 марта · Аренда выросла на 12%"></textarea>
+      <div class="foot">
+        <span class="sub" id="noteCount">Заметка сохранится как есть — разбирать её будете не вы</span>
+        <button class="v-btn" type="button" id="noteBtn" disabled>Сохранить заметку</button>
+      </div>
+    </div>
+
+    <div class="queue" id="queue" aria-live="polite"></div>
+  </section>
+
+  <!-- лента -->
+  <section>
+    <h2 class="sec-h">Что уже во входящих <span class="n" id="cnt"></span></h2>
+    <div class="filters">
+      <div class="v-segs" id="segs" role="group" aria-label="Фильтр по состоянию">
+        <button class="v-seg" data-f="" aria-pressed="true">Все</button>
+        <button class="v-seg" data-f="RECEIVED" aria-pressed="false">Принято</button>
+        <button class="v-seg" data-f="NEEDS_REVIEW" aria-pressed="false">Нужен взгляд</button>
+        <button class="v-seg" data-f="FAILED" aria-pressed="false">Сбой</button>
+        <button class="v-seg" data-f="archived" aria-pressed="false">Архив</button>
+      </div>
+    </div>
+    <div id="list"><div class="v-sk row"></div><div class="v-sk row"></div><div class="v-sk row"></div></div>
+    <button class="v-btn ghost" id="more" style="display:none;margin:var(--sp-6) auto 0">Показать ещё</button>
+  </section>
+</main>
+
+<div class="modal" id="viewModal" role="dialog" aria-modal="true" aria-labelledby="vTitle">
+  <div class="box">
+    <h2 id="vTitle">Материал</h2>
+    <div class="meta" id="vMeta"></div>
+    <div class="view" id="vBody"></div>
+    <div class="foot" id="vFoot"></div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+function size(n){
+  n = Number(n) || 0;
+  if (n < 1024) return n + ' Б';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' КБ';
+  return (n / 1024 / 1024).toFixed(1) + ' МБ';
+}
+function ago(iso){
+  const d = new Date(String(iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  const m = Math.round((Date.now() - d) / 60000);
+  if (m < 1) return 'только что';
+  if (m < 60) return m + ' ' + plural(m, 'минуту', 'минуты', 'минут') + ' назад';
+  const h = Math.round(m / 60);
+  if (h < 24) return h + ' ' + plural(h, 'час', 'часа', 'часов') + ' назад';
+  const dd = Math.round(h / 24);
+  return dd + ' ' + plural(dd, 'день', 'дня', 'дней') + ' назад';
+}
+const STATUS_RU = {
+  RECEIVED: 'Принято', PROCESSING: 'В разборе', PROCESSED: 'Разобрано',
+  NEEDS_REVIEW: 'Нужен взгляд', FAILED: 'Сбой',
+};
+
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+const PAGE = 30;
+const listEl = document.getElementById('list');
+const moreEl = document.getElementById('more');
+const failEl = document.getElementById('failZone');
+const queueEl = document.getElementById('queue');
+let filter = '', offset = 0, total = 0, loading = false, limits = { max_mb: 25, max_files: 10, accept: [] };
+
+// ── состояние ящика ──
+function paintState(o){
+  const box = document.getElementById('state');
+  if (!o.active && !o.archived){
+    box.innerHTML = '<span class="v-badge calm"><i></i>Ящик пуст</span>' +
+      '<span>сюда можно скинуть что угодно — заметку, скриншот, счёт, выписку</span>';
+    return;
+  }
+  const need = (o.by_status.NEEDS_REVIEW || 0) + (o.by_status.FAILED || 0);
+  const cls = need ? 'warn' : 'good';
+  const word = need ? 'Требует взгляда' : 'Всё принято';
+  const tail = [
+    o.active + ' ' + plural(o.active, 'материал', 'материала', 'материалов'),
+    o.bytes ? size(o.bytes) : '',
+    o.archived ? o.archived + ' в архиве' : '',
+  ].filter(Boolean).join(' · ');
+  box.innerHTML = `<span class="v-badge ${cls}"><i></i>${word}</span><span>${esc(tail)}</span>`;
+}
+
+// ── лента ──
+const EMPTY = {
+  '':             ['Пока пусто', 'Перетащите файл, вставьте скриншот или напишите заметку — всё окажется здесь.'],
+  'RECEIVED':     ['Ничего нового', 'Всё принятое уже перешло в другое состояние.'],
+  'NEEDS_REVIEW': ['Ничего не ждёт вас', 'Материалы, которые VELOR не смог разобрать сам, появятся здесь.'],
+  'FAILED':       ['Сбоев нет', 'Если файл не сохранится или потеряется, он окажется в этом списке.'],
+  'archived':     ['Архив пуст', 'Сюда попадает то, что вы убрали из ленты. Материалы при этом не удаляются.'],
+};
+
+function icon(it){
+  // Миниатюру картинки здесь не рисуем намеренно: файл отдаётся только по
+  // токену из заголовка, а <img src> заголовков не шлёт — пришлось бы качать
+  // каждый оригинал целиком ради значка 40×40. Показываем тип, а саму
+  // картинку — в просмотре, когда её действительно попросили.
+  if (it.kind === 'text') return '<span class="ic">TXT</span>';
+  const ext = (it.filename || '').split('.').pop().slice(0, 4);
+  return `<span class="ic">${esc(ext || 'файл')}</span>`;
+}
+
+function itemHTML(it){
+  const st = `<span class="st-tag st-${esc(it.status)}"><i></i>${STATUS_RU[it.status] || esc(it.status)}</span>`;
+  const meta = [
+    it.kind === 'text' ? 'Заметка' : size(it.size),
+    ago(it.created_at),
+    it.archived_at ? 'в архиве' : '',
+  ].filter(Boolean).join(' · ');
+  return `
+    <div class="item" data-id="${it.id}">
+      ${icon(it)}
+      <div class="txt">
+        <div class="t">${esc(it.title || it.filename || 'Без названия')}</div>
+        <div class="d">${st} <span>${esc(meta)}</span></div>
+        ${it.kind === 'text' && it.body ? `<div class="preview">${esc(it.body)}</div>` : ''}
+        ${it.status === 'FAILED' && it.error ? `<div class="preview" style="color:var(--ink-coral)">${esc(it.error)}</div>` : ''}
+      </div>
+      <div class="acts">
+        <button class="open" type="button" title="Открыть" aria-label="Открыть «${esc(it.title || 'материал')}»">👁</button>
+        <button class="arch" type="button" title="${it.archived_at ? 'Вернуть в ленту' : 'В архив'}"
+          aria-label="${it.archived_at ? 'Вернуть из архива' : 'Убрать в архив'}">${it.archived_at ? '↩' : '⇩'}</button>
+        <button class="rm" type="button" title="Удалить" aria-label="Удалить «${esc(it.title || 'материал')}»">×</button>
+      </div>
+    </div>`;
+}
+
+function paintFail(){
+  failEl.innerHTML = `<div class="v-fail"><div><div class="t">Входящие не загрузились</div>
+    <div class="d">Сервер не ответил. Уже принятые материалы целы — попробуйте ещё раз.</div></div>
+    <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => { failEl.innerHTML = ''; load(true); });
+}
+
+async function load(reset){
+  if (loading) return;
+  loading = true;
+  if (reset){
+    offset = 0;
+    listEl.innerHTML = '<div class="v-sk row"></div><div class="v-sk row"></div><div class="v-sk row"></div>';
+  }
+  moreEl.disabled = true;
+  try{
+    const arch = filter === 'archived';
+    const q = `/api/inbox?limit=${PAGE}&offset=${offset}`
+      + (arch ? '&archived=1' : (filter ? '&status=' + filter : ''));
+    const r = await fetch(q);
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    failEl.innerHTML = '';
+    limits = { max_mb: d.max_mb, max_files: d.max_files, accept: d.accept || [] };
+    document.getElementById('fileInput').accept = limits.accept.map(e => '.' + e).join(',');
+    document.getElementById('dropHint').innerHTML =
+      'или вставьте скриншот из буфера обмена (Ctrl+V).<br>' +
+      `Изображения, PDF, Word, Excel, CSV и текст — до ${d.max_mb} МБ, до ${d.max_files} файлов за раз.`;
+    paintState(d.overview);
+    total = d.total || 0;
+
+    if (reset) listEl.innerHTML = '';
+    document.getElementById('cnt').textContent = total || '';
+    if (!total){
+      const [head, body] = EMPTY[filter] || EMPTY[''];
+      listEl.innerHTML = `<div class="v-empty"><strong>${head}</strong>${body}</div>`;
+      moreEl.style.display = 'none';
+      return;
+    }
+    (d.items || []).forEach(it => listEl.insertAdjacentHTML('beforeend', itemHTML(it)));
+    offset += (d.items || []).length;
+    moreEl.style.display = offset < total ? 'block' : 'none';
+  }catch{
+    if (reset){ listEl.innerHTML = ''; paintFail(); }
+    else toast('Не удалось загрузить ещё');
+  }finally{
+    loading = false; moreEl.disabled = false;
+  }
+}
+
+// ── приём файлов ──
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+
+function qRow(name){
+  const el = document.createElement('div');
+  el.className = 'q';
+  el.innerHTML = `<span class="nm">${esc(name)}</span><span class="st">отправляю…</span>`;
+  queueEl.appendChild(el);
+  return el;
+}
+
+async function send(files){
+  const arr = [...files];
+  if (!arr.length) return;
+  if (arr.length > limits.max_files){
+    toast(`За один раз — не больше ${limits.max_files} файлов`);
+    return;
+  }
+  const rows = new Map();
+  arr.forEach(f => rows.set(f.name, qRow(f.name)));
+  const fd = new FormData();
+  arr.forEach(f => fd.append('files', f, f.name));
+  try{
+    const r = await fetch('/api/inbox/upload', { method: 'POST', body: fd });
+    if (r.status === 402){
+      rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = 'пробный период завершён'; });
+      toast('Пробный период завершён — приём новых материалов остановлен');
+      return;
+    }
+    if (!r.ok){
+      let why = 'сервер отказал';
+      try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
+      rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = why; });
+      return;
+    }
+    const d = await r.json();
+    (d.saved || []).forEach(it => {
+      const el = rows.get(it.filename);
+      if (el){ el.className = 'q good'; el.querySelector('.st').textContent = 'принято'; }
+    });
+    (d.failed || []).forEach(f => {
+      const el = rows.get(f.filename);
+      if (el){ el.className = 'q bad'; el.querySelector('.st').textContent = f.error; }
+    });
+    if ((d.saved || []).length) await load(true);
+    // Успешные строки убираем — они уже видны в ленте; неудачные оставляем,
+    // иначе человек не узнает, что именно не прошло.
+    setTimeout(() => queueEl.querySelectorAll('.q.good').forEach(el => el.remove()), 2500);
+  }catch{
+    rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = 'нет связи с сервером'; });
+  }
+}
+
+document.getElementById('pickBtn').addEventListener('click', () => fileInput.click());
+document.getElementById('pickBtn2').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', e => { send(e.target.files); e.target.value = ''; });
+
+// перетаскивание: гасим стандартное поведение и на документе тоже, иначе
+// промах мимо рамки открывает файл в соседней вкладке и работа теряется
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+  document.addEventListener(ev, e => { e.preventDefault(); }, false);
+});
+drop.addEventListener('dragover', () => drop.classList.add('over'));
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', e => {
+  drop.classList.remove('over');
+  if (e.dataTransfer && e.dataTransfer.files.length) send(e.dataTransfer.files);
+});
+
+// скриншот из буфера: Ctrl+V прямо на странице
+document.addEventListener('paste', e => {
+  if (document.activeElement === document.getElementById('noteText')) return;
+  const files = [...(e.clipboardData?.items || [])]
+    .filter(i => i.kind === 'file')
+    .map(i => i.getAsFile())
+    .filter(Boolean);
+  if (!files.length) return;
+  e.preventDefault();
+  // У вставленного скриншота имени нет — даём своё, иначе в ленте
+  // окажется десяток одинаковых «image.png».
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  send(files.map((f, i) => new File([f], `Скриншот ${stamp}${i ? '-' + i : ''}.png`, { type: f.type })));
+});
+
+// ── заметка ──
+const noteText = document.getElementById('noteText');
+const noteBtn = document.getElementById('noteBtn');
+const noteCount = document.getElementById('noteCount');
+noteText.addEventListener('input', () => {
+  const n = noteText.value.trim().length;
+  noteBtn.disabled = !n;
+  noteCount.textContent = n
+    ? n.toLocaleString('ru-RU') + ' из 20 000 знаков'
+    : 'Заметка сохранится как есть — разбирать её будете не вы';
+});
+noteBtn.addEventListener('click', async () => {
+  const text = noteText.value.trim();
+  if (!text) return;
+  noteBtn.disabled = true; noteBtn.textContent = 'Сохраняю…';
+  try{
+    const r = await fetch('/api/inbox', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!r.ok){
+      let why = 'Не сохранилось — проверьте связь с сервером';
+      try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
+      toast(why);
+    } else {
+      noteText.value = '';
+      noteCount.textContent = 'Заметка сохранится как есть — разбирать её будете не вы';
+      toast('Заметка во входящих');
+      await load(true);
+    }
+  }catch{ toast('Не сохранилось — проверьте связь с сервером'); }
+  noteBtn.textContent = 'Сохранить заметку'; noteBtn.disabled = !noteText.value.trim();
+});
+
+// ── просмотр ──
+// Оригинал лежит за токеном, который panel-auth.js кладёт в заголовок X-Auth.
+// Ни <img src>, ни <embed src>, ни обычная ссылка заголовков не отправляют —
+// такой запрос вернул бы 401. Поэтому файл забираем через fetch (там токен
+// появляется сам) и показываем уже как blob. Заодно токен не оказывается
+// в адресной строке, логах сервера и заголовке Referer.
+const modal = document.getElementById('viewModal');
+let blobUrl = null;
+
+function dropBlob(){
+  if (blobUrl){ URL.revokeObjectURL(blobUrl); blobUrl = null; }
+}
+
+async function fileBlob(id){
+  const r = await fetch('/api/inbox/' + id + '/file');
+  if (!r.ok) throw new Error(r.status === 410 ? 'lost' : 'http');
+  dropBlob();
+  blobUrl = URL.createObjectURL(await r.blob());
+  return blobUrl;
+}
+
+async function download(it){
+  try{
+    const r = await fetch('/api/inbox/' + it.id + '/file?download=1');
+    if (!r.ok) throw 0;
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = it.filename || 'файл';
+    document.body.appendChild(a); a.click(); a.remove();
+    // Память отпускаем не сразу: браузеру нужен живой url в момент старта
+    // сохранения, иначе файл «скачается» пустым.
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }catch{ toast('Не удалось скачать — попробуйте ещё раз'); }
+}
+
+function closeModal(){
+  modal.classList.remove('on');
+  document.getElementById('vBody').innerHTML = '';   // снимаем нагрузку с вкладки
+  dropBlob();
+}
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal.classList.contains('on')) closeModal(); });
+
+async function openItem(id){
+  const body = document.getElementById('vBody');
+  document.getElementById('vTitle').textContent = 'Загружаю…';
+  document.getElementById('vMeta').textContent = '';
+  body.innerHTML = '<div class="v-sk row"></div>';
+  document.getElementById('vFoot').innerHTML =
+    '<button class="v-btn ghost close" type="button">Закрыть</button>';
+  document.querySelector('#vFoot .close').addEventListener('click', closeModal);
+  modal.classList.add('on');
+  try{
+    const r = await fetch('/api/inbox/' + id);
+    if (!r.ok) throw 0;
+    const it = (await r.json()).item;
+    document.getElementById('vTitle').textContent = it.title || it.filename || 'Материал';
+    document.getElementById('vMeta').textContent = [
+      STATUS_RU[it.status] || it.status,
+      it.kind === 'text' ? 'заметка' : (it.mime || ''),
+      it.kind === 'text' ? '' : size(it.size),
+      ago(it.created_at),
+      'источник: ' + it.source,
+    ].filter(Boolean).join(' · ');
+
+    const foot = document.getElementById('vFoot');
+    foot.innerHTML =
+      (it.has_file ? '<button class="v-btn get" type="button">Скачать оригинал</button>' : '')
+      + '<button class="v-btn ghost close" type="button">Закрыть</button>';
+    foot.querySelector('.close').addEventListener('click', closeModal);
+    const getBtn = foot.querySelector('.get');
+    if (getBtn) getBtn.addEventListener('click', () => download(it));
+
+    if (it.kind === 'text'){
+      body.innerHTML = '<pre></pre>';
+      body.querySelector('pre').textContent = it.body || '';
+      return;
+    }
+    if (!it.can_preview){
+      body.innerHTML = `<div class="v-empty"><strong>Показать здесь не получится</strong>
+        Такой файл браузер не откроет на месте — скачайте оригинал, он сохранён целиком.</div>`;
+      return;
+    }
+    body.innerHTML = '<div class="v-sk row"></div>';
+    try{
+      const url = await fileBlob(it.id);
+      body.innerHTML = (it.mime === 'application/pdf')
+        ? '<embed type="application/pdf">'
+        : `<img alt="${esc(it.filename || '')}">`;
+      body.firstElementChild.src = url;
+    }catch(err){
+      body.innerHTML = err.message === 'lost'
+        ? `<div class="v-fail"><div><div class="t">Оригинал потерян</div>
+            <div class="d">Запись осталась, а файла в хранилище нет. Материал помечен как «Сбой».</div></div></div>`
+        : `<div class="v-fail"><div><div class="t">Файл не открылся</div>
+            <div class="d">Сервер не отдал оригинал. Попробуйте ещё раз.</div></div></div>`;
+    }
+  }catch{
+    body.innerHTML = `<div class="v-fail"><div><div class="t">Материал не открылся</div>
+      <div class="d">Сервер не ответил. Попробуйте ещё раз.</div></div></div>`;
+  }
+}
+
+// ── действия в ленте ──
+listEl.addEventListener('click', async e => {
+  const row = e.target.closest('.item'); if (!row) return;
+  const id = row.dataset.id;
+
+  if (e.target.closest('.open')) return openItem(id);
+
+  if (e.target.closest('.arch')){
+    const back = filter === 'archived';
+    try{
+      const r = await fetch(`/api/inbox/${id}/archive` + (back ? '?undo=1' : ''), { method: 'POST' });
+      if (!r.ok) throw 0;
+      toast(back ? 'Вернули в ленту' : 'Убрали в архив');
+      await load(true);
+    }catch{ toast('Не получилось — проверьте связь с сервером'); }
+    return;
+  }
+
+  // Удаление стирает и оригинал, поэтому спрашиваем прямо в строке.
+  if (e.target.closest('.rm')){
+    if (row.classList.contains('confirm')) return;
+    row.classList.add('confirm');
+    row.querySelector('.acts').innerHTML =
+      `<div class="ask"><span>Удалить вместе с файлом?</span>
+        <button class="v-btn danger sm yes" type="button">Удалить</button>
+        <button class="v-btn ghost sm no" type="button">Отмена</button></div>`;
+    return;
+  }
+  if (e.target.closest('.no')){ await load(true); return; }
+  if (e.target.closest('.yes')){
+    e.target.disabled = true;
+    try{
+      const r = await fetch(`/api/inbox/${id}/delete`, { method: 'POST' });
+      if (!r.ok) throw 0;
+      toast('Удалено вместе с оригиналом');
+      await load(true);
+    }catch{ toast('Не удалилось — попробуйте ещё раз'); await load(true); }
+  }
+});
+
+document.getElementById('segs').addEventListener('click', e => {
+  const b = e.target.closest('.v-seg'); if (!b || b.dataset.f === filter) return;
+  filter = b.dataset.f;
+  document.querySelectorAll('.v-seg').forEach(s => s.setAttribute('aria-pressed', String(s === b)));
+  load(true);
+});
+moreEl.addEventListener('click', () => load(false));
+load(true);
+</script>
+</body>
+</html>

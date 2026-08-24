@@ -79,6 +79,9 @@ def _translate(sql: str) -> str:
     s = re.sub(r"INTEGER\s+PRIMARY\s+KEY(\s+AUTOINCREMENT)?", "BIGSERIAL PRIMARY KEY", s, flags=re.I)
     s = re.sub(r"\bAUTOINCREMENT\b", "", s, flags=re.I)
     s = re.sub(r"\bINTEGER\b", "BIGINT", s, flags=re.I)
+    # Двоичные данные: в SQLite это BLOB, в Postgres — BYTEA. Нужен для
+    # оригиналов файлов Inbox, которые на Render живут в базе, а не на диске.
+    s = re.sub(r"\bBLOB\b", "BYTEA", s, flags=re.I)
     s = re.sub(r"DEFAULT\s+CURRENT_TIMESTAMP",
                "DEFAULT to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS')", s, flags=re.I)
     s = re.sub(r"CREATE\s+TABLE\s+(?!IF NOT EXISTS)", "CREATE TABLE IF NOT EXISTS ", s, flags=re.I)
@@ -530,6 +533,41 @@ def init_db():
                    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
                )"""
         )
+        # ---------- UNIVERSAL INBOX ----------
+        # Одно место, куда владелец сбрасывает ЛЮБОЙ материал о бизнесе, не
+        # выбирая заранее категорию: заметку, скриншот, счёт, выписку, прайс.
+        # Разбор (что это и куда положить) появится позже отдельным слоем —
+        # поэтому здесь есть статус и поле ошибки, но нет ни одной догадки о
+        # содержимом. Оригинал не теряется: storage.py кладёт его на диск или
+        # в inbox_blobs, а здесь остаётся только ключ.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS inbox_items (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   kind         TEXT NOT NULL DEFAULT 'file',   -- text | file
+                   title        TEXT,            -- как показать в списке
+                   body         TEXT,            -- текст заметки или комментарий к файлу
+                   filename     TEXT,            -- имя, как его прислали
+                   mime         TEXT,
+                   size         INTEGER DEFAULT 0,
+                   storage_key  TEXT,            -- имя оригинала в хранилище
+                   source       TEXT DEFAULT 'web',      -- откуда пришло
+                   status       TEXT DEFAULT 'RECEIVED',
+                   error        TEXT,            -- почему FAILED
+                   archived_at  TEXT,
+                   created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+                   updated_at   TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
+        # Оригиналы для backend'а "db" (Render: диск эфемерный, база — нет).
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS inbox_blobs (
+                   storage_key TEXT PRIMARY KEY,
+                   business_id INTEGER NOT NULL,
+                   data        BLOB NOT NULL,
+                   created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
         conn.execute(
             """CREATE TABLE IF NOT EXISTS doc_chunks (
                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -638,6 +676,9 @@ def init_db():
             ("idx_orders_external",      "orders",          "business_id, external_id"),
             ("idx_clients_external",     "clients",         "business_id, external_id"),
             ("idx_finance_external",     "finance_entries", "business_id, external_id"),
+            ("idx_inbox_biz",            "inbox_items",     "business_id, id"),
+            ("idx_inbox_biz_status",     "inbox_items",     "business_id, status"),
+            ("idx_inbox_blobs_biz",      "inbox_blobs",     "business_id"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -2919,6 +2960,190 @@ def finance_summary(business_id):
         "profit": income - expense,
         "by_category": [dict(r) for r in cats],
     }
+
+
+# ============================================================
+#  UNIVERSAL INBOX
+# ============================================================
+# Правило то же, что у остального кабинета: любой запрос ограничен
+# business_id. Чужую запись нельзя ни прочитать, ни удалить — не потому что
+# UI её не показывает, а потому что она не проходит через WHERE.
+
+# Единый словарь статусов. Разбор материала ещё не написан, но состояния он
+# будет менять именно эти — держим их в одном месте, чтобы завтра не появилось
+# второго набора строк где-нибудь в сервере.
+INBOX_STATUSES = ("RECEIVED", "PROCESSING", "PROCESSED", "NEEDS_REVIEW", "FAILED")
+INBOX_SOURCES = ("web", "telegram", "email", "api", "import")
+
+
+def add_inbox_item(business_id, kind="file", title=None, body=None, filename=None,
+                   mime=None, size=0, storage_key=None, source="web",
+                   status="RECEIVED"):
+    """Записать входящий материал. Возвращает id."""
+    if status not in INBOX_STATUSES:
+        status = "RECEIVED"
+    if source not in INBOX_SOURCES:
+        source = "web"
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO inbox_items
+               (business_id, kind, title, body, filename, mime, size,
+                storage_key, source, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (business_id, kind, title, body, filename, mime, int(size or 0),
+             storage_key, source, status),
+        )
+        item_id = cur.lastrowid
+    log_event(business_id, "inbox", "Новый материал во входящих",
+              (title or filename or "заметка")[:160])
+    return item_id
+
+
+def list_inbox(business_id, status=None, archived=False, limit=50, offset=0):
+    """Входящие бизнеса, новые сверху. archived=True — только архив."""
+    where = "business_id = ?"
+    params = [business_id]
+    where += " AND archived_at IS NOT NULL" if archived else " AND archived_at IS NULL"
+    if status in INBOX_STATUSES:
+        where += " AND status = ?"
+        params.append(status)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT id, business_id, kind, title, body, filename, mime, size,
+                       storage_key, source, status, error, archived_at,
+                       created_at, updated_at
+                  FROM inbox_items WHERE {where}
+                 ORDER BY id DESC LIMIT ? OFFSET ?""",
+            (*params, max(1, min(int(limit), 200)), max(0, int(offset))),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def count_inbox(business_id, status=None, archived=False):
+    """Сколько записей подходит под фильтр — для «показать ещё» и счётчиков."""
+    where = "business_id = ?"
+    params = [business_id]
+    where += " AND archived_at IS NOT NULL" if archived else " AND archived_at IS NULL"
+    if status in INBOX_STATUSES:
+        where += " AND status = ?"
+        params.append(status)
+    with _connect() as conn:
+        return conn.execute(
+            f"SELECT COUNT(*) AS n FROM inbox_items WHERE {where}", tuple(params)
+        ).fetchone()["n"]
+
+
+def inbox_overview(business_id):
+    """Разбивка активных входящих по статусам + размер архива."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT status, COUNT(*) AS n FROM inbox_items
+                WHERE business_id = ? AND archived_at IS NULL
+                GROUP BY status""",
+            (business_id,),
+        ).fetchall()
+        archived = conn.execute(
+            """SELECT COUNT(*) AS n FROM inbox_items
+                WHERE business_id = ? AND archived_at IS NOT NULL""",
+            (business_id,),
+        ).fetchone()["n"]
+        total_size = conn.execute(
+            """SELECT COALESCE(SUM(size), 0) AS s FROM inbox_items
+                WHERE business_id = ? AND archived_at IS NULL""",
+            (business_id,),
+        ).fetchone()["s"]
+    by = {st: 0 for st in INBOX_STATUSES}
+    for r in rows:
+        if r["status"] in by:
+            by[r["status"]] = r["n"]
+    return {"by_status": by, "active": sum(by.values()),
+            "archived": archived, "bytes": int(total_size or 0)}
+
+
+def get_inbox_item(item_id, business_id):
+    """Одна запись — только своя."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM inbox_items WHERE id = ? AND business_id = ?",
+            (item_id, business_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def set_inbox_status(item_id, business_id, status, error=None):
+    """
+    Сменить статус записи. Разбора материала ещё нет — эту дверь открываем
+    заранее и ровно одну, чтобы будущий слой не начал писать в таблицу мимо
+    словаря статусов. Возвращает True, если запись нашлась.
+    """
+    if status not in INBOX_STATUSES:
+        raise ValueError("Неизвестный статус входящего: %s" % status)
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE inbox_items
+                  SET status = ?, error = ?, updated_at = datetime('now')
+                WHERE id = ? AND business_id = ?""",
+            (status, error, item_id, business_id),
+        )
+        return cur.rowcount > 0
+
+
+def archive_inbox_item(item_id, business_id, archived=True):
+    """Убрать из ленты, не теряя материал (или вернуть обратно)."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE inbox_items
+                  SET archived_at = %s, updated_at = datetime('now')
+                WHERE id = ? AND business_id = ?"""
+            % ("datetime('now')" if archived else "NULL"),
+            (item_id, business_id),
+        )
+        return cur.rowcount > 0
+
+
+def delete_inbox_item(item_id, business_id):
+    """Удалить запись. Оригинал стирает вызывающий (storage.delete) — база о
+    хранилище ничего не знает и знать не должна."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM inbox_items WHERE id = ? AND business_id = ?",
+            (item_id, business_id),
+        )
+        return cur.rowcount > 0
+
+
+# ---------- оригиналы файлов в базе (backend "db" из storage.py) ----------
+
+def put_blob(business_id, storage_key, data):
+    """Положить оригинал. Повторная запись тем же ключом заменяет содержимое."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM inbox_blobs WHERE storage_key = ? AND business_id = ?",
+                     (storage_key, business_id))
+        conn.execute(
+            "INSERT INTO inbox_blobs (storage_key, business_id, data) VALUES (?, ?, ?)",
+            (storage_key, business_id, sqlite3.Binary(data) if not _PG else data),
+        )
+
+
+def get_blob(business_id, storage_key):
+    """Прочитать оригинал своего бизнеса. None — если такого ключа нет."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT data FROM inbox_blobs WHERE storage_key = ? AND business_id = ?",
+            (storage_key, business_id),
+        ).fetchone()
+    if not row:
+        return None
+    data = row["data"]
+    # psycopg отдаёт bytea как memoryview — приводим к bytes, иначе FastAPI
+    # не сможет отдать содержимое ответом.
+    return bytes(data)
+
+
+def delete_blob(business_id, storage_key):
+    with _connect() as conn:
+        conn.execute("DELETE FROM inbox_blobs WHERE storage_key = ? AND business_id = ?",
+                     (storage_key, business_id))
 
 
 # ============================================================
