@@ -18,6 +18,8 @@
     { t: 'Клиенты', h: 'clients.html', kids: [
       { t: 'Клиенты', h: 'clients.html' },
       { t: 'Заказы',  h: 'orders.html' },
+      // Директ — это те же клиенты, только пока они ещё пишут, а не покупают.
+      { t: 'Директ Instagram', h: 'instagram.html' },
       { t: 'Цели',    h: 'goals.html' },
     ] },
     { t: 'Финансы', h: 'finance.html', kids: [

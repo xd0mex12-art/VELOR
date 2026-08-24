@@ -17,7 +17,7 @@ import re
 import requests
 
 from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Request
-from fastapi.responses import FileResponse, Response, JSONResponse
+from fastapi.responses import FileResponse, Response, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import uvicorn
@@ -41,6 +41,7 @@ import entities
 import graph
 import director
 import connections
+import instagram
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -4356,6 +4357,243 @@ def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
 
 
 # ---------- Отдаём сайт ----------
+
+# ============================================================
+#  INSTAGRAM: ВХОД, СОБЫТИЯ, ПЕРЕПИСКА
+# ============================================================
+# Один вебхук на всё приложение Meta и много компаний внутри: какому бизнесу
+# принадлежит событие, определяется по id аккаунта в самом событии. Поэтому
+# здесь нет ни одного места, где business_id брался бы «по умолчанию».
+
+
+@app.get("/api/instagram/setup")
+def api_instagram_setup(business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Чего не хватает для подключения канала и что вписать в кабинет Meta.
+
+    Адрес вебхука и слово-пароль нужны тому, кто настраивает приложение Meta,
+    а без них Instagram просто не станет звонить — и канал будет выглядеть
+    подключённым, оставаясь немым.
+    """
+    _resolve_bid(x_auth, business_id)
+    st = instagram.setup_state()
+    # Слово-пароль вебхука — настройка приложения VELOR, общая для всех компаний.
+    # Показывать его каждому арендатору незачем: чужой компании оно не помогает
+    # ничем, а знать общий секрет платформы ей не положено.
+    if require_business(x_auth) != -1:
+        st = {**st, "verify_token": ""}
+    return {**st, "limits": {
+        "reply_window_hours": instagram.REPLY_WINDOW_HOURS,
+        "human_window_days": instagram.HUMAN_WINDOW_DAYS,
+        "history_limit": instagram.HISTORY_LIMIT,
+    }}
+
+
+@app.post("/api/instagram/login")
+def api_instagram_login(business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Начать вход. Возвращаем адрес НАСТОЯЩЕЙ страницы Instagram.
+
+    Своей формы входа у VELOR нет и быть не может: пароль от Instagram должен
+    вводиться только в Instagram. Мы получаем не пароль, а доступ, который
+    владелец выдал сам и может отозвать у себя.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    try:
+        return {"ok": True, "url": instagram.authorize_url(bid)}
+    except connectors.ConnectorError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+def _ig_back(ok: bool, message: str):
+    """Вернуть человека в кабинет с понятным итогом (Meta ведёт сюда браузером)."""
+    return RedirectResponse(
+        "/connections.html?ig=" + ("ok" if ok else "err")
+        + "&msg=" + _urlquote(message[:200]), status_code=303)
+
+
+@app.get("/api/instagram/callback")
+def api_instagram_callback(code: str = "", state: str = "",
+                           error: str = "", error_description: str = ""):
+    """
+    Возврат от Meta после входа.
+
+    Токена кабинета здесь нет — браузер приходит со стороны Instagram. Поэтому
+    компанию берём из подписанного state: подделать его нельзя, а живёт он
+    четверть часа, чтобы старую ссылку нельзя было разыграть повторно.
+    """
+    if error:
+        return _ig_back(False, error_description or "Доступ не выдан.")
+    bid = instagram.read_state(state)
+    if not bid or not database.get_business(bid):
+        return _ig_back(False, "Ссылка входа устарела. Начните подключение заново.")
+    try:
+        tok = instagram.exchange_code(code)
+        who = instagram.me(tok["access_token"]) or {}
+        ig_id = str(who.get("user_id") or who.get("id") or "")
+        if not ig_id:
+            return _ig_back(False, "Instagram не сказал, чей это аккаунт.")
+        username = who.get("username") or ""
+        sub = {}
+        try:
+            sub = instagram.subscribe(tok["access_token"])
+        except connectors.ConnectorError as e:
+            # Доступ выдан, но события не подписаны: сохранить подключение и
+            # промолчать было бы худшим вариантом — канал выглядел бы живым и
+            # не принимал бы ни одного сообщения.
+            instagram.save_token(bid, tok["access_token"], tok["expires_in"],
+                                 {"ig_id": ig_id, "username": username,
+                                  "account_type": who.get("account_type"),
+                                  "scopes": instagram.SCOPES, "webhook_fields": []},
+                                 config={"Аккаунт": "@" + username if username else ig_id})
+            database.mark_connection_synced(bid, "instagram", error=str(e))
+            return _ig_back(False, "Аккаунт подключён, но события не подписаны: "
+                                   + str(e))
+        instagram.save_token(bid, tok["access_token"], tok["expires_in"],
+                             {"ig_id": ig_id, "username": username,
+                              "account_type": who.get("account_type"),
+                              "scopes": instagram.SCOPES,
+                              "webhook_fields": sub.get("fields") or []},
+                             config={"Аккаунт": "@" + username if username else ig_id})
+        database.log_event(bid, "integration", "Instagram подключён",
+                           "Директ приходит в VELOR" + (f" · @{username}" if username else ""))
+    except connectors.ConnectorError as e:
+        return _ig_back(False, str(e))
+    except Exception:
+        logging.exception("Instagram: подключение не удалось (biz %s)", bid)
+        return _ig_back(False, "Не удалось завершить подключение.")
+
+    # Первую порцию переписок забираем в фоне: доступ уже проверен, держать
+    # человека перед крутящейся страницей незачем.
+    if _os.getenv("DISABLE_SYNC_WORKER"):
+        instagram.pull_recent(bid)
+    else:
+        import threading
+        threading.Thread(target=instagram.pull_recent, args=(bid,),
+                         name="velor-ig-first-pull", daemon=True).start()
+    return _ig_back(True, "Instagram подключён" + (f": @{username}" if username else ""))
+
+
+@app.get("/api/instagram/webhook")
+def api_instagram_webhook_verify(request: Request):
+    """
+    Проверка адреса при настройке в кабинете Meta.
+
+    Meta присылает своё слово-пароль и число; вернуть нужно ровно это число и
+    только если слово совпало. Отвечать на чужую проверку нельзя: так посторонний
+    смог бы подписать наш адрес на свои события.
+    """
+    q = request.query_params
+    if q.get("hub.mode") == "subscribe" and q.get("hub.verify_token") == instagram.verify_token():
+        return Response(content=q.get("hub.challenge") or "", media_type="text/plain")
+    raise HTTPException(status_code=403, detail="Проверочное слово не совпало.")
+
+
+@app.post("/api/instagram/webhook")
+async def api_instagram_webhook(request: Request):
+    """
+    Событие из Instagram: новое сообщение, эхо ответа, прочтение.
+
+    Подпись обязательна. Адрес публичный, и без неё кто угодно мог бы прислать
+    «сообщение от клиента» и заставить VELOR ответить постороннему человеку от
+    имени бизнеса.
+
+    Meta отвечает на ошибки повторной доставкой, поэтому наружу мы всегда
+    отдаём 200: разбираться с нашими бедами повторным звонком бессмысленно, а
+    дубли уже отсечены по номеру сообщения.
+    """
+    raw = await request.body()
+    if not instagram.verify_signature(raw, request.headers.get("x-hub-signature-256") or ""):
+        raise HTTPException(status_code=403, detail="Подпись не совпала.")
+    try:
+        payload = json.loads(raw.decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return {"ok": True}
+    try:
+        instagram.handle_webhook(payload if isinstance(payload, dict) else {})
+    except Exception:
+        logging.exception("Instagram: разбор события не удался")
+    return {"ok": True}
+
+
+@app.get("/api/instagram/threads")
+def api_instagram_threads(business_id: int = 0, x_auth: str = Header(default="")):
+    """Все переписки директа: кто написал, когда, сколько осталось на ответ."""
+    bid = _resolve_bid(x_auth, business_id)
+    st = connections.state(bid, "instagram")
+    items = []
+    for t in database.ig_threads_list(bid):
+        items.append({**t, "window": instagram.window_state(bid, t["igsid"])})
+    return {"connection": st, "threads": items,
+            "limits": {"reply_window_hours": instagram.REPLY_WINDOW_HOURS,
+                       "human_window_days": instagram.HUMAN_WINDOW_DAYS,
+                       "history_limit": instagram.HISTORY_LIMIT}}
+
+
+@app.get("/api/instagram/thread/{igsid}")
+def api_instagram_thread(igsid: str, business_id: int = 0,
+                         x_auth: str = Header(default="")):
+    """Одна переписка целиком — так, как её сохранил VELOR."""
+    bid = _resolve_bid(x_auth, business_id)
+    t = database.ig_thread(bid, igsid)
+    if not t:
+        raise HTTPException(status_code=404, detail="Такой переписки нет.")
+    return {"thread": t,
+            "client": database.get_client(t["client_id"], bid),
+            "messages": database.get_client_messages(t["client_id"], bid, limit=200),
+            "window": instagram.window_state(bid, igsid)}
+
+
+class IgReplyIn(BaseModel):
+    text: str = ""
+    business_id: int = 0
+
+
+@app.post("/api/instagram/thread/{igsid}/reply")
+def api_instagram_reply(igsid: str, body: IgReplyIn, x_auth: str = Header(default="")):
+    """
+    Ответ владельца своими словами.
+
+    Отправляем как сообщение человека: только у такого сообщения Instagram
+    разрешает тег, продлевающий срок ответа до семи суток. На ответ модели
+    ставить этот тег запрещено правилами Meta, поэтому решение принимается
+    здесь — там, где точно известно, что писал человек.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    try:
+        res = instagram.reply_as_human(bid, igsid, body.text)
+    except connectors.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except connectors.ConnectorError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **res, "window": instagram.window_state(bid, igsid)}
+
+
+class IgHandoffIn(BaseModel):
+    paused: bool = True
+    business_id: int = 0
+
+
+@app.post("/api/instagram/thread/{igsid}/handoff")
+def api_instagram_handoff(igsid: str, body: IgHandoffIn,
+                          x_auth: str = Header(default="")):
+    """
+    Взять разговор на себя — или вернуть его VELOR.
+
+    Передача треда между приложениями через Meta (Handover Protocol) в этой
+    сборке Instagram API не документирована, поэтому мы её не изображаем.
+    Переключатель честно означает одно: отвечает VELOR или отвечает человек.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    if not database.ig_thread(bid, igsid):
+        raise HTTPException(status_code=404, detail="Такой переписки нет.")
+    database.ig_thread_pause(bid, igsid, bool(body.paused), by="owner")
+    return {"ok": True, "paused": bool(body.paused),
+            "thread": database.ig_thread(bid, igsid)}
+
 
 # ============================================================
 #  TELEGRAM-БОТ ЧЕРЕЗ WEBHOOK (живёт внутри веб-сервиса, без отдельного воркера)

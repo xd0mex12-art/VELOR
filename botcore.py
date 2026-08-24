@@ -23,7 +23,7 @@ def greeting_text(bid):
 
 def handle_message(bid, tg_user_id, full_name, text):
     """
-    Обработать текстовое сообщение клиента и вернуть текст ответа (или None).
+    Обработать текстовое сообщение клиента из Telegram и вернуть ответ (или None).
     Полностью повторяет логику bot.ai_dialog: клиент, память диалога, лимит тарифа,
     ответ ИИ, оформление заказа, запись в ленту.
     """
@@ -34,7 +34,28 @@ def handle_message(bid, tg_user_id, full_name, text):
         return "Спасибо за сообщение! Мы свяжемся с вами в ближайшее время."
 
     client = database.get_or_create_client(bid, tg_user_id=tg_user_id, name=full_name)
-    database.save_message(bid, client["id"], "user", text)
+    return reply_for(bid, client, text, channel="telegram")
+
+
+def reply_for(bid, client, text, channel=None, save_incoming=True):
+    """
+    Ответ клиенту, кем бы он ни написал.
+
+    Раньше эта логика жила внутри телеграмного обработчика и знала про tg_user_id.
+    Каналов стало два, а разговор у бизнеса с клиентом один: и память диалога, и
+    заявки, и лента событий должны получаться одинаковыми независимо от того,
+    пришло сообщение в бот или в директ Instagram. Поэтому канал здесь — просто
+    пометка на сообщении, а не отдельная ветка поведения.
+
+    save_incoming=False, если входящее уже записано вызывающей стороной: в
+    Instagram сообщение сохраняется раньше, чтобы оно осталось в истории даже
+    когда отвечать нельзя (триал кончился, вложение без текста, разговор ведёт
+    человек).
+    """
+    business = database.get_business(bid) or {"name": "бизнес"}
+    full_name = client.get("name") or "клиент"
+    if save_incoming:
+        database.save_message(bid, client["id"], "user", text, channel=channel)
 
     # Лимит тарифа исчерпан — вежливо принимаем без ИИ.
     if database.plan_status(business)["over"]:
@@ -82,6 +103,7 @@ def handle_message(bid, tg_user_id, full_name, text):
             address=order.get("address"),
             date_wanted=order.get("date_wanted"),
             amount=order.get("amount"),
+            source=channel,
         )
         if order.get("phone") and not client.get("phone"):
             database.update_client(client["id"], bid, phone=order["phone"])
@@ -90,7 +112,7 @@ def handle_message(bid, tg_user_id, full_name, text):
             reply = f"Готово! Ваша заявка №{order_id} принята."
 
     if reply:
-        database.save_message(bid, client["id"], "assistant", reply)
+        database.save_message(bid, client["id"], "assistant", reply, channel=channel)
         who = client.get("name") or full_name or "клиент"
         database.log_event(bid, "reply", f"Сотрудник ответил: {who}", reply[:200],
                            once_key=f"Сотрудник ответил: {who}")

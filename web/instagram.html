@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Директ Instagram</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Страница отвечает на два вопроса: кто пишет прямо сейчас и кто ему
+     отвечает — VELOR или человек. Поэтому наверху каждой переписки стоит не
+     украшение, а срок ответа: Instagram даёт сутки, и это главное ограничение
+     дня. Состояние «отвечает человек» продублировано словом, а не только
+     цветом. Скелет, кнопки и токены — из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button, textarea{ font-family:inherit; }
+  button{ cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  body main{ padding-top:104px; padding-bottom:80px; }
+
+  .split{ display:grid; grid-template-columns:minmax(0,340px) minmax(0,1fr);
+    gap:var(--sp-4); align-items:start; }
+  /* Ячейка сетки по умолчанию не ужимается меньше своего содержимого, и на
+     телефоне переписка распирала страницу вбок. Разрешаем ужиматься — длинные
+     реплики обрезаются внутри, а не двигают весь экран. */
+  .split > *{ min-width:0; }
+
+  .panel{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); }
+  .panel .hd{ padding:var(--sp-4) var(--sp-5); border-bottom:1px solid var(--hairline);
+    font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); display:flex; gap:var(--sp-2);
+    align-items:baseline; }
+  .panel .hd .n{ color:var(--lilac); }
+
+  /* список переписок */
+  .threads{ max-height:min(70vh,620px); overflow-y:auto; }
+  .th{ width:100%; text-align:left; background:none; border:0; color:inherit;
+    display:block; padding:var(--sp-4) var(--sp-5); min-height:64px;
+    border-bottom:1px solid var(--hairline); transition:background var(--dur-fast); }
+  .th:last-child{ border-bottom:0; }
+  .th:hover{ background:var(--surface-2); }
+  .th[aria-current="true"]{ background:var(--tint-iris);
+    box-shadow:inset 2px 0 0 var(--iris); }
+  .th:focus-visible{ outline:2px solid var(--ring); outline-offset:-2px; }
+  .th .who{ display:flex; align-items:baseline; gap:var(--sp-2); min-width:0; }
+  .th .who b{ font-weight:var(--fw-med); font-size:var(--fs-body);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .th .who .at{ font-size:var(--fs-caption); color:var(--ash); flex:none; }
+  /* Строка предыдущей реплики обязана быть блоком: у inline-элемента ни
+     многоточие, ни обрезка не работают — длинный ответ распирал бы список
+     вбок и заводил в нём горизонтальную прокрутку. */
+  .th .last{ display:block; margin-top:4px; font-size:var(--fs-sm); color:var(--silver);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .th .meta{ margin-top:6px; display:flex; gap:var(--sp-2); flex-wrap:wrap;
+    font-size:var(--fs-caption); color:var(--ash); align-items:center; }
+
+  .tag{ display:inline-flex; align-items:center; gap:6px; padding:3px 9px;
+    border-radius:var(--r-pill); border:1px solid var(--hairline);
+    background:var(--surface-2); font-size:var(--fs-caption); color:var(--silver); }
+  .dot{ width:7px; height:7px; border-radius:50%; flex:none; background:var(--ash); }
+  .dot.good{ background:var(--verdant); } .dot.warn{ background:var(--saffron); }
+  .dot.bad{ background:var(--coral); } .dot.iris{ background:var(--lilac); }
+
+  /* переписка */
+  .chat{ padding:var(--sp-5); display:flex; flex-direction:column; gap:var(--sp-4); }
+  .who-hd{ display:flex; align-items:baseline; gap:var(--sp-3); flex-wrap:wrap; }
+  .who-hd h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .who-hd .at{ font-size:var(--fs-sm); color:var(--ash); }
+  .win{ font-size:var(--fs-sm); line-height:1.5; color:var(--silver);
+    border-left:2px solid var(--hairline-2); padding-left:var(--sp-3); }
+  .win.warn{ border-left-color:var(--saffron); color:var(--bone); }
+  .win.bad{ border-left-color:var(--coral); color:var(--ink-coral); }
+
+  .scroll{ max-height:min(48vh,420px); overflow-y:auto; display:flex;
+    flex-direction:column; gap:var(--sp-2); padding-right:var(--sp-2); }
+  .msg{ max-width:min(80%,520px); padding:10px 14px; border-radius:var(--r-md);
+    font-size:var(--fs-sm); line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+  .msg.user{ align-self:flex-start; background:var(--surface-2);
+    border:1px solid var(--hairline); }
+  .msg.assistant{ align-self:flex-end; background:var(--tint-iris);
+    border:1px solid rgba(128,82,255,.3); }
+  .msg .t{ display:block; margin-top:5px; font-size:11px; color:var(--ash); }
+
+  .reply textarea{ width:100%; min-height:96px; resize:vertical;
+    background:var(--surface-2); border:1px solid var(--hairline);
+    border-radius:var(--r-sm); padding:12px 14px; color:var(--bone);
+    font-size:16px; line-height:1.5; }
+  .reply textarea:focus{ outline:2px solid var(--ring); outline-offset:1px; }
+  .reply textarea:disabled{ opacity:.5; }
+  .acts{ margin-top:var(--sp-3); display:flex; gap:var(--sp-2); flex-wrap:wrap;
+    align-items:center; }
+  .acts .cnt{ font-size:var(--fs-caption); color:var(--ash); margin-left:auto; }
+
+  .limits{ margin-top:var(--sp-6); border:1px solid var(--hairline);
+    border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-5); }
+  .limits h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
+  .limits li{ list-style:none; font-size:var(--fs-sm); color:var(--silver);
+    line-height:1.6; padding-left:var(--sp-4); position:relative; }
+  .limits li::before{ content:'—'; position:absolute; left:0; color:var(--ash); }
+
+  .empty{ padding:var(--sp-8) var(--sp-5); text-align:center; }
+  .empty .t{ font-size:var(--fs-lead); letter-spacing:-.02em; }
+  .empty .d{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash);
+    line-height:1.6; max-width:52ch; margin-left:auto; margin-right:auto; }
+  .empty .go{ margin-top:var(--sp-5); display:inline-flex; }
+
+  .setup{ margin-top:var(--sp-4); text-align:left; }
+  .setup .kv{ display:flex; gap:var(--sp-3); justify-content:space-between;
+    padding:8px 0; border-bottom:1px solid var(--hairline); font-size:var(--fs-sm); }
+  .setup .kv:last-child{ border-bottom:0; }
+  .setup .kv .k{ color:var(--ash); flex:none; }
+  .setup .kv .v{ text-align:right; word-break:break-all; font-size:var(--fs-caption); }
+
+  #toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,20px);
+    background:#141414; border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    padding:12px 22px; font-size:var(--fs-sm); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); z-index:120; max-width:92vw; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:860px){
+    .split{ grid-template-columns:1fr; }
+    .threads{ max-height:none; }
+  }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Директ Instagram</h1>
+      <p class="v-lead">Сообщения из директа приходят сюда же, где живут остальные
+        обращения: клиент заводится, история помнится, заявка оформляется.
+        В любой переписке разговор можно забрать себе — VELOR замолчит.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Смотрю переписки…</span>
+      </div>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+  <div id="body"><div class="v-sk panel"></div></div>
+
+  <section class="limits" id="limits" hidden>
+    <h3>Что Instagram не разрешает</h3>
+    <ul id="limitList"></ul>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+function when(iso){
+  if (!iso) return '';
+  const d = new Date(String(iso).replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+function shortWhen(iso){
+  if (!iso) return '';
+  const d = new Date(String(iso).replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  const days = Math.floor((Date.now() - d) / 86400000);
+  return days < 1 ? d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' })
+                  : d.toLocaleDateString('ru-RU', { day:'numeric', month:'short' });
+}
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 4200);
+}
+
+let DATA = null;      // последний ответ /api/instagram/threads
+let OPEN = null;      // igsid открытой переписки
+let THREAD = null;    // содержимое открытой переписки
+
+// ── срок ответа ────────────────────────────────────────────────────────────
+// Ограничение не наше, а Instagram: сутки на автоответ, семь суток человеку.
+// Показываем его словами и заранее — молчаливо отключённая кнопка «Отправить»
+// выглядела бы поломкой.
+function windowLine(w){
+  if (!w) return { tone:'', text:'' };
+  if (!w.can_reply) return { tone:'bad', text: w.why || 'Отвечать уже нельзя.' };
+  if (w.needs_human_tag){
+    const d = Math.floor(w.human_hours_left / 24);
+    return { tone:'warn', text:
+      `Сутки на автоответ прошли. Ваш ответ уйдёт с пометкой Instagram «пишет человек» — `
+      + `так можно ещё ${d} ${plural(d, 'сутки', 'суток', 'суток')}. VELOR в этом окне писать не вправе.` };
+  }
+  const h = Math.floor(w.hours_left);
+  return { tone:'', text: h >= 1
+    ? `Ответить можно ещё ${h} ${plural(h, 'час', 'часа', 'часов')} — столько Instagram даёт после сообщения клиента.`
+    : `Меньше часа до конца срока ответа. Дальше писать сможет только человек и только до семи суток.` };
+}
+
+// ── список переписок ───────────────────────────────────────────────────────
+function threadHTML(t){
+  const title = t.name || t.client_name || (t.username ? '@' + t.username : 'Собеседник');
+  const at = t.username && title !== '@' + t.username ? '@' + t.username : '';
+  const w = windowLine(t.window);
+  const preview = (t.last_role === 'assistant' ? 'Вы: ' : '') + (t.last_text || '');
+  return `<button class="th" type="button" data-ig="${esc(t.igsid)}"
+      aria-current="${OPEN === t.igsid}">
+    <span class="who"><b>${esc(title)}</b>${at ? `<span class="at">${esc(at)}</span>` : ''}</span>
+    ${preview ? `<span class="last">${esc(preview)}</span>` : ''}
+    <span class="meta">
+      <span class="num">${esc(shortWhen(t.last_in_at || t.last_out_at || t.created_at))}</span>
+      ${t.ai_paused ? '<span class="tag"><span class="dot warn"></span>Отвечает человек</span>'
+                    : '<span class="tag"><span class="dot iris"></span>Отвечает VELOR</span>'}
+      ${w.tone === 'bad' ? '<span class="tag"><span class="dot bad"></span>Срок вышел</span>' : ''}
+    </span>
+  </button>`;
+}
+
+function paintState(d){
+  const c = d.connection || {};
+  const n = (d.threads || []).length;
+  const box = document.getElementById('state');
+  const tone = c.status === 'CONNECTED' ? 'good'
+             : (c.status === 'ERROR' || c.status === 'REQUIRES_AUTH' ? 'warn' : 'calm');
+  const acct = (c.configuration || {})['Аккаунт'] || '';
+  box.innerHTML = `<span class="v-badge ${tone}"><i></i>${esc(c.status_label || 'Не подключено')}</span>
+    ${acct ? `<span>${esc(acct)}</span>` : ''}
+    <span>${n} ${plural(n, 'переписка', 'переписки', 'переписок')}</span>`;
+}
+
+// ── не подключено: честный пустой экран ────────────────────────────────────
+function offHTML(d){
+  const c = d.connection || {};
+  const s = d.setup || {};
+  const rows = [];
+  if (s.redirect_uri) rows.push(['Адрес возврата для Meta', s.redirect_uri]);
+  if (s.webhook_url)  rows.push(['Адрес вебхука', s.webhook_url]);
+  if (s.verify_token) rows.push(['Проверочное слово', s.verify_token]);
+  if ((s.scopes || []).length) rows.push(['Запрашиваемые права', s.scopes.join(', ')]);
+  return `<div class="panel"><div class="empty">
+    <div class="t">Директ пока не подключён</div>
+    <div class="d">${esc(c.note || 'Подключите аккаунт Instagram, и сообщения из директа начнут приходить сюда.')}</div>
+    <a class="v-btn go" href="connections.html">Открыть подключения</a>
+    ${rows.length ? `<div class="setup">${rows.map(([k, v]) =>
+      `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>` : ''}
+  </div></div>`;
+}
+
+function emptyThreadsHTML(){
+  return `<div class="empty">
+    <div class="t">Пока никто не написал</div>
+    <div class="d">Instagram не разрешает писать клиенту первым — переписка
+      начинается только с его сообщения. Как только оно придёт, оно появится здесь.</div>
+  </div>`;
+}
+
+// ── одна переписка ─────────────────────────────────────────────────────────
+function chatHTML(){
+  if (!OPEN) return `<div class="panel"><div class="empty">
+    <div class="t">Выберите переписку</div>
+    <div class="d">Слева — все, кто писал в директ. VELOR уже ответил там, где мог.</div></div></div>`;
+  if (!THREAD) return `<div class="panel"><div class="v-sk panel"></div></div>`;
+
+  const t = THREAD.thread || {};
+  const w = THREAD.window || {};
+  const line = windowLine(w);
+  const title = t.name || (THREAD.client || {}).name || (t.username ? '@' + t.username : 'Собеседник');
+  const paused = !!t.ai_paused;
+  const msgs = THREAD.messages || [];
+
+  return `<div class="panel"><div class="chat">
+    <div class="who-hd">
+      <h2>${esc(title)}</h2>
+      ${t.username ? `<span class="at">@${esc(t.username)}</span>` : ''}
+      <span class="tag"><span class="dot ${paused ? 'warn' : 'iris'}"></span>${
+        paused ? 'Отвечает человек' : 'Отвечает VELOR'}</span>
+    </div>
+    <div class="win ${line.tone}">${esc(line.text)}</div>
+    <div class="scroll" id="scroll">${
+      msgs.length ? msgs.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">${
+        esc(m.content)}<span class="t num">${esc(when(m.created_at))}</span></div>`).join('')
+      : '<div class="empty"><div class="d">Сообщений пока нет.</div></div>'}</div>
+    <div class="reply">
+      <label class="v-sr-only" for="replyText">Ваш ответ клиенту</label>
+      <textarea id="replyText" maxlength="990" placeholder="${
+        w.can_reply ? 'Напишите ответ от имени бизнеса…' : 'Отвечать уже нельзя'}"
+        ${w.can_reply ? '' : 'disabled'}></textarea>
+      <div class="acts">
+        <button class="v-btn" type="button" id="send" ${w.can_reply ? '' : 'disabled'}>Отправить</button>
+        <button class="v-btn ghost" type="button" id="handoff">${
+          paused ? 'Вернуть VELOR' : 'Отвечу сам'}</button>
+        <span class="cnt num" id="cnt">0 / 990</span>
+      </div>
+    </div>
+  </div></div>`;
+}
+
+function paint(){
+  const d = DATA;
+  const connected = (d.connection || {}).status === 'CONNECTED';
+  const box = document.getElementById('body');
+  if (!connected){ box.innerHTML = offHTML(d); return; }
+
+  const list = d.threads || [];
+  box.innerHTML = `<div class="split">
+    <div class="panel">
+      <div class="hd">Переписки <span class="n num">${list.length}</span></div>
+      <div class="threads">${list.length ? list.map(threadHTML).join('') : emptyThreadsHTML()}</div>
+    </div>
+    <div id="chat">${chatHTML()}</div>
+  </div>`;
+  wire();
+}
+
+function paintChat(){
+  const box = document.getElementById('chat');
+  if (!box) return;
+  box.innerHTML = chatHTML();
+  wireChat();
+  const sc = document.getElementById('scroll');
+  if (sc) sc.scrollTop = sc.scrollHeight;
+}
+
+function wire(){
+  document.querySelectorAll('.th').forEach(el => {
+    el.addEventListener('click', () => openThread(el.dataset.ig));
+  });
+  wireChat();
+}
+
+function wireChat(){
+  const send = document.getElementById('send');
+  const hand = document.getElementById('handoff');
+  const area = document.getElementById('replyText');
+  const cnt  = document.getElementById('cnt');
+  if (area && cnt) area.addEventListener('input', () => {
+    cnt.textContent = area.value.length + ' / 990';
+  });
+  if (send) send.addEventListener('click', doSend);
+  if (hand) hand.addEventListener('click', doHandoff);
+}
+
+async function openThread(igsid){
+  OPEN = igsid; THREAD = null;
+  document.querySelectorAll('.th').forEach(el =>
+    el.setAttribute('aria-current', String(el.dataset.ig === igsid)));
+  paintChat();
+  try{
+    const r = await fetch('/api/instagram/thread/' + encodeURIComponent(igsid));
+    if (!r.ok) throw new Error('http');
+    THREAD = await r.json();
+  }catch{ toast('Переписка не загрузилась'); THREAD = null; }
+  paintChat();
+}
+
+async function doSend(e){
+  const btn = e.currentTarget;
+  const area = document.getElementById('replyText');
+  const text = (area.value || '').trim();
+  if (!text){ toast('Пустое сообщение отправить нельзя'); return; }
+  btn.disabled = true; btn.textContent = 'Отправляю…';
+  try{
+    const r = await fetch('/api/instagram/thread/' + encodeURIComponent(OPEN) + '/reply', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Instagram не принял сообщение'); }
+    else {
+      area.value = '';
+      toast(d.tagged_human
+        ? 'Отправлено с пометкой Instagram «пишет человек»'
+        : 'Отправлено');
+      await openThread(OPEN); await load(true);
+    }
+  }catch{ toast('Нет связи с сервером'); }
+  btn.disabled = false; btn.textContent = 'Отправить';
+}
+
+async function doHandoff(e){
+  const btn = e.currentTarget;
+  const paused = !!((THREAD || {}).thread || {}).ai_paused;
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/instagram/thread/' + encodeURIComponent(OPEN) + '/handoff', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ paused: !paused })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) toast(d.detail || 'Не получилось');
+    else toast(paused ? 'VELOR снова отвечает в этой переписке'
+                      : 'Разговор за вами — VELOR здесь молчит');
+    await openThread(OPEN); await load(true);
+  }catch{ toast('Нет связи с сервером'); }
+  btn.disabled = false;
+}
+
+// ── ограничения канала ─────────────────────────────────────────────────────
+function paintLimits(d){
+  const L = d.limits || {};
+  document.getElementById('limitList').innerHTML = [
+    `Писать клиенту первым нельзя ничем и никак: переписку начинает только он.`,
+    `На ответ есть ${L.reply_window_hours || 24} ч. Позже отвечает лично человек — до ${
+      L.human_window_days || 7} суток и с пометкой Instagram.`,
+    `История: Instagram отдаёт не больше ${L.history_limit || 20} последних сообщений
+     переписки. Всё, что старше, есть только у нас — с момента подключения.`,
+    `Ни почты, ни телефона API не отдаёт. Телефон появится, только если клиент
+     напишет его сам.`,
+    `Фото и голосовые VELOR в этом канале не читает: ссылка на вложение живёт
+     считанные минуты. На такое сообщение он зовёт вас, а не выдумывает ответ.`,
+    `Групповых переписок в API нет.`,
+  ].map(t => `<li>${esc(t)}</li>`).join('');
+  document.getElementById('limits').hidden = false;
+}
+
+function paintFail(msg){
+  document.getElementById('failZone').innerHTML = `
+    <div class="v-fail"><div><div class="t">Директ не загрузился</div>
+      <div class="d">${esc(msg)}</div></div>
+      <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => {
+    document.getElementById('failZone').innerHTML = ''; load();
+  });
+}
+
+async function load(quiet){
+  let d;
+  try{
+    const r = await fetch('/api/instagram/threads');
+    if (!r.ok) throw new Error('http');
+    d = await r.json();
+  }catch{
+    if (!quiet){ paintFail('Сервер не ответил на запрос переписок.');
+                 document.getElementById('body').innerHTML = ''; }
+    return;
+  }
+  // Настройка нужна только на пустом экране — чтобы было видно, чего не хватает.
+  if ((d.connection || {}).status !== 'CONNECTED'){
+    try{ d.setup = await (await fetch('/api/instagram/setup')).json(); }catch{ d.setup = {}; }
+  }
+  DATA = d;
+  document.getElementById('failZone').innerHTML = '';
+  paintState(d); paintLimits(d);
+  if (!quiet) paint(); else { paintThreadsOnly(); }
+}
+
+function paintThreadsOnly(){
+  const box = document.querySelector('.threads');
+  if (!box){ paint(); return; }
+  const list = DATA.threads || [];
+  box.innerHTML = list.length ? list.map(threadHTML).join('') : emptyThreadsHTML();
+  document.querySelectorAll('.th').forEach(el => {
+    el.addEventListener('click', () => openThread(el.dataset.ig));
+  });
+  const hd = document.querySelector('.panel .hd .n');
+  if (hd) hd.textContent = list.length;
+}
+
+load();
+</script>
+</body>
+</html>

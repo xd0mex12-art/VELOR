@@ -26,6 +26,7 @@ import logging
 
 import connectors
 import database
+import instagram as instagram_api
 from connectors.base import ConnectorError
 
 log = logging.getLogger("velor.connections")
@@ -108,6 +109,20 @@ class Adapter:
         """Настоящее состояние подключения. По умолчанию — не подключено."""
         return {"status": DISCONNECTED, "connected_at": None, "last_sync": None,
                 "error": None, "configuration": {}, "items_total": 0}
+
+    def needs_login(self) -> bool:
+        """
+        Подключение идёт через экран самого сервиса, а не через нашу форму.
+
+        Разница принципиальная для интерфейса: у ключей есть поля, которые
+        владелец копирует, а здесь копировать нечего — его нужно увести на
+        настоящую страницу входа. Своего экрана входа мы не рисуем никогда:
+        пароль от Instagram вводится только в Instagram.
+        """
+        return False
+
+    def login_url(self, business_id: int) -> str:
+        raise NotAvailable(f"«{self.name}» так не подключается.")
 
     # — действия —
     def connect(self, business_id: int, config: dict) -> None:
@@ -239,6 +254,119 @@ class ImportAdapter(Adapter):
                          if last else "")}
 
 
+class OAuthAdapter(Adapter):
+    """
+    Сервис, куда владелец входит своей учётной записью, а не ключом.
+
+    Отличается от ApiAdapter одним, но важным: секрет мы не спрашиваем и не
+    видим. Владелец уходит на страницу сервиса, вводит пароль там, а нам
+    возвращается доступ, выданный лично ему и ограниченный правами, которые он
+    подтвердил. Отозвать его он тоже может у себя, не спрашивая нас.
+    """
+    kind = "oauth"
+
+    def needs_login(self) -> bool:
+        return True
+
+
+class InstagramAdapter(OAuthAdapter):
+    """
+    Директ Instagram как канал VELOR.
+
+    Состояние собирается из фактов: есть ли выданный доступ, не отозвали ли его,
+    не истёк ли срок, не упала ли последняя выгрузка. Отдельно смотрим на срок
+    жизни доступа: Instagram выдаёт его на 60 суток, и «Подключено» с мёртвым
+    доступом было бы худшим видом вранья — оно выглядит рабочим.
+    """
+
+    def can_connect(self) -> bool:
+        # Приложение Meta — настройка сервера VELOR, а не бизнеса. Пока её нет,
+        # кнопка обязана не работать: экран входа, который ничем не кончится,
+        # хуже честной надписи.
+        return instagram_api.configured() and bool(instagram_api.redirect_uri())
+
+    def can_sync(self) -> bool:
+        return True
+
+    def login_url(self, business_id):
+        return instagram_api.authorize_url(business_id)
+
+    def live(self, business_id):
+        row = database.get_connection(business_id, self.id)
+        if not row:
+            return {"status": DISCONNECTED, "connected_at": None, "last_sync": None,
+                    "error": None, "configuration": {}, "items_total": 0,
+                    "hint": _ig_note()}
+        meta = row.get("meta") or {}
+        expires = meta.get("token_expires_at")
+        if (row.get("status") or "") == "requires_auth" or _expired(expires):
+            status = REQUIRES_AUTH
+        elif row.get("last_error"):
+            status = ERROR
+        else:
+            status = CONNECTED
+        config = dict(row.get("config") or {})
+        if expires:
+            config["Доступ действует до"] = expires[:10]
+        fields = meta.get("webhook_fields") or []
+        if fields:
+            # Пишем, на что подписались НА САМОМ ДЕЛЕ. Если Meta не дала эхо,
+            # владелец должен знать, что ответы из приложения Instagram VELOR
+            # не услышит, — а не узнавать это по последствиям.
+            config["События"] = ", ".join(fields)
+        return {"status": status,
+                "connected_at": row.get("connected_at"),
+                "last_sync": row.get("last_sync_at"),
+                "error": row.get("last_error"),
+                "configuration": config,
+                "permissions": row.get("permissions") or [],
+                "items_total": row.get("items_total") or 0,
+                # Пояснение считаем сейчас, а не при запуске: настройки сервера
+                # могут появиться позже, и надпись «канал выключен» обязана
+                # исчезнуть в тот же миг, а не до перезапуска.
+                "hint": _ig_note(),
+                "meta": meta}
+
+    def connect(self, business_id, config):
+        # Сюда приходят те, кто прислал форму с полями. Полей у входа нет, и
+        # причина отказа у двух случаев разная: либо канал вообще выключен на
+        # сервере, либо подключаться нужно другим путём. Одинаковый текст на оба
+        # случая отправил бы владельца чинить не то.
+        if not self.can_connect():
+            raise NotAvailable(_ig_note())
+        raise NotAvailable(
+            "Instagram подключается входом в сам Instagram: нажмите «Подключить» "
+            "и подтвердите доступ на странице Meta. Пароль от аккаунта VELOR "
+            "не спрашивает и не хранит.")
+
+    def disconnect(self, business_id):
+        # Сначала отписываемся от событий, потом забываем доступ. В обратном
+        # порядке Meta продолжала бы звонить в наш вебхук про аккаунт, к
+        # которому у нас уже нет ни доступа, ни права.
+        token = instagram_api.token_of(business_id)
+        if token:
+            try:
+                instagram_api.unsubscribe(token)
+            except ConnectorError:
+                pass          # доступ мог быть отозван раньше — это не мешает отключить
+        database.delete_connection(business_id, self.id)
+
+    def sync(self, business_id):
+        return instagram_api.pull_recent(business_id)
+
+
+def _expired(stamp_str) -> bool:
+    """Истёк ли срок доступа. Нет отметки — считаем живым, гадать не станем."""
+    if not stamp_str:
+        return False
+    import datetime
+    try:
+        return datetime.datetime.strptime(str(stamp_str)[:19], "%Y-%m-%d %H:%M:%S") \
+            < datetime.datetime.utcnow()
+    except ValueError:
+        return False
+
+
 class PlannedAdapter(Adapter):
     """
     Интеграции ещё нет.
@@ -264,6 +392,24 @@ class PlannedAdapter(Adapter):
 # ── реестр ─────────────────────────────────────────────────────────────────
 # Порядок = порядок в кабинете. Сначала то, чем пользуются каждый день.
 
+def _ig_note() -> str:
+    """
+    Что владелец должен знать до подключения — включая то, чего канал не может.
+
+    Ограничения Instagram не наши, но и прятать их нельзя: человек, который
+    ждёт, что VELOR напишет клиенту первым или подтянет переписку за год,
+    столкнётся с этим в худший момент — когда уже рассчитывал на канал.
+    """
+    st = instagram_api.setup_state()
+    if not st["ready"]:
+        return ("Подключение Instagram выключено: на сервере не заданы "
+                + ", ".join(st["missing"]) + ". Это настройка VELOR, а не вашей "
+                "компании — напишите нам, и мы включим канал.")
+    return ("Instagram разрешает отвечать в течение суток после сообщения клиента "
+            "(человеку — до семи), писать первым не даёт никому и отдаёт не больше "
+            "20 последних сообщений переписки. Почты и телефона в его API нет.")
+
+
 def _api(module_id, category, group, permissions, note=""):
     module = connectors.REGISTRY.get(module_id)
     return ApiAdapter(module, category, group, permissions, note) if module else None
@@ -277,11 +423,15 @@ def _build():
             ["читать сообщения бота", "отвечать от имени бизнеса"],
             howto="Токен бота вводится в разделе «Бот в Telegram».",
             manage_href="guide.html"),
-        PlannedAdapter(
+        InstagramAdapter(
             "instagram", "Instagram", COMMUNICATION, "Мессенджеры",
-            "Директ и комментарии в одном месте с остальными обращениями.",
-            ["читать директ", "отвечать в директ"],
-            note="Нужен бизнес-аккаунт и доступ Meta — интеграции пока нет."),
+            "Директ попадает в те же обращения: VELOR отвечает, заводит клиента "
+            "и заявку, а вы в любой момент берёте разговор на себя.",
+            instagram_api.PERMISSIONS_RU,
+            howto="Нужен профессиональный аккаунт Instagram (бизнес или автор). "
+                  "Вход происходит на странице Instagram — пароль остаётся там.",
+            note=_ig_note(),
+            manage_href="instagram.html"),
         PlannedAdapter(
             "whatsapp", "WhatsApp", COMMUNICATION, "Мессенджеры",
             "Переписка с клиентами там, где им привычнее.",
@@ -394,6 +544,9 @@ def state(business_id: int, provider: str) -> dict:
         "can_connect": a.can_connect(),
         "can_sync": a.can_sync() and status in (CONNECTED, ERROR, REQUIRES_AUTH),
         "can_disconnect": a.can_disconnect() and status != DISCONNECTED,
+        # Вход на стороне сервиса: интерфейс не должен рисовать форму для полей,
+        # которых нет, — он должен увести человека на настоящую страницу входа.
+        "needs_login": a.needs_login(),
         "howto": a.howto,
         "note": live.get("hint") or a.note,
         "manage_href": a.manage_href,

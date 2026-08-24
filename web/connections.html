@@ -202,7 +202,7 @@ function cardHTML(i){
   Object.entries(i.configuration || {}).forEach(([k, v]) => rows.push([k, String(v)]));
 
   const acts = [];
-  if (i.can_connect) acts.push(`<button class="v-btn sm" type="button" data-act="connect" data-p="${esc(i.provider)}">${
+  if (i.can_connect) acts.push(`<button class="v-btn sm" type="button" data-act="${i.needs_login ? 'login' : 'connect'}" data-p="${esc(i.provider)}">${
     i.status === 'CONNECTED' || i.status === 'ERROR' || i.status === 'REQUIRES_AUTH' ? 'Переподключить' : 'Подключить'}</button>`);
   if (i.can_sync) acts.push(`<button class="v-btn ghost sm" type="button" data-act="sync" data-p="${esc(i.provider)}">Обновить</button>`);
   if (i.can_disconnect) acts.push(`<button class="v-btn ghost sm" type="button" data-act="off" data-p="${esc(i.provider)}">Отключить</button>`);
@@ -290,6 +290,20 @@ document.getElementById('cats').addEventListener('click', async e => {
 
   if (act === 'connect'){ openConnect(item); return; }
 
+  if (act === 'login'){
+    // Пароль от сервиса вводится только на его собственной странице. Своего
+    // экрана входа мы не рисуем — его невозможно отличить от поддельного.
+    btn.disabled = true; btn.textContent = 'Открываю вход…';
+    try{
+      const r = await fetch('/api/instagram/login', { method:'POST' });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.url) { location.href = d.url; return; }
+      toast(d.detail || 'Подключение сейчас недоступно');
+    }catch{ toast('Нет связи с сервером'); }
+    btn.disabled = false; btn.textContent = 'Подключить';
+    return;
+  }
+
   if (act === 'off'){
     // Отключение необратимо для доступа (данные остаются) — спрашиваем дважды.
     if (btn.dataset.sure !== '1'){
@@ -331,6 +345,17 @@ async function load(){
   document.getElementById('failZone').innerHTML = '';
   paintState(CAT); paintLegend(CAT); paintCats(CAT);
 }
+
+// Возврат после входа в сервис: показываем, чем всё кончилось, и убираем
+// метку из адреса, чтобы обновление страницы не повторяло старое сообщение.
+(function(){
+  const q = new URLSearchParams(location.search);
+  const res = q.get('ig');
+  if (!res) return;
+  const msg = q.get('msg') || (res === 'ok' ? 'Instagram подключён' : 'Подключить не удалось');
+  history.replaceState(null, '', location.pathname);
+  setTimeout(() => toast(msg), 400);
+})();
 
 load();
 </script>

@@ -284,6 +284,9 @@ def _migrate_columns(conn):
         ("orders", "source", "TEXT"),                    # telegram | ozon | amocrm | …
         ("clients", "external_id", "TEXT"),              # id клиента в чужой CRM
         ("clients", "source", "TEXT"),
+        # Каким каналом пришло сообщение. Пусто — Telegram или веб: так было до
+        # появления второго канала, и переписывать прошлое задним числом нельзя.
+        ("messages", "channel", "TEXT"),
         ("timeline", "read_at", "TEXT"),                 # центр уведомлений: прочитанность
         ("timeline", "level", "TEXT DEFAULT 'info'"),    # info | important
         ("finance_entries", "op_date", "TEXT"),          # дата операции по выписке
@@ -756,6 +759,46 @@ def init_db():
                )"""
         )
 
+        # ---------- INSTAGRAM КАК КАНАЛ ----------
+        # Переписка в директе. Отдельная таблица, потому что здесь живут факты
+        # самого канала, которым не место в карточке клиента: его id в Instagram,
+        # @-логин, время последнего входящего (от него Meta отсчитывает окно
+        # ответа) и признак того, что разговор взял на себя человек.
+        #
+        # Сами сообщения сюда НЕ копируются: они лежат в общей таблице messages,
+        # как и переписка в Telegram. Иначе у одного разговора появилось бы две
+        # правды, и память клиента разошлась бы с тем, что видит ИИ.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS ig_threads (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   igsid        TEXT NOT NULL,      -- id собеседника в Instagram
+                   client_id    INTEGER NOT NULL,   -- он же в базе клиентов VELOR
+                   username     TEXT,
+                   name         TEXT,
+                   avatar       TEXT,
+                   last_in_at   TEXT,               -- от него считается окно ответа
+                   last_out_at  TEXT,
+                   ai_paused    INTEGER DEFAULT 0,  -- разговор ведёт человек
+                   paused_by    TEXT,
+                   paused_at    TEXT,
+                   created_at   TEXT DEFAULT (datetime('now')),
+                   UNIQUE(business_id, igsid)
+               )"""
+        )
+        # Уже виденные сообщения Instagram. Meta повторяет доставку при любой
+        # заминке, а ещё возвращает эхом наш собственный ответ. Без этой отметки
+        # клиент получил бы второй такой же ответ, а собственное эхо VELOR принял
+        # бы за вмешательство человека и замолчал бы ни с того ни с сего.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS ig_seen (
+                   business_id INTEGER NOT NULL,
+                   mid         TEXT NOT NULL,
+                   created_at  TEXT DEFAULT (datetime('now')),
+                   PRIMARY KEY (business_id, mid)
+               )"""
+        )
+
         # Обработанные апдейты Telegram — защита от повторной доставки (webhook).
         # Telegram при таймауте/ошибке повторяет апдейт; по (business_id, update_id)
         # отсекаем дубли, чтобы не создавать повторные заявки и не слать повторный ответ.
@@ -781,6 +824,7 @@ def init_db():
             ("idx_orders_biz",           "orders",          "business_id"),
             ("idx_orders_biz_client",    "orders",          "business_id, client_id"),
             ("idx_clients_biz",          "clients",         "business_id"),
+            ("idx_ig_threads_biz",       "ig_threads",      "business_id"),
             ("idx_timeline_biz_created", "timeline",        "business_id, created_at"),
             ("idx_finance_biz_created",  "finance_entries", "business_id, created_at"),
             ("idx_documents_biz",        "documents",       "business_id"),
@@ -1759,7 +1803,8 @@ def delete_business(business_id):
         # Входящие материалы и цепочка «источник → запись» — тоже данные бизнеса.
         # Без этого от удалённой компании оставался бы её журнал происхождения.
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
-                    "inbox_blobs", "inbox_items", "module_state", "connections"):
+                    "inbox_blobs", "inbox_items", "module_state", "connections",
+                    "ig_threads", "ig_seen"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -3439,12 +3484,174 @@ def messages_this_month(business_id):
         return row["n"]
 
 
-def save_message(business_id, client_id, role, content):
+def save_message(business_id, client_id, role, content, channel=None, created_at=None):
+    """
+    Записать реплику разговора.
+
+    channel — откуда она: instagram, telegram, веб. Пусто у всего, что записано
+    до появления второго канала; проставлять его задним числом было бы догадкой.
+    created_at нужен, когда сообщение подтянуто из чужой истории: время у него
+    своё, и подменять его моментом загрузки — значит переписать прошлое.
+    """
     with _connect() as conn:
         conn.execute(
-            "INSERT INTO messages (business_id, client_id, role, content) VALUES (?, ?, ?, ?)",
-            (business_id, client_id, role, content),
+            """INSERT INTO messages (business_id, client_id, role, content, channel, created_at)
+               VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
+            (business_id, client_id, role, content, channel, created_at),
         )
+
+
+# ---------- INSTAGRAM: переписки и защита от повторов ----------
+
+def find_business_by_ig_id(ig_id):
+    """
+    Чей это аккаунт Instagram.
+
+    Вебхук у приложения Meta один на всех, а компаний у нас много: в звонке
+    приходит только id аккаунта, и по нему нужно попасть ровно в тот бизнес,
+    которому он принадлежит. Ошибиться здесь — значит показать переписку чужой
+    компании, поэтому ищем по точному совпадению записанного при подключении id.
+    """
+    ig_id = str(ig_id or "").strip()
+    if not ig_id:
+        return None
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT business_id, meta FROM connections WHERE provider = 'instagram'"
+        ).fetchall()
+    for r in rows:
+        try:
+            meta = _json.loads(r["meta"] or "{}")
+        except (ValueError, TypeError):
+            continue
+        if str(meta.get("ig_id") or "") == ig_id:
+            return get_business(r["business_id"])
+    return None
+
+
+def ig_seen_mid(business_id, mid):
+    """
+    Видели это сообщение раньше? Заодно помечаем как виденное.
+
+    Помечаем ДО обработки — как и с апдейтами Telegram: повтор при таймауте не
+    должен родить второй ответ клиенту.
+    """
+    mid = str(mid or "").strip()
+    if not mid:
+        return False
+    with _connect() as conn:
+        row = conn.execute("SELECT 1 FROM ig_seen WHERE business_id = ? AND mid = ?",
+                           (business_id, mid)).fetchone()
+        if row:
+            return True
+        try:
+            conn.execute("INSERT INTO ig_seen (business_id, mid) VALUES (?, ?)",
+                         (business_id, mid))
+        except Exception:
+            return True          # кто-то вставил её параллельно — значит, уже видели
+        return False
+
+
+def ig_thread(business_id, igsid):
+    """Одна переписка директа. None — такой ещё не было."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM ig_threads WHERE business_id = ? AND igsid = ?",
+            (business_id, str(igsid))).fetchone()
+    return dict(row) if row else None
+
+
+def ig_thread_upsert(business_id, igsid, client_id, username=None, name=None,
+                     avatar=None, last_in_at=None, last_out_at=None):
+    """
+    Завести или дополнить переписку.
+
+    Дополняем только пустое: имя, полученное при первом сообщении, не должно
+    затираться пустым ответом профиля в следующий раз.
+    """
+    igsid = str(igsid)
+    existing = ig_thread(business_id, igsid)
+    with _connect() as conn:
+        if not existing:
+            conn.execute(
+                """INSERT INTO ig_threads (business_id, igsid, client_id, username, name,
+                                           avatar, last_in_at, last_out_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (business_id, igsid, client_id, username, name, avatar,
+                 last_in_at, last_out_at))
+            return
+        sets, params = [], []
+        for col, val in (("username", username), ("name", name), ("avatar", avatar)):
+            if val and not existing.get(col):
+                sets.append(f"{col} = ?")
+                params.append(val)
+        for col, val in (("last_in_at", last_in_at), ("last_out_at", last_out_at)):
+            if val:
+                sets.append(f"{col} = ?")
+                params.append(val)
+        if sets:
+            conn.execute("UPDATE ig_threads SET " + ", ".join(sets)
+                         + " WHERE business_id = ? AND igsid = ?",
+                         (*params, business_id, igsid))
+
+
+def ig_thread_mark(business_id, igsid, last_in_at=None, last_out_at=None):
+    """Отметить время последнего входящего или исходящего."""
+    sets, params = [], []
+    if last_in_at:
+        sets.append("last_in_at = ?")
+        params.append(last_in_at)
+    if last_out_at:
+        sets.append("last_out_at = ?")
+        params.append(last_out_at)
+    if not sets:
+        return
+    with _connect() as conn:
+        conn.execute("UPDATE ig_threads SET " + ", ".join(sets)
+                     + " WHERE business_id = ? AND igsid = ?",
+                     (*params, business_id, str(igsid)))
+
+
+def ig_thread_pause(business_id, igsid, paused=True, by="owner"):
+    """
+    Передать разговор человеку — или вернуть его VELOR.
+
+    Кто именно взял разговор, записываем: «владелец нажал кнопку» и «владелец
+    ответил из приложения Instagram» — разные события, и по ним видно, где
+    людям приходится вмешиваться чаще всего.
+    """
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE ig_threads SET ai_paused = ?, paused_by = ?,
+                   paused_at = CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END
+               WHERE business_id = ? AND igsid = ?""",
+            (1 if paused else 0, by if paused else None, 1 if paused else 0,
+             business_id, str(igsid)))
+
+
+def ig_thread_paused(business_id, igsid):
+    t = ig_thread(business_id, igsid)
+    return bool(t and t.get("ai_paused"))
+
+
+def ig_threads_list(business_id, limit=100):
+    """Все переписки директа — свежие сверху, с последней репликой для списка."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.*, c.name AS client_name, c.phone AS client_phone,
+                      (SELECT content FROM messages m WHERE m.business_id = t.business_id
+                        AND m.client_id = t.client_id ORDER BY m.id DESC LIMIT 1) AS last_text,
+                      (SELECT role FROM messages m WHERE m.business_id = t.business_id
+                        AND m.client_id = t.client_id ORDER BY m.id DESC LIMIT 1) AS last_role,
+                      (SELECT COUNT(*) FROM messages m WHERE m.business_id = t.business_id
+                        AND m.client_id = t.client_id) AS msgs
+               FROM ig_threads t
+               LEFT JOIN clients c ON c.id = t.client_id
+               WHERE t.business_id = ?
+               ORDER BY COALESCE(t.last_in_at, t.last_out_at, t.created_at) DESC
+               LIMIT ?""",
+            (business_id, int(limit))).fetchall()
+    return [dict(r) for r in rows]
 
 
 def get_history(business_id, client_id, limit=20):
@@ -3462,19 +3669,24 @@ def get_history(business_id, client_id, limit=20):
 # ---------- ЗАКАЗЫ ----------
 
 def add_order(business_id, text, client_id=None, phone=None, address=None,
-              date_wanted=None, amount=0):
+              date_wanted=None, amount=0, source=None):
     """Записать новый заказ. Возвращает id заказа.
 
     amount — сумма заказа в рублях. Именно из неё складывается оборот бизнеса,
     сумма покупок клиента и вся денежная аналитика, поэтому её нужно писать
     сразу при создании (раньше колонка существовала, но не заполнялась никогда,
     и все обороты в системе были нулями).
+
+    source — каким каналом пришла заявка. Без него нельзя ответить на вопрос
+    «сколько денег приносит директ», а он и есть причина подключать канал.
     """
     with _connect() as conn:
         cur = conn.execute(
-            """INSERT INTO orders (business_id, client_id, text, phone, address, date_wanted, amount)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (business_id, client_id, text, phone, address, date_wanted, _money(amount)),
+            """INSERT INTO orders (business_id, client_id, text, phone, address,
+                                   date_wanted, amount, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (business_id, client_id, text, phone, address, date_wanted,
+             _money(amount), source),
         )
         order_id = cur.lastrowid
     detail = (text or "")[:120]

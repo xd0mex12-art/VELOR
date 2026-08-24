@@ -351,6 +351,13 @@ a.v-row:hover .t{ color:var(--bone); }
   .v-btn.sm{ min-height:44px; padding:11px 20px; }
 }
 
+/* — подпись только для чтения с экрана —
+   Поле без видимой подписи не безымянно: озвучивать его нужно всё равно.
+   Здесь такой случай один — окно ответа, где подпись дублировала бы заголовок
+   переписки прямо над ним. */
+.v-sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0; }
+
 /* появление контента — один раз, обновления идут без прыжков */
 .v-in{ opacity:0; transform:translateY(10px); animation:velorIn .45s var(--ease) forwards; }
 @keyframes velorIn{ to{ opacity:1; transform:none } }
