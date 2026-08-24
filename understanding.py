@@ -477,6 +477,19 @@ def classify_by_rules(text: str, filename: str = "", mime: str = "", kind: str =
     if not scores:
         return "UNKNOWN", 0.0, []
 
+    # Денежный тип без суммы — почти всегда ложное срабатывание слова: «наши
+    # правила: возврат в течение 24 часов» это правила, а не возврат денег.
+    # Если в тексте нет ни одной суммы, а рядом стоит неденежный кандидат,
+    # выбираем его: документ о деньгах без денег не бывает.
+    if not find_money(text) and len(scores) > 1:
+        rest = {t: v for t, v in scores.items() if t not in MONEY_TYPES}
+        if rest and max(scores, key=scores.get) in MONEY_TYPES:
+            top_money = max(v for t, v in scores.items() if t in MONEY_TYPES)
+            if max(rest.values()) >= top_money - 2:
+                scores = rest
+                hits.setdefault(max(rest, key=rest.get), []).append(
+                    "в тексте нет суммы — это не документ о деньгах")
+
     best = max(scores, key=scores.get)
     score = scores[best]
     runner = sorted(scores.values(), reverse=True)
@@ -858,6 +871,19 @@ def process(business_id, item_id):
         if people.get("supplier_id") and not extracted.get("category"):
             extracted["category"] = "закупка"
 
+    # К чему относится движение денег: заявка по номеру в тексте или
+    # единственная открытая заявка узнанного клиента. Догадка приходит с
+    # объяснением, поэтому в карточке видно, ПОЧЕМУ VELOR так решил.
+    relations = []
+    if kind_type in MONEY_TYPES:
+        try:
+            import graph
+            related, relations = graph.relate_money(business_id, text, extracted)
+            for k, v in (related or {}).items():
+                extracted.setdefault(k, v)
+        except Exception:
+            relations = []
+
     conf = merged["confidence"]
     if people and kind_type in MONEY_TYPES:
         # Узнали человека по своей же памяти — это не догадка, а совпадение с
@@ -882,6 +908,10 @@ def process(business_id, item_id):
         "applied": [],
         "notes": notes,
         "evidence": merged.get("evidence") or [],
+        # Почему VELOR решил, что операция относится к этой заявке. Связь без
+        # объяснения владелец проверить не может, а значит, и доверять ей не
+        # должен.
+        "relations": relations,
     }
 
     # Автоматически — только безопасное и только при высокой уверенности.

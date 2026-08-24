@@ -38,6 +38,7 @@ import identity
 import storage
 import understanding
 import entities
+import graph
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -2958,7 +2959,7 @@ def _inbox_result_public(res: dict | None, item: dict | None = None) -> dict | N
     out = {k: res.get(k) for k in
            ("id", "item_id", "type", "confidence", "level", "summary",
             "extracted_data", "suggested_actions", "engine", "model", "error",
-            "applied", "created_at")}
+            "applied", "relations", "created_at")}
     out["type_ru"] = understanding.TYPE_RU.get(res.get("type"), "Не разобрал")
     out["level_ru"] = understanding.LEVEL_RU.get(res.get("level"), "низкая")
     out["needs"] = understanding.NEEDS_RU.get(res.get("level"), "нужно уточнение")
@@ -3494,6 +3495,15 @@ def _memory_link_public(link: dict) -> dict:
     return out
 
 
+def _safe_graph(bid: int, entity_type: str, entity_id: int):
+    """Связи для карточки. Упали — карточка всё равно открывается."""
+    try:
+        return graph.neighbors(bid, entity_type, entity_id)
+    except Exception:
+        logging.exception("Связи не собрались (biz %s, %s %s)", bid, entity_type, entity_id)
+        return None
+
+
 def _memory_type(entity_type: str):
     try:
         return entities.schema(entity_type)
@@ -3553,10 +3563,12 @@ def api_memory_list(type: str = "", business_id: int = 0, limit: int = 50, offse
     ids = [i["id"] for i in items]
     origins = database.memory_origins(bid, type, ids)
     edits = database.memory_edit_counts(bid, type, ids)
+    links = database.entity_link_counts(bid, type, ids)
     for it in items:
         link = origins.get(it["id"])
         it["source"] = _memory_link_public(link) if link else None
         it["edits"] = int(edits.get(it["id"], 0))
+        it["links"] = int(links.get(it["id"], 0))
     return {"type": type, "title": sch["title"], "plural": sch["plural"],
             "where": sch["where"], "can_edit": sch["can_edit"],
             "can_create": sch["can_create"], "can_archive": sch["can_archive"],
@@ -3595,7 +3607,8 @@ def api_memory_entity(entity_type: str, entity_id: int, business_id: int = 0,
             "blocked": entities.blockers(bid, entity_type, entity_id),
             "origin": entities.origin_of(entity_type, raw),
             "ai": ai, "corrections": _corrections(sch["fields"], ai, values),
-            "source": source, "history": history}
+            "source": source, "history": history,
+            "graph": _safe_graph(bid, entity_type, entity_id)}
 
 
 class MemoryEdit(BaseModel):
@@ -3724,6 +3737,91 @@ def api_memory_edit(entity_type: str, entity_id: int, body: MemoryEdit,
             "label": entities.label(entity_type, raw), "history": history,
             "ai": ai, "corrections": _corrections(
                 entities.schema(entity_type, bid)["fields"], ai, now)}
+
+
+class LinkIn(BaseModel):
+    src_type: str
+    src_id: int
+    dst_type: str
+    dst_id: int
+    kind: str = "related"
+    business_id: int = 0
+
+
+class UnlinkIn(BaseModel):
+    link_id: int
+    business_id: int = 0
+
+
+@app.get("/api/graph/entity/{entity_type}/{entity_id}")
+def api_graph_entity(entity_type: str, entity_id: int, business_id: int = 0,
+                     x_auth: str = Header(default="")):
+    """
+    С чем связана запись: люди, заявки, деньги, услуги, источник.
+
+    Ничего не выдумываем: связи берутся из колонок, рёбер и журнала памяти.
+    Пусто — значит, эта запись пока ни с чем не связана, и так и написано.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    try:
+        data = graph.neighbors(bid, entity_type, entity_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Такого вида записей нет.")
+    if data is None:
+        raise HTTPException(status_code=404, detail="Запись не найдена.")
+    return data
+
+
+@app.get("/api/graph/client/{client_id}")
+def api_graph_client(client_id: int, business_id: int = 0,
+                     x_auth: str = Header(default="")):
+    """
+    Досье клиента одним ответом: что брал, на сколько, когда и что любит.
+
+    Тот же контекст, который VELOR подкладывает себе, отвечая клиенту на
+    «хочу повторить прошлый заказ» — владелец должен видеть его глазами.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    d = graph.client_dossier(bid, client_id)
+    if not d:
+        raise HTTPException(status_code=404, detail="Клиент не найден.")
+    return d
+
+
+@app.post("/api/graph/link")
+def api_graph_link(body: LinkIn, x_auth: str = Header(default="")):
+    """Связать две записи руками. Обе должны быть свои и существовать."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    for t, i in ((body.src_type, body.src_id), (body.dst_type, body.dst_id)):
+        if t not in entities.ENTITIES:
+            raise HTTPException(status_code=400, detail="Неизвестный вид записи.")
+        if entities.row(bid, t, i) is None:
+            raise HTTPException(status_code=404, detail="Запись не найдена.")
+    if body.src_type == body.dst_type and body.src_id == body.dst_id:
+        raise HTTPException(status_code=400, detail="Запись нельзя связать сама с собой.")
+    kind = body.kind if body.kind in graph.KIND_RU else "related"
+    actor, actor_id = _actor(x_auth, bid)
+    link_id = database.add_entity_link(bid, body.src_type, body.src_id,
+                                       body.dst_type, body.dst_id, kind=kind,
+                                       source="manual", note="связано вручную")
+    # Связь — тоже знание о бизнесе, и её появление должно быть видно в
+    # истории обеих записей, а не только в самой связи.
+    lb = entities.label(body.dst_type, entities.row(bid, body.dst_type, body.dst_id))
+    database.add_memory_link(bid, body.src_type, body.src_id, event="linked",
+                             source_kind="manual", actor=actor, actor_id=actor_id,
+                             note="Связано: " + (lb.get("title") or ""))
+    return {"ok": True, "id": link_id,
+            "graph": graph.neighbors(bid, body.src_type, body.src_id)}
+
+
+@app.post("/api/graph/unlink")
+def api_graph_unlink(body: UnlinkIn, x_auth: str = Header(default="")):
+    """Убрать связь. Сами записи остаются на месте."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    database.delete_entity_link(body.link_id, bid)
+    return {"ok": True}
 
 
 @app.get("/api/memory/source/{item_id}")

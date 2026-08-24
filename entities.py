@@ -408,6 +408,13 @@ def _update_order(bid, eid, data):
     database.update_order(eid, bid, text=data["text"], amount=data.get("amount") or 0,
                           phone=data.get("phone") or None,
                           date_wanted=data.get("date_wanted") or None)
+    # Текст заявки поправили — состав пересобираем. Иначе связь осталась бы от
+    # прошлой редакции и рассказывала бы про услугу, которой в заявке уже нет.
+    try:
+        import graph
+        graph.link_order_items(bid, eid, data["text"])
+    except Exception:
+        pass
     return "Заявка: " + data["text"][:60]
 
 
@@ -867,6 +874,12 @@ def delete(business_id, entity_type, entity_id):
         raise EntityError(stop)
     lb = label(entity_type, raw)
     e["delete"](business_id, int(entity_id))
+    # Записи нет — значит, нет и её связей. Ребро в пустоту хуже отсутствия
+    # ребра: оно выглядит как факт, но ни на что не указывает.
+    try:
+        database.drop_entity_links(business_id, entity_type, entity_id)
+    except Exception:
+        pass
     return " · ".join(x for x in (lb.get("title"), lb.get("sub")) if x)
 
 

@@ -29,6 +29,7 @@ import time
 
 import ai
 import database
+import graph
 import prompt_engine
 
 
@@ -236,6 +237,10 @@ def _client_block(bid: int, client_id, with_messages: bool = True) -> str:
     orders = _safe(lambda: database.get_client_orders(client_id, bid, limit=6), []) or []
     if orders:
         lines.append("Заказы: " + "; ".join((o.get("text") or "").strip()[:50] for o in orders[:6]))
+    # Список заказов без сумм, дат и услуг не отвечает на «повторить прошлый
+    # заказ»: повторять нечего, если неизвестно, ЧТО именно было. Связи
+    # берём у графа — он же собирает услуги через заявки.
+    dossier = _safe(lambda: graph.dossier_text(graph.client_dossier(bid, client_id)), "")
     if with_messages:
         msgs = _safe(lambda: database.get_client_messages(client_id, bid, limit=8), []) or []
         if msgs:
@@ -243,7 +248,8 @@ def _client_block(bid: int, client_id, with_messages: bool = True) -> str:
             for m in msgs[-6:]:
                 who = "клиент" if m.get("role") == "user" else "сотрудник"
                 lines.append(f"  {who}: {(m.get('content') or '').strip()[:120]}")
-    return "\n\nКЛИЕНТ (история — опирайся на неё, узнавай постоянного):\n" + "\n".join(lines)
+    return ("\n\nКЛИЕНТ (история — опирайся на неё, узнавай постоянного):\n"
+            + "\n".join(lines) + (dossier or ""))
 
 
 def _memory_block(bid: int, question: str) -> str:

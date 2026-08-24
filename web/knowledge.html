@@ -84,6 +84,37 @@
   .fix .w{ font-size:var(--fs-caption); color:var(--ash); }
   .note{ margin-top:var(--sp-4); font-size:var(--fs-sm); color:var(--ash); }
 
+  /* связи: с кем и через что */
+  .rel{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-4); }
+  .rel + .rel{ margin-top:var(--sp-3); }
+  .rel > .h{ display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap;
+    margin-bottom:var(--sp-2); }
+  .rel > .h .t{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); }
+  .rel > .h .n{ font-size:var(--fs-caption); color:var(--lilac); }
+  .rel > .h .hint{ font-size:var(--fs-caption); color:var(--ash); flex-basis:100%; }
+  .node{ display:flex; align-items:center; gap:var(--sp-3); width:100%;
+    padding:var(--sp-3) 0; border:none; border-bottom:1px solid var(--hairline);
+    background:none; color:inherit; text-align:left; min-height:48px; }
+  .node:last-child{ border-bottom:none; }
+  .node .b{ flex:1; min-width:0; }
+  .node .t{ font-size:var(--fs-body); }
+  .node:not(.plain):hover .t, .node:not(.plain):focus-visible .t{ color:var(--lilac); }
+  .node .d{ font-size:var(--fs-sm); color:var(--ash); margin-top:2px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .node .via{ flex:none; font-size:var(--fs-caption); color:var(--silver);
+    padding:4px 10px; border-radius:var(--r-pill); background:var(--surface-2);
+    border:1px solid var(--hairline); }
+  .node .via.auto{ color:var(--ink-iris); }
+  .node .cut{ flex:none; width:44px; height:44px; border:none; background:none;
+    color:var(--ash); font-size:18px; line-height:1; border-radius:var(--r-sm); }
+  .node .cut:hover{ color:var(--ink-coral); background:var(--surface-2); }
+  .relform{ display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-top:var(--sp-3); }
+  .relform select{ flex:1; min-width:150px; min-height:48px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
+    color:var(--bone); font-family:inherit; font-size:16px; appearance:none; }
+
   /* карточка знания */
   .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
     justify-content:center; padding:24px; background:rgba(0,0,0,.72);
@@ -404,6 +435,7 @@ function whoLine(it){
   // смысл: разбор VELOR или правка не самим владельцем.
   if (s && s.by && s.by !== 'manual') bits.push(s.by_ru);
   else if (s && s.actor && s.actor !== 'business') bits.push('внёс ' + (s.actor_ru || ''));
+  if (it.links) bits.push('связей: ' + it.links);
   if (it.edits) bits.push('правок: ' + it.edits);
   return bits.join(' · ');
 }
@@ -578,6 +610,66 @@ function historyHTML(history){
 }
 
 
+// Связи — второй по важности блок карточки после цепочки происхождения:
+// запись сама по себе мало что значит, значение ей придаёт окружение.
+function graphHTML(g){
+  if (!g || !g.groups || !g.groups.length){
+    return `<div class="blk"><h3>Связи</h3>
+      <div class="rel"><div class="d" style="color:var(--ash);font-size:var(--fs-sm)">
+        Эта запись пока ни с чем не связана. Связи появляются сами — из заявок,
+        операций и присланных материалов, — либо их можно поставить вручную.
+      </div>${linkFormHTML()}</div></div>`;
+  }
+  const blocks = g.groups.map(gr => {
+    const rows = gr.items.map(it => {
+      const open = it.open !== false && it.id;
+      const cut = it.link_id
+        ? `<button class="cut" type="button" data-cut="${it.link_id}"
+                   aria-label="Убрать связь с «${esc(it.title)}»">×</button>` : '';
+      return `<div class="node${open ? '' : ' plain'}">
+        <span class="b" ${open ? `data-open="${esc(it.type)}:${it.id}" role="button" tabindex="0"` : ''}>
+          <span class="t">${esc(it.title)}</span>
+          ${it.sub ? `<span class="d">${esc(it.sub)}</span>` : ''}
+        </span>
+        ${it.via ? `<span class="via${it.auto ? ' auto' : ''}">${esc(it.via)}${
+          it.auto && it.confidence != null ? ' · ' + Math.round(it.confidence * 100) + '%' : ''}</span>` : ''}
+        ${cut}
+      </div>`;
+    }).join('');
+    const sums = gr.money && (gr.money.income || gr.money.expense)
+      ? `<span class="n">${gr.money.income ? '+' + money(gr.money.income) : ''}${
+          gr.money.income && gr.money.expense ? ' · ' : ''}${
+          gr.money.expense ? '−' + money(gr.money.expense) : ''}</span>` : '';
+    return `<div class="rel"><div class="h"><span class="t">${esc(gr.title)}</span>
+      <span class="n">${gr.total}</span>${sums}
+      ${gr.hint ? `<span class="hint">${esc(gr.hint)}</span>` : ''}</div>${rows}</div>`;
+  }).join('');
+  return `<div class="blk"><h3>Связи</h3>${blocks}
+    <div class="rel">${linkFormHTML()}</div></div>`;
+}
+
+function money(n){
+  return Number(n || 0).toLocaleString('ru-RU') + ' ₽';
+}
+
+// Связать руками — на случай, когда VELOR связь не увидел. Список видов берём
+// из карты памяти, чтобы не держать второй справочник в интерфейсе.
+function linkFormHTML(){
+  const types = [];
+  (MAP ? MAP.groups : []).forEach(g => g.types.forEach(t => {
+    if (t.count) types.push(t);
+  }));
+  if (!types.length) return '';
+  return `<div class="relform">
+    <select id="lnkType" aria-label="Вид записи">
+      <option value="">— связать с… —</option>
+      ${types.map(t => `<option value="${esc(t.type)}">${esc(t.plural)}</option>`).join('')}
+    </select>
+    <select id="lnkItem" aria-label="Запись" disabled><option value="">— запись —</option></select>
+    <button class="v-btn ghost sm" type="button" id="lnkGo" disabled>Связать</button>
+  </div>`;
+}
+
 function editHTML(d){
   if (!d.schema.can_edit) return '';
   // В памяти показываем ВСЕ поля: сюда приходят именно затем, чтобы
@@ -593,7 +685,8 @@ function paintCard(d){
   cTitle.textContent = d.label.title || d.schema.title;
   cKind.textContent = d.schema.title + (d.label.sub ? ' · ' + d.label.sub : '')
     + (d.archived ? ' · в архиве' : '');
-  cBody.innerHTML = chainHTML(d) + aiHTML(d) + editHTML(d) + historyHTML(d.history);
+  cBody.innerHTML = chainHTML(d) + aiHTML(d) + graphHTML(d.graph)
+                  + editHTML(d) + historyHTML(d.history);
 
   cSave.style.display = d.schema.can_edit ? '' : 'none';
   cSave.disabled = false; cSave.textContent = 'Сохранить';
@@ -610,6 +703,8 @@ function paintCard(d){
   cNote.hidden = !d.blocked;
   cNote.textContent = d.blocked || '';
 
+  wireGraph();
+
   // Помечаем изменённое поле сразу: правку видно до нажатия, а не только потом.
   cBody.querySelectorAll('.edit input, .edit select').forEach(inp => inp.addEventListener('input', () => {
     const changed = String(inp.value) !== String(inp.dataset.was || '');
@@ -618,6 +713,68 @@ function paintCard(d){
     was.style.display = changed ? 'block' : 'none';
     was.textContent = changed ? 'Было: ' + (inp.dataset.was || '(пусто)') : '';
   }));
+}
+
+// Клик по соседу открывает его карточку: по связям можно ходить, а не только
+// смотреть на них. Развязать — тут же, рядом со связью.
+function wireGraph(){
+  cBody.querySelectorAll('[data-open]').forEach(el => {
+    const go = () => {
+      const [t, id] = el.dataset.open.split(':');
+      openCard(t, Number(id));
+    };
+    el.addEventListener('click', go);
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); go(); }
+    });
+  });
+  cBody.querySelectorAll('[data-cut]').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      try{
+        const r = await fetch('/api/graph/unlink', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ link_id: Number(btn.dataset.cut) })
+        });
+        if (!r.ok) throw 0;
+        toast('Связь убрана');
+        openCard(CURRENT.entity, CURRENT.id);
+      }catch{ toast('Не получилось убрать связь'); btn.disabled = false; }
+    }));
+
+  const type = cBody.querySelector('#lnkType');
+  const item = cBody.querySelector('#lnkItem');
+  const go = cBody.querySelector('#lnkGo');
+  if (!type || !item || !go) return;
+  type.addEventListener('change', async () => {
+    item.disabled = true; go.disabled = true;
+    item.innerHTML = '<option value="">— загружаю… —</option>';
+    if (!type.value){ item.innerHTML = '<option value="">— запись —</option>'; return; }
+    try{
+      const r = await fetch('/api/memory/list?type=' + encodeURIComponent(type.value) + '&limit=100');
+      const d = await r.json();
+      const rows = (d.items || []).filter(i =>
+        !(type.value === CURRENT.entity && i.id === CURRENT.id));
+      item.innerHTML = '<option value="">— запись —</option>'
+        + rows.map(i => `<option value="${i.id}">${esc(i.title)}</option>`).join('');
+      item.disabled = !rows.length;
+    }catch{ item.innerHTML = '<option value="">— не загрузилось —</option>'; }
+  });
+  item.addEventListener('change', () => { go.disabled = !item.value; });
+  go.addEventListener('click', async () => {
+    go.disabled = true; go.textContent = 'Связываю…';
+    try{
+      const r = await fetch('/api/graph/link', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ src_type: CURRENT.entity, src_id: CURRENT.id,
+                               dst_type: type.value, dst_id: Number(item.value) })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok){ toast(d.detail || 'Не удалось связать'); }
+      else { toast('Связано'); openCard(CURRENT.entity, CURRENT.id); return; }
+    }catch{ toast('Нет связи с сервером'); }
+    go.disabled = false; go.textContent = 'Связать';
+  });
 }
 
 async function openCard(type, id){

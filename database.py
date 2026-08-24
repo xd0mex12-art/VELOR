@@ -319,6 +319,9 @@ def _migrate_columns(conn):
         # документ — это не ошибка, которую надо стереть, а знание, которое
         # перестало действовать. Удаление уносит с собой историю; архив нет.
         ("memory_facts", "archived_at", "TEXT"),
+        # Почему VELOR решил, что операция относится к этой заявке. Догадка без
+        # объяснения непроверяема, а значит, ей нельзя доверять.
+        ("inbox_results", "relations", "TEXT"),
         ("clients", "archived_at", "TEXT"),
         ("documents", "archived_at", "TEXT"),
     ]
@@ -661,6 +664,24 @@ def init_db():
                    created_at   TEXT DEFAULT CURRENT_TIMESTAMP
                )"""
         )
+        # Рёбра «многие ко многим». Всё, что выражается колонкой (заказ →
+        # клиент, операция → сотрудник), колонкой и остаётся: дублировать это
+        # рёбрами значило бы завести вторую правду о той же связи.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS entity_links (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   src_type     TEXT NOT NULL,     -- order|client|document|…
+                   src_id       INTEGER NOT NULL,
+                   dst_type     TEXT NOT NULL,     -- service|product|order|…
+                   dst_id       INTEGER NOT NULL,
+                   kind         TEXT DEFAULT 'related',  -- includes|about|…
+                   confidence   REAL DEFAULT 1,
+                   source       TEXT DEFAULT 'manual',   -- manual|auto|inbox
+                   note         TEXT,
+                   created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
         conn.execute(
             """CREATE TABLE IF NOT EXISTS doc_chunks (
                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -777,6 +798,8 @@ def init_db():
             ("idx_mem_links_entity",     "memory_links",    "business_id, entity_type, entity_id"),
             ("idx_mem_links_item",       "memory_links",    "business_id, item_id"),
             ("idx_finance_biz_kind",     "finance_entries", "business_id, kind"),
+            ("idx_links_src",            "entity_links",    "business_id, src_type, src_id"),
+            ("idx_links_dst",            "entity_links",    "business_id, dst_type, dst_id"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -1137,6 +1160,155 @@ def delete_fact(fact_id, business_id):
         log_event(business_id, "memory", f"Из памяти удалено: {row['title']}")
 
 
+# ---------- СВЯЗИ МЕЖДУ ЗАПИСЯМИ ----------
+# Ребро всегда двунаправленное по смыслу: если заявка включает услугу, то
+# услуга участвует в заявке. Поэтому храним его один раз, а читаем с обеих
+# сторон — иначе пришлось бы следить за симметрией двух строк.
+
+def add_entity_link(business_id, src_type, src_id, dst_type, dst_id,
+                    kind="related", confidence=1.0, source="manual", note=None):
+    """Связать две записи. Повтор той же связи не создаёт второго ребра."""
+    src_id, dst_id = int(src_id), int(dst_id)
+    if src_type == dst_type and src_id == dst_id:
+        return None                      # запись, связанная сама с собой, — мусор
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT id FROM entity_links
+                WHERE business_id = ? AND src_type = ? AND src_id = ?
+                  AND dst_type = ? AND dst_id = ? AND kind = ?""",
+            (business_id, src_type, src_id, dst_type, dst_id, kind),
+        ).fetchone()
+        if row:
+            return row["id"]
+        cur = conn.execute(
+            """INSERT INTO entity_links
+                   (business_id, src_type, src_id, dst_type, dst_id, kind,
+                    confidence, source, note)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (business_id, src_type, src_id, dst_type, dst_id, kind,
+             confidence, source, note),
+        )
+        return cur.lastrowid
+
+
+def delete_entity_link(link_id, business_id):
+    with _connect() as conn:
+        conn.execute("DELETE FROM entity_links WHERE id = ? AND business_id = ?",
+                     (int(link_id), business_id))
+
+
+def drop_entity_links(business_id, entity_type, entity_id, kind=None, source=None):
+    """Убрать рёбра записи с обеих сторон — при удалении или пересборке связей."""
+    where = "business_id = ? AND ((src_type = ? AND src_id = ?) OR (dst_type = ? AND dst_id = ?))"
+    params = [business_id, entity_type, int(entity_id), entity_type, int(entity_id)]
+    if kind:
+        where += " AND kind = ?"; params.append(kind)
+    if source:
+        where += " AND source = ?"; params.append(source)
+    with _connect() as conn:
+        conn.execute(f"DELETE FROM entity_links WHERE {where}", tuple(params))
+
+
+def entity_links_of(business_id, entity_type, entity_id):
+    """
+    Все рёбра записи, приведённые к виду «сосед». Направление сохраняем в
+    поле dir: «включает» и «входит в» — это одна связь, прочитанная с разных
+    сторон, и человеку важно, с какой стороны он смотрит.
+    """
+    eid = int(entity_id)
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT * FROM entity_links
+                WHERE business_id = ? AND ((src_type = ? AND src_id = ?)
+                                        OR (dst_type = ? AND dst_id = ?))
+                ORDER BY id DESC""",
+            (business_id, entity_type, eid, entity_type, eid),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        out_going = d["src_type"] == entity_type and d["src_id"] == eid
+        out.append({"link_id": d["id"], "kind": d["kind"], "source": d["source"],
+                    "confidence": d["confidence"], "note": d["note"],
+                    "created_at": d["created_at"], "dir": "out" if out_going else "in",
+                    "type": d["dst_type"] if out_going else d["src_type"],
+                    "id": d["dst_id"] if out_going else d["src_id"]})
+    return out
+
+
+def entity_link_counts(business_id, entity_type, entity_ids):
+    """Сколько связей у каждой записи — чтобы список не делал N запросов."""
+    ids = [int(i) for i in entity_ids if i is not None]
+    if not ids:
+        return {}
+    ph = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT ref, COUNT(*) AS n FROM (
+                    SELECT src_id AS ref FROM entity_links
+                     WHERE business_id = ? AND src_type = ? AND src_id IN ({ph})
+                    UNION ALL
+                    SELECT dst_id AS ref FROM entity_links
+                     WHERE business_id = ? AND dst_type = ? AND dst_id IN ({ph})
+                ) AS both GROUP BY ref""",
+            (business_id, entity_type, *ids, business_id, entity_type, *ids),
+        ).fetchall()
+    return {int(r["ref"]): int(r["n"]) for r in rows}
+
+
+def finance_by_ref(business_id, field, entity_id, limit=50):
+    """Денежные операции, привязанные к записи (сотруднику, заявке, клиенту…)."""
+    if field not in FINANCE_REFS:
+        return []
+    with _connect() as conn:
+        rows = conn.execute(
+            _finance_join(f" AND f.{field} = ? ORDER BY f.id DESC LIMIT ?"),
+            (business_id, int(entity_id), int(limit)),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def finance_totals_by_ref(business_id, field, entity_id):
+    """Итог по записи: сколько получено и сколько заплачено."""
+    if field not in FINANCE_REFS:
+        return {"income": 0, "expense": 0, "count": 0}
+    with _connect() as conn:
+        row = conn.execute(
+            f"""SELECT
+                   COALESCE(SUM(CASE WHEN kind = 'income'  THEN amount ELSE 0 END),0) AS income,
+                   COALESCE(SUM(CASE WHEN kind = 'expense' THEN amount ELSE 0 END),0) AS expense,
+                   COUNT(*) AS n
+                 FROM finance_entries WHERE business_id = ? AND {field} = ?""",
+            (business_id, int(entity_id)),
+        ).fetchone()
+    return {"income": int(row["income"] or 0), "expense": int(row["expense"] or 0),
+            "count": int(row["n"] or 0)}
+
+
+def count_client_messages(business_id, client_id):
+    """Сколько раз клиент писал — обращение это тоже связь, а не только заказ."""
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) AS n FROM messages
+                WHERE business_id = ? AND client_id = ? AND role = 'user'""",
+            (business_id, int(client_id)),
+        ).fetchone()
+    return int(row["n"] or 0)
+
+
+def orders_by_ids(business_id, order_ids):
+    ids = [int(i) for i in order_ids if i is not None]
+    if not ids:
+        return []
+    ph = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM orders WHERE business_id = ? AND id IN ({ph}) ORDER BY id DESC",
+            (business_id, *ids),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ---------- АРХИВ И УДАЛЕНИЕ ----------
 # Две разные вещи, и путать их нельзя. Архив: запись была правдой и перестала
 # действовать — она уходит из работы, но остаётся в базе вместе со всей своей
@@ -1406,7 +1578,7 @@ def delete_business(business_id):
         conn.execute("DELETE FROM messages WHERE business_id = ?", (business_id,))
         # Входящие материалы и цепочка «источник → запись» — тоже данные бизнеса.
         # Без этого от удалённой компании оставался бы её журнал происхождения.
-        for tbl in ("memory_links", "inbox_decisions", "inbox_results",
+        for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
@@ -3129,6 +3301,16 @@ def add_order(business_id, text, client_id=None, phone=None, address=None,
     if _money(amount):
         detail += f" · {_money(amount)} ₽"
     log_event(business_id, "order", "Создан заказ", detail)
+    # Заявку создают из пяти мест (панель, бот, разбор входящих, ручной ввод,
+    # импорт). Связь «из каких услуг она состоит» нужна во всех пяти, поэтому
+    # ставится здесь — одна дверь вместо пяти одинаковых вызовов, которые
+    # однажды разойдутся. Импорт локальный: graph знает про базу, база про
+    # graph знать не обязана.
+    try:
+        import graph
+        graph.link_order_items(business_id, order_id, text)
+    except Exception:
+        pass
     return order_id
 
 
@@ -3611,8 +3793,8 @@ def save_inbox_result(business_id, item_id, result):
         cur = conn.execute(
             """INSERT INTO inbox_results
                (business_id, item_id, type, confidence, level, summary,
-                extracted, actions, engine, model, error, applied)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                extracted, actions, engine, model, error, applied, relations)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (business_id, item_id,
              result.get("type") or "UNKNOWN",
              float(result.get("confidence") or 0),
@@ -3621,7 +3803,8 @@ def save_inbox_result(business_id, item_id, result):
              _json.dumps(result.get("extracted_data") or {}, ensure_ascii=False),
              _json.dumps(result.get("suggested_actions") or [], ensure_ascii=False),
              result.get("engine"), result.get("model"), result.get("error"),
-             _json.dumps(result.get("applied") or [], ensure_ascii=False)),
+             _json.dumps(result.get("applied") or [], ensure_ascii=False),
+             _json.dumps(result.get("relations") or [], ensure_ascii=False)),
         )
         return cur.lastrowid
 
@@ -3632,7 +3815,7 @@ def _result_row(row):
         return None
     d = dict(row)
     for src, dst in (("extracted", "extracted_data"), ("actions", "suggested_actions"),
-                     ("applied", "applied")):
+                     ("applied", "applied"), ("relations", "relations")):
         try:
             d[dst] = _json.loads(d.get(src) or ("[]" if src != "extracted" else "{}"))
         except (ValueError, TypeError):
