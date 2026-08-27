@@ -220,9 +220,15 @@ def set_policy(business_id: int, channel: str, level=None, grants=None,
 def _fact_line(row: dict, with_body: bool) -> str:
     title = (row.get("title") or "").strip()
     body = (row.get("body") or "").strip()
+    # Знание, которое VELOR понял сам и человек не подтверждал, показывается —
+    # выбросить его значило бы отвечать хуже, чем можем, — но помечается. Модель
+    # обязана оговориться, а не выдавать догадку за факт. Проверка ниже такую
+    # строку по-прежнему считает основанием: она из памяти бизнеса, а не из
+    # головы модели. Разница между «непроверено» и «выдумано» здесь и проходит.
+    mark = "" if row.get("verified", 1) else "  [не подтверждено владельцем]"
     if with_body and body:
-        return f"— {title}: {body}"
-    return f"— {title}"
+        return f"— {title}: {body}{mark}"
+    return f"— {title}{mark}"
 
 
 def _mentions(row: dict, roots) -> bool:
@@ -294,9 +300,17 @@ def memory(business_id: int, question: str, allowed: set) -> dict:
     # Текст для сверки. Сюда идёт ВСЁ, что модели показали, — по нему потом
     # проверяется каждая цифра из ответа.
     grounding = "\n".join(block)
+    # Есть ли среди показанного непроверенное. Считаем по тем же записям, что
+    # ушли в промпт: правило, спрятанное правами, на осторожность ответа влиять
+    # не должно — его модель всё равно не видела.
+    shown = list(company) + list(visible_rules) + (
+        list(services) + list(products) if show_catalog else [])
+    has_unverified = any(not r.get("verified", 1) for r in shown)
+
     return {
         "text": "\n\n".join(block),
         "grounding": grounding,
+        "has_unverified": has_unverified,
         "has_catalog": bool(catalog),
         "has_prices": bool(with_price and catalog),
         "counts": {"services": len(services), "products": len(products),
@@ -477,6 +491,12 @@ def _system(business: dict, client_info: dict, mem: dict, allowed: set) -> str:
     else:
         p += ("\n\nПАМЯТЬ БИЗНЕСА — единственный источник правды. Всё, чего здесь "
               "нет, для тебя не существует:\n" + mem["text"][:5000])
+        if mem.get("has_unverified"):
+            p += ("\n\nСтроки с пометкой «не подтверждено владельцем» VELOR понял "
+                  "сам из присланных материалов, и человек их не проверял. "
+                  "Пользоваться ими можно, но выдавать за точные — нельзя: "
+                  "назови цифру и сразу оговорись, что уточнишь, а в служебной "
+                  "строке поставь handoff.")
 
     if client_info:
         known = ", ".join(f"{k}: {v}" for k, v in client_info.items() if v)

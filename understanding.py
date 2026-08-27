@@ -345,6 +345,96 @@ def find_money(text: str):
     return out
 
 
+# ── прайс построчно ────────────────────────────────────────────────────────
+# Прайс, сохранённый одной записью «Прайс-лист 2026», памяти бизнеса ничего не
+# даёт: продавец не сможет назвать цену услуги, а владелец — увидеть, что
+# именно изменилось. Поэтому список разбирается на строки: название и цена.
+#
+# Правилами, а не моделью. Прайс — это ровно тот случай, где строчка «Маникюр
+# 1500» не требует понимания, зато выдуманная цена стоит дорого. Модель может
+# добавить к найденному свои строки (поле items), но проверяются они так же.
+
+# Разделители между названием и ценой: тире, двоеточие, точки-заполнители,
+# вертикальная черта, табуляция или просто пробелы в конце строки.
+_ITEM_RE = re.compile(
+    r"^\s*(?:[-•*–—]\s*)?"                        # маркер списка, если есть
+    r"(?P<name>.*?[^\s.\-–—:|\t])"                # название
+    r"\s*(?:[-–—:|]|\.{2,}|\t|\s)\s*"             # разделитель
+    r"(?P<price>\d[\d  ]*(?:[.,]\d{1,2})?)"  # цена
+    r"\s*(?P<cur>₽|руб\w*\.?|р\.|rub|тыс\w*\.?)?\s*$",  # валюта или множитель
+    re.I)
+
+# Хвост названия, после которого цена — не цена позиции. «Работаем с 1000 до
+# 2000» разбирается идеально и означает совсем не то: последнее слово
+# названия оказывается предлогом, и это надёжный признак.
+_ITEM_TAIL = re.compile(r"(?:^|\s)(до|от|с|со|по|на|за|в|и|или|через|около)$", re.I)
+
+# Вступление перед названием: «У нас новая услуга — экспресс-маникюр 2500».
+# Владелец пишет так почти всегда, и без обрезки в память попадает услуга с
+# названием в виде целого предложения.
+_ITEM_INTRO = re.compile(
+    r"^.{0,60}?(?:услуг\w*|товар\w*|позици\w*|прайс\w*|новинк\w*|"
+    r"добавил\w*|появил\w*|теперь|ввели|запустили)\b[^\w]{0,4}"
+    r"\s*[-–—:]\s*", re.I)
+
+# Строки, которые ценой не являются, хотя выглядят похоже.
+_ITEM_SKIP = re.compile(
+    r"^\s*(итого|всего|сумма|ндс|к оплате|скидка|прайс|цены?|наименование|"
+    r"стоимость|услуг[аи]|товар[ы]?|№|тел|телефон|инн|кпп|огрн)\b", re.I)
+
+ITEMS_LIMIT = 100          # длиннее — это уже не прайс, а выгрузка склада
+NAME_MIN, NAME_MAX = 2, 120
+
+
+def extract_items(text: str):
+    """
+    Позиции прайса: [{title, price, currency, raw}]. Пусто — не прайс.
+
+    Берём только строки, где цена стоит В КОНЦЕ: «Маникюр 1500» — позиция, а
+    «Работаем с 1500 до 2000» — режим работы, и цены там нет. Строки-итоги и
+    шапку таблицы пропускаем поимённо: «Итого 12000» позицией прайса не
+    является ни в одном прайсе.
+    """
+    out, seen = [], set()
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or len(line) > 300 or _ITEM_SKIP.match(line):
+            continue
+        m = _ITEM_RE.match(line)
+        if not m:
+            continue
+        name = re.sub(r"[\s.\-–—:|]+$", "", m.group("name")).strip(" \t.-–—:|")
+        name = _ITEM_INTRO.sub("", name).strip(" \t.-–—:|")
+        if not (NAME_MIN <= len(name) <= NAME_MAX):
+            continue
+        if _ITEM_TAIL.search(name):
+            continue                     # «работаем с 1000 до 2000» — не позиция
+        if not re.search(r"[а-яёa-z]", name, re.I):
+            continue                     # «12 3500» — это таблица чисел, не прайс
+        raw = m.group("price").replace(" ", "").replace(" ", "").replace(",", ".")
+        try:
+            price = float(raw)
+        except ValueError:
+            continue
+        cur = (m.group("cur") or "").lower()
+        if cur.startswith("тыс"):
+            price *= 1000
+        if price <= 0 or price > 10 ** 9:
+            continue
+        key = name.lower().replace("ё", "е")
+        if key in seen:
+            continue                     # та же позиция дважды в одном файле
+        seen.add(key)
+        out.append({"title": name, "price": int(round(price)),
+                    "currency": CURRENCY.get(cur.rstrip("."), "RUB"), "raw": line})
+        if len(out) >= ITEMS_LIMIT:
+            break
+    # Одна строка — это не прайс, а фраза с ценой: «экспресс-маникюр 2500».
+    # Такой случай тоже нужен, поэтому одиночку возвращаем, но решение, что с
+    # ней делать, принимается выше по типу материала.
+    return out
+
+
 # Дата в документе: «24.08.2026», «24.08.26», «2026-08-24». Без неё операция
 # ложится на день загрузки, а чек мог пролежать в кармане неделю.
 _DATE_RE = re.compile(r"\b(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})\b|\b(\d{4})-(\d{2})-(\d{2})\b")
@@ -548,6 +638,16 @@ def extract_by_rules(kind_type: str, text: str, kind: str = "file"):
     if m:
         data["counterparty"] = m.group(1)
 
+    # Прайс и перечень услуг разбираются построчно: одна запись «Прайс-лист»
+    # памяти бизнеса не даёт ничего, продавцу — тем более.
+    if kind_type in ITEM_TYPES:
+        items = extract_items(text)
+        if items:
+            data["items"] = items
+            data["items_count"] = len(items)
+            data.pop("amount", None)     # цена позиции — не сумма материала
+            data.pop("category", None)
+
     if kind_type == "GOAL_STATEMENT" and money:
         # Цель — это самая большая названная цифра: «выйти на 500 тысяч».
         data["target"] = max(m["amount"] for m in money)
@@ -654,6 +754,12 @@ DOC_BY_TYPE = {
 # Типы, у которых направление денег понятно из самого документа.
 MONEY_TYPES = ("EXPENSE_DOCUMENT", "BANK_TRANSACTION", "FINANCIAL_TRANSACTION",
                "INVOICE", "WAYBILL", "SALARY_PAYMENT", "REFUND", "INCOME_DOCUMENT")
+
+# Типы, которые содержат СПИСОК позиций, а не одну запись.
+ITEM_TYPES = ("PRICE_LIST", "SERVICES_OR_PRODUCTS")
+
+# Какой вид записи получается из позиции такого списка.
+ENTITY_BY_ITEM_ACTION = {"add_price_list": "product", "add_services": "service"}
 
 # Возврат бывает в обе стороны: клиенту вернули мы (деньги ушли) или вернул нам
 # поставщик (деньги пришли). Решает формулировка, а не догадка.
@@ -921,23 +1027,35 @@ def process(business_id, item_id):
         for a in result["suggested_actions"]:
             if a["safe"] and a.get("auto"):
                 try:
-                    text, entity, entity_id, clean = apply_action(
+                    text, entity, entity_id, clean, made = apply_action(
                         business_id, item_id, a["action"], result, auto=True)
                 except ActionError:
                     continue          # не смогли — просто оставим человеку
+                said_type, said_id = named_result(entity, entity_id, made)
                 applied.append({"action": a["action"], "auto": True, "detail": text,
-                                "entity_type": entity, "entity_id": entity_id})
+                                "entity_type": said_type, "entity_id": said_id,
+                                "items": len(made) or None})
                 # Автоприменение — тоже решение, и в истории оно должно быть
                 # видно наравне с нажатиями человека.
                 decision_id = database.add_inbox_decision(
                     business_id, item_id, "auto", action=a["action"],
-                    entity_type=entity, entity_id=entity_id,
+                    entity_type=said_type, entity_id=said_id,
                     original=clean, corrected=clean, actor="velor", note=text)
                 # И в памяти бизнеса тоже: знание, добытое самим VELOR, должно
                 # быть так же прослеживаемо, как подтверждённое человеком.
                 # Записываем ПОСЛЕ сохранения разбора — иначе в связи не на что
                 # сослаться, и «что именно он понял» пришлось бы искать вручную.
-                if entity and entity_id:
+                # Прайс создаёт не одну запись, а список — связь пишем на
+                # каждую позицию. Иначе у девяти услуг из десяти происхождение
+                # оказалось бы неизвестным.
+                for made_one in (made or []):
+                    pending_links.append({
+                        "entity": made_one["entity_type"],
+                        "entity_id": made_one["entity_id"],
+                        "decision_id": decision_id,
+                        "note": ("Обновлено из прайса: " if made_one["what"] == "updated"
+                                 else "Из прайса: ") + made_one["title"][:120]})
+                if entity and entity_id and not made:
                     pending_links.append({"entity": entity, "entity_id": entity_id,
                                           "decision_id": decision_id, "note": text})
     result["applied"] = applied
@@ -1077,12 +1195,93 @@ class ActionError(Exception):
     """Действие выполнить нельзя — с объяснением для человека."""
 
 
+def _price_body(item):
+    """Строка цены для тела записи. Валюту пишем только чужую — рубль подразумевается."""
+    money = "{:,}".format(int(item.get("price") or 0)).replace(",", " ")
+    cur = (item.get("currency") or "RUB").upper()
+    return money + (" ₽" if cur == "RUB" else " " + cur)
+
+
+def _apply_items(business_id, entity, items, verified):
+    """
+    Применить список позиций прайса. Возвращает (текст, что_сделано).
+
+    Позиция, которую владелец уже подтверждал, автоматикой не переписывается:
+    цена, за которую человек поручился, важнее свежего разбора. Такие позиции
+    попадают в «оставлено» и видны в карточке — решать по ним человеку.
+    """
+    import entities
+
+    made, created, updated, blocked, failed = [], 0, 0, 0, 0
+    for it in items[:ITEMS_LIMIT]:
+        title = str(it.get("title") or "").strip()
+        if not title:
+            continue
+        values = {"title": title[:NAME_MAX], "body": _price_body(it)}
+        try:
+            eid, _text, clean, what = entities.create_or_update(
+                business_id, entity, values, verified=verified)
+        except entities.EntityError:
+            failed += 1
+            continue
+        if what == "created":
+            created += 1
+        elif what == "updated":
+            updated += 1
+        else:
+            blocked += 1
+        made.append({"entity_type": entity, "entity_id": eid, "what": what,
+                     "title": title, "values": clean})
+
+    word = "Товары" if entity == "product" else "Услуги"
+    bits = []
+    if created:
+        bits.append("добавлено %d" % created)
+    if updated:
+        bits.append("обновлено %d" % updated)
+    if blocked:
+        bits.append("оставлено без изменений %d (их подтверждали руками)" % blocked)
+    if failed:
+        bits.append("не разобрано %d" % failed)
+    if not bits:
+        raise ActionError("В этом материале не нашлось ни одной позиции с ценой.")
+    if not (created or updated):
+        # Ничего не изменилось: все позиции уже есть и подтверждены человеком.
+        # Записывать это как выполненное действие нельзя — в истории появилось
+        # бы «применено», за которым не стоит ни одной правки.
+        raise ActionError(
+            "Все позиции уже есть в памяти, и их подтверждали руками — "
+            "VELOR ничего не менял.")
+    return word + ": " + ", ".join(bits), made
+
+
+def named_result(entity, entity_id, made):
+    """
+    Что записать в журнал решений как «созданное».
+
+    У журнала одна пара «вид + id» на решение, а прайс создаёт список. Когда
+    позиция одна — называем её: журнал должен вести к записи. Когда их
+    двенадцать, честный ответ — «двенадцать», и он уже есть в описании
+    решения, а сами записи связаны с материалом через происхождение.
+    """
+    if made:
+        return entity, (made[0]["entity_id"] if len(made) == 1 else None)
+    return entity, entity_id
+
+
 def apply_action(business_id, item_id, action, result=None, auto=False, data=None):
     """
-    Выполнить одно предложенное действие. Возвращает (текст, вид, id, значения).
+    Выполнить одно предложенное действие.
+    Возвращает (текст, вид, id, значения, список_позиций).
+
+    Последний элемент пуст почти всегда: он не пуст только у прайса и перечня
+    услуг, где одно действие создаёт не одну запись, а столько, сколько строк
+    в списке. Отдельной ветки для этого нет: вызывающий пишет в аудит по
+    каждой позиции ровно так же, как по одной записи.
 
     auto=True — вызвано самим VELOR. В этом режиме небезопасные действия
-    запрещены жёстко, а не по совести вызывающего.
+    запрещены жёстко, а не по совести вызывающего, и всё созданное помечается
+    неподтверждённым: человек этого не читал.
 
     data — значения из формы подтверждения. Не передали — берём то, что
     предложил ИИ. Создание в обоих случаях идёт через одну фабрику, поэтому
@@ -1106,7 +1305,24 @@ def apply_action(business_id, item_id, action, result=None, auto=False, data=Non
 
     if action == "ask_user":
         database.set_inbox_status(item_id, business_id, "NEEDS_REVIEW")
-        return "Отмечено: нужен ваш взгляд", None, None, {}
+        return "Отмечено: нужен ваш взгляд", None, None, {}, []
+
+    # Подтверждённым считается только то, что прошло через руки человека.
+    verified = not auto
+
+    entity = ENTITY_BY_ITEM_ACTION.get(action)
+    if entity:
+        # Человек прислал заполненную форму — значит, он смотрел на конкретную
+        # запись и правил именно её. Подменять его ввод разбором всего файла
+        # нельзя: это отняло бы у него последнее слово. Список берётся либо из
+        # самой формы, либо из разбора, когда форму не присылали вовсе.
+        items = (data or {}).get("items") if isinstance(data, dict) else None
+        if not items and data is None:
+            items = (res.get("extracted_data") or {}).get("items")
+        if isinstance(items, list) and items:
+            text, made = _apply_items(business_id, entity, items, verified)
+            return text, entity, None, {"items": items}, made
+        # Позиций не нашлось — материал сохраняется целиком, как раньше.
 
     entity = ENTITY_BY_ACTION.get(action)
     if not entity:
@@ -1114,7 +1330,14 @@ def apply_action(business_id, item_id, action, result=None, auto=False, data=Non
 
     values = data if data is not None else prefill(action, res, item)
     try:
-        entity_id, text, clean = entities.create(business_id, entity, values or {})
+        entity_id, text, clean, what = entities.create_or_update(
+            business_id, entity, values or {}, verified=verified)
     except entities.EntityError as e:
         raise ActionError(str(e))
-    return text, entity, entity_id, clean
+    if what == "blocked":
+        raise ActionError(
+            "Такая запись уже есть, и её подтверждал человек — "
+            "VELOR не переписывает её сам. Откройте запись и измените вручную.")
+    if what == "updated":
+        text = "Обновлено — " + text[0].lower() + text[1:] if text else "Обновлено"
+    return text, entity, entity_id, clean, []

@@ -30,6 +30,7 @@ documents — там, где были. Реестр только знает, г�
 """
 import datetime
 import math
+import re
 
 import database
 
@@ -203,11 +204,99 @@ def _fact_blockers(kind):
     return blockers
 
 
+# ── узнавание уже существующего ────────────────────────────────────────────
+# Единое окно принимает один и тот же прайс дважды, того же клиента из другого
+# канала и услугу, названную чуть иначе. Если каждый приём просто создаёт
+# запись, память бизнеса через месяц состоит из двойников, и ядро цитирует
+# устаревшую половину.
+#
+# Поэтому у каждого вида есть право сказать: «это уже есть, вот оно». Правило
+# намеренно строгое — узнаём только по тому, что человек считает одним и тем
+# же: по названию с точностью до регистра, пробелов и «ё», по телефону с
+# точностью до формата записи. Похожесть по смыслу оставлена человеку:
+# ошибочно слитые записи чинить дороже, чем ошибочно раздвоенные.
+
+_PUNCT = re.compile(r"[^\w\s]+", re.U)
+_SPACES = re.compile(r"\s+", re.U)
+
+
+def norm_title(s):
+    """Название к сравнимому виду: регистр, «ё», знаки и лишние пробелы прочь."""
+    low = str(s or "").strip().lower().replace("ё", "е")
+    return _SPACES.sub(" ", _PUNCT.sub(" ", low)).strip()
+
+
+def norm_phone(s):
+    """
+    Телефон к сравнимому виду: последние десять цифр.
+
+    Именно десять: +7 921…, 8 921… и 921… — один и тот же номер, записанный
+    тремя привычными способами. Короче десяти цифр — не номер, а обрывок, и
+    сравнивать по нему нельзя: «22» совпадёт с чем угодно.
+    """
+    digits = re.sub(r"\D+", "", str(s or ""))
+    return digits[-10:] if len(digits) >= 10 else ""
+
+
+def _fact_matcher(kind):
+    """Знание узнаём по названию — среди действующих, архив не в счёт."""
+    def match(bid, data):
+        want = norm_title(data.get("title"))
+        if not want:
+            return None
+        for row in database.list_facts(bid, kind):
+            if norm_title(row.get("title")) == want:
+                return row["id"]
+        return None
+    return match
+
+
+def _match_client(bid, data):
+    """
+    Клиент узнаётся по телефону, а если его нет — по имени.
+
+    Телефон надёжнее: тёзки встречаются часто, а один номер на двух разных
+    людей в малом бизнесе — редкость. Поэтому при совпадении номера имя уже
+    не спрашиваем, а при отсутствии номера сверяем имя целиком.
+    """
+    phone = norm_phone(data.get("phone"))
+    name = norm_title(data.get("name"))
+    if not phone and not name:
+        return None
+    by_name = None
+    for row in database.list_clients(bid, limit=1000):
+        if phone and norm_phone(row.get("phone")) == phone:
+            return row["id"]
+        if name and by_name is None and norm_title(row.get("name")) == name:
+            by_name = row["id"]
+    # По имени возвращаем только тогда, когда номера не назвали вовсе: иначе
+    # «Иван с новым номером» слился бы с другим Иваном.
+    return by_name if not phone else None
+
+
+def _match_goal(bid, data):
+    """
+    Цель узнаётся по показателю: две действующие цели по выручке — это не две
+    цели, а исправленная одна.
+    """
+    metric = str(data.get("metric") or "").strip()
+    if not metric:
+        return None
+    for row in database.list_goals(bid):
+        if row.get("status") == "active" and row.get("metric") == metric:
+            return row["id"]
+    return None
+
+
 def _fact_entity(kind, title, plural, word, group, fields, extra=(), where="memory.html"):
     """Собрать описание вида, который хранится в memory_facts."""
     return {
         "title": title, "plural": plural, "group": group, "where": where,
         "fields": fields,
+        # Вид знания в memory_facts. Нужен снаружи ровно для одного: отличить
+        # знание, за которое поручился человек, от того, что VELOR понял сам.
+        "fact_kind": kind,
+        "match": _fact_matcher(kind),
         "make": _fact_maker(kind, word, extra),
         "read": _fact_reader(kind, extra),
         "row": lambda bid, eid: database.get_fact(eid, bid),
@@ -561,6 +650,7 @@ ENTITIES = {
                    f("phone", "Телефон", "text"),
                    f("notes", "Заметка", "text")],
         "make": _make_client, "read": _read_client, "update": _update_client,
+        "match": _match_client,
         "row": lambda bid, eid: database.get_client(eid, bid),
         "list": lambda bid, limit, offset, archived=False: database.list_clients(
             bid, limit=limit, offset=offset, archived=archived),
@@ -634,6 +724,7 @@ ENTITIES = {
                       for m in GOAL_METRICS]),
                    f("deadline", "Срок", "date")],
         "make": _make_goal, "read": _read_goal, "update": _update_goal,
+        "match": _match_goal,
         "row": lambda bid, eid: database.get_goal(eid, bid),
         "list": lambda bid, limit, offset, archived=False: database.list_goals(
             bid, archived=archived)[offset:offset + limit],
@@ -760,10 +851,14 @@ def _check_refs(business_id, entity_type, clean):
             raise EntityError(f"«{fl['label']}»: такой записи у вас нет.")
 
 
-def create(business_id, entity_type, data):
+def create(business_id, entity_type, data, verified=True):
     """
     Создать сущность. Возвращает (id, человеческое описание).
     Единственная дверь: и автоматика, и подтверждение человеком идут сюда.
+
+    verified=False — «так понял VELOR, человек не подтверждал». Отметка живёт
+    только у знаний памяти: у клиента или заявки её негде хранить, да и незачем
+    — их и так видно в списке, а неверную цену в прайсе владелец не заметит.
     """
     e = _entity(entity_type)
     if not e.get("make"):
@@ -771,7 +866,61 @@ def create(business_id, entity_type, data):
     clean = prepare(entity_type, data)
     _check_refs(business_id, entity_type, clean)
     entity_id, text = e["make"](business_id, clean)
+    if e.get("fact_kind") and not verified:
+        database.set_fact_verified(entity_id, business_id, False)
     return entity_id, text, clean
+
+
+def match(business_id, entity_type, data):
+    """
+    Есть ли уже такая запись? Возвращает id или None.
+
+    Отвечает только тот вид, который умеет себя узнавать. Заявка и денежная
+    операция намеренно не умеют: два одинаковых заказа — это два заказа, а
+    два одинаковых чека ловятся раньше, отпечатком самого материала.
+    """
+    e = ENTITIES.get(entity_type)
+    if not e or not e.get("match"):
+        return None
+    try:
+        clean = prepare(entity_type, data)
+    except EntityError:
+        # Данных не хватает даже на создание — значит, и узнавать нечего.
+        return None
+    try:
+        eid = e["match"](business_id, clean)
+    except Exception:
+        return None                      # узнавание не обязано ронять приём
+    return int(eid) if eid else None
+
+
+def create_or_update(business_id, entity_type, data, verified=True):
+    """
+    Создать запись — или обновить ту, что уже есть.
+
+    Возвращает (id, текст, значения, что_произошло). Что произошло:
+
+        created  — записи не было, завели;
+        updated  — запись была, обновили;
+        blocked  — запись была и её ПОДТВЕРЖДАЛ человек, а обновить просит
+                   автоматика. Молча переписать проверенную цену новым
+                   разбором нельзя: это ровно та ошибка, которую владелец не
+                   заметит. Ничего не меняем, отдаём id — пусть спросят.
+    """
+    e = _entity(entity_type)
+    existing = match(business_id, entity_type, data)
+    if not existing:
+        eid, text, clean = create(business_id, entity_type, data, verified=verified)
+        return eid, text, clean, "created"
+
+    if not verified and e.get("fact_kind"):
+        row = database.get_fact(existing, business_id)
+        if row and row.get("verified"):
+            return existing, (row.get("title") or ""), {}, "blocked"
+
+    text, clean, _before = update(business_id, entity_type, existing, data,
+                                  verified=verified)
+    return existing, text, clean, "updated"
 
 
 def read(business_id, entity_type, entity_id):
@@ -782,9 +931,13 @@ def read(business_id, entity_type, entity_id):
     return e["read"](business_id, int(entity_id))
 
 
-def update(business_id, entity_type, entity_id, data):
+def update(business_id, entity_type, entity_id, data, verified=True):
     """
     Изменить запись. Возвращает (описание, что стало, что было).
+
+    verified=True по умолчанию: правка — это чтение и согласие, а приходит она
+    почти всегда от человека. Автоматика передаёт False и подтверждения не
+    ставит.
 
     Правка частичная: незаполненные поля берутся из текущего значения, а не
     затираются пустотой. Иначе форма, показавшая три поля из пяти, стирала бы
@@ -811,6 +964,8 @@ def update(business_id, entity_type, entity_id, data):
             clean.pop(name, None)
     _check_refs(business_id, entity_type, clean)
     text = e["update"](business_id, int(entity_id), clean)
+    if e.get("fact_kind") and verified:
+        database.set_fact_verified(int(entity_id), business_id, True)
     return text, clean, before
 
 

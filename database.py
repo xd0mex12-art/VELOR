@@ -338,6 +338,24 @@ def _migrate_columns(conn):
         ("connections", "config", "TEXT"),        # JSON: настройка без секретов
         ("clients", "archived_at", "TEXT"),
         ("documents", "archived_at", "TEXT"),
+        # ── единое окно входящих ────────────────────────────────────────────
+        # Отпечаток содержимого. Один и тот же чек, присланный дважды, — это
+        # не два расхода. Считается по байтам файла или по нормализованному
+        # тексту заметки, поэтому «тот же файл под другим именем» тоже ловится.
+        ("inbox_items", "content_hash", "TEXT"),
+        # Кто прислал. Раньше было известно только «какой бизнес»; когда дверь
+        # одна на кабинет, бота и будущие каналы, без отправителя журнал
+        # обработки не отвечает на первый же вопрос при разборе ошибки.
+        ("inbox_items", "actor", "TEXT"),
+        ("inbox_items", "actor_id", "INTEGER"),
+        # Что известно об обстоятельствах приёма (канал, id сообщения, ссылка
+        # на исходник). JSON, потому что у каждого канала свои подробности, и
+        # заводить под них колонки значило бы менять схему на каждый канал.
+        ("inbox_items", "meta", "TEXT"),
+        # Подтверждён ли факт человеком. Вывод модели и знание, за которое
+        # владелец поручился, — разные вещи, и складывать их в одну колонку
+        # значит потерять единственную разницу, которая тут важна.
+        ("memory_facts", "verified", "INTEGER DEFAULT 1"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -871,6 +889,10 @@ def init_db():
             ("idx_finance_external",     "finance_entries", "business_id, external_id"),
             ("idx_inbox_biz",            "inbox_items",     "business_id, id"),
             ("idx_inbox_biz_status",     "inbox_items",     "business_id, status"),
+            # Отпечаток спрашивается на КАЖДОМ приёме — до записи, а не после.
+            # Без индекса единое окно превращало бы каждую отправку в полный
+            # перебор входящих этого бизнеса.
+            ("idx_inbox_hash",           "inbox_items",     "business_id, content_hash"),
             ("idx_inbox_blobs_biz",      "inbox_blobs",     "business_id"),
             ("idx_inbox_results_item",   "inbox_results",   "business_id, item_id"),
             ("idx_inbox_decisions_item", "inbox_decisions", "business_id, item_id"),
@@ -1102,7 +1124,7 @@ def _facts_text(conn, business_id):
     rows = conn.execute(
         # Архивное знание в ядро не попадает: уволенный мастер не должен
         # всплывать в ответе клиенту, который спрашивает, кто его подстрижёт.
-        "SELECT kind, title, body, data FROM memory_facts "
+        "SELECT kind, title, body, data, verified FROM memory_facts "
         "WHERE business_id = ? AND archived_at IS NULL ORDER BY kind, id",
         (business_id,),
     ).fetchall()
@@ -1124,8 +1146,27 @@ def _facts_text(conn, business_id):
                 line += " (" + extra + ")"
             if (r["body"] or "").strip():
                 line += ": " + r["body"].strip()
+            # Знание, которое VELOR понял сам из присланного материала и никто
+            # не подтверждал. Ядру оно нужно — иначе оно отвечало бы хуже, чем
+            # может, — но выдавать его за проверенный факт нельзя.
+            if not _verified_of(r):
+                line += "  [не подтверждено владельцем]"
             out.append(line)
+    if any(not _verified_of(r) for r in rows):
+        out.append("")
+        out.append("Строки с пометкой «не подтверждено владельцем» VELOR понял "
+                   "сам из присланных материалов. Ссылаться на них можно, "
+                   "выдавать за точные — нельзя: назови и предложи уточнить.")
     return "\n".join(out)
+
+
+def _verified_of(row):
+    """Подтверждено ли знание. У старых строк колонки может не быть — считаем да."""
+    try:
+        value = row["verified"]
+    except (KeyError, IndexError):
+        return True
+    return True if value is None else bool(value)
 
 
 def _fact_extra(row):
@@ -1195,22 +1236,49 @@ def list_facts(business_id, kind=None, archived=False):
         return [_fact_row(r) for r in rows]
 
 
-def add_fact(business_id, kind, title, body=None, data=None):
+def add_fact(business_id, kind, title, body=None, data=None, verified=True):
+    """
+    Записать знание о бизнесе.
+
+    verified=False означает «так понял VELOR, человек не подтверждал». Такое
+    знание живёт в памяти наравне с остальными — иначе его пришлось бы
+    выбросить, — но помечено, и ядро говорит о нём осторожнее. По умолчанию
+    True: всё, что заводится руками владельца или через подтверждение, —
+    подтверждённый факт.
+    """
     with _connect() as conn:
         cur = conn.execute(
-            "INSERT INTO memory_facts (business_id, kind, title, body, data) VALUES (?,?,?,?,?)",
+            "INSERT INTO memory_facts (business_id, kind, title, body, data, verified) "
+            "VALUES (?,?,?,?,?,?)",
             (business_id, kind, title, body,
-             _json.dumps(data or {}, ensure_ascii=False)),
+             _json.dumps(data or {}, ensure_ascii=False), 1 if verified else 0),
         )
         fid = cur.lastrowid
     log_event(business_id, "memory", f"В память добавлено: {title}")
     return fid
 
 
-def update_fact(fact_id, business_id, title, body=None, data=None):
+def set_fact_verified(fact_id, business_id, verified=True):
+    """Подтвердить знание (или снять подтверждение). Возвращает, нашлось ли."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE memory_facts SET verified = ? WHERE id = ? AND business_id = ?",
+            (1 if verified else 0, int(fact_id), business_id))
+        return cur.rowcount > 0
+
+
+def update_fact(fact_id, business_id, title, body=None, data=None, verified=None):
     # data=None означает «не трогать»: страница базы знаний правит только
     # название и текст и не должна затирать поля, которых она не показывает.
+    #
+    # verified=None — тоже «не трогать». Правка руками означает, что человек
+    # это прочитал и согласился, поэтому вызывающая сторона обычно передаёт
+    # True: непроверенное знание после первой же правки становится фактом.
     with _connect() as conn:
+        if verified is not None:
+            conn.execute(
+                "UPDATE memory_facts SET verified = ? WHERE id = ? AND business_id = ?",
+                (1 if verified else 0, fact_id, business_id))
         if data is None:
             conn.execute(
                 "UPDATE memory_facts SET title = ?, body = ? WHERE id = ? AND business_id = ?",
@@ -4126,7 +4194,8 @@ INBOX_SOURCES = ("web", "telegram", "email", "api", "import")
 
 def add_inbox_item(business_id, kind="file", title=None, body=None, filename=None,
                    mime=None, size=0, storage_key=None, source="web",
-                   status="RECEIVED"):
+                   status="RECEIVED", content_hash=None, actor=None, actor_id=None,
+                   meta=None):
     """Записать входящий материал. Возвращает id."""
     if status not in INBOX_STATUSES:
         status = "RECEIVED"
@@ -4136,15 +4205,36 @@ def add_inbox_item(business_id, kind="file", title=None, body=None, filename=Non
         cur = conn.execute(
             """INSERT INTO inbox_items
                (business_id, kind, title, body, filename, mime, size,
-                storage_key, source, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                storage_key, source, status, content_hash, actor, actor_id, meta)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (business_id, kind, title, body, filename, mime, int(size or 0),
-             storage_key, source, status),
+             storage_key, source, status, content_hash, actor,
+             int(actor_id) if actor_id else None,
+             _json.dumps(meta, ensure_ascii=False) if meta else None),
         )
         item_id = cur.lastrowid
     log_event(business_id, "inbox", "Новый материал во входящих",
               (title or filename or "заметка")[:160])
     return item_id
+
+
+def find_inbox_by_hash(business_id, content_hash):
+    """
+    Уже присылали такое? Возвращает самую раннюю запись с тем же отпечатком.
+
+    Ищем именно первую, а не последнюю: человеку надо показать тот материал,
+    из которого уже сделаны выводы, а не свежую копию. Архивированные тоже
+    считаются — «я это убрал» не значит «этого не было».
+    """
+    if not content_hash:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT * FROM inbox_items
+                WHERE business_id = ? AND content_hash = ?
+                ORDER BY id ASC LIMIT 1""",
+            (business_id, content_hash)).fetchone()
+        return dict(row) if row else None
 
 
 def list_inbox(business_id, status=None, archived=False, limit=50, offset=0):

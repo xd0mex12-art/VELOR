@@ -23,24 +23,40 @@
     display:flex; align-items:baseline; gap:var(--sp-2); }
   .sec-h .n{ color:var(--lilac); }
 
-  /* ── приёмник ── */
+  /* ── единое окно приёма ── */
   .drop{ position:relative; border:1px dashed var(--hairline-2); border-radius:var(--r-xl);
-    background:var(--surface); padding:var(--sp-8) var(--sp-6); text-align:center;
+    background:var(--surface); padding:var(--sp-8) var(--sp-6);
     transition:border-color var(--dur), background var(--dur); }
   .drop.over{ border-color:var(--lilac); background:var(--tint-iris); }
-  .drop .big{ font-size:var(--fs-lead); font-weight:var(--fw-reg); letter-spacing:-.02em; }
-  .drop .small{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); line-height:1.5; }
-  .drop .row{ margin-top:var(--sp-5); display:flex; gap:var(--sp-3);
-    justify-content:center; flex-wrap:wrap; }
-
-  .note{ margin-top:var(--sp-4); }
-  .note textarea{ width:100%; min-height:96px; background:var(--surface-2);
+  .drop .big{ font-size:var(--fs-h3); font-weight:var(--fw-reg); letter-spacing:-.025em;
+    line-height:1.2; }
+  .drop .small{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash);
+    line-height:1.55; max-width:62ch; }
+  .drop .small.hint{ margin-top:var(--sp-3); }
+  .drop textarea{ width:100%; min-height:104px; margin-top:var(--sp-5);
+    background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm); padding:14px 16px;
     color:var(--bone); font-family:inherit; font-weight:var(--fw-thin);
     font-size:16px; line-height:1.55; resize:vertical; }
-  .note .foot{ display:flex; align-items:center; gap:var(--sp-3);
-    flex-wrap:wrap; margin-top:var(--sp-3); }
-  .note .foot .sub{ font-size:var(--fs-sm); color:var(--ash); margin-right:auto; }
+  .drop textarea:focus-visible{ outline:2px solid var(--ring); outline-offset:2px;
+    border-color:transparent; }
+  .drop .row{ margin-top:var(--sp-4); display:flex; gap:var(--sp-3); flex-wrap:wrap; }
+  .drop .row .v-btn{ min-height:44px; }
+
+  /* прикреплённое: видно ДО отправки, что именно уйдёт, и можно убрать лишнее */
+  .chips{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+  .chips:not(:empty){ margin-top:var(--sp-3); }
+  .chip{ display:inline-flex; align-items:center; gap:var(--sp-2);
+    max-width:100%; padding:6px 6px 6px 12px; border-radius:var(--r-pill);
+    border:1px solid var(--hairline); background:var(--surface-2);
+    font-size:var(--fs-sm); }
+  .chip .nm{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chip .sz{ color:var(--ash); font-variant-numeric:tabular-nums; flex:none; }
+  .chip button{ flex:none; width:28px; height:28px; border-radius:50%; border:0;
+    background:transparent; color:var(--ash); font-size:16px; line-height:1;
+    cursor:pointer; transition:color var(--dur-fast), background var(--dur-fast); }
+  .chip button:hover{ color:var(--bone); background:var(--surface-3); }
+  .chip button:focus-visible{ outline:2px solid var(--ring); outline-offset:1px; }
 
   /* очередь отправки: видно, что происходит с каждым файлом */
   .queue{ margin-top:var(--sp-4); display:grid; gap:var(--sp-2); }
@@ -52,6 +68,13 @@
   .q.bad{ border-color:rgba(255,107,107,.35); background:rgba(255,107,107,.07); }
   .q.bad .st{ color:var(--ink-coral); }
   .q.good .st{ color:var(--verdant); }
+  /* Повтор — не ошибка и не успех: это «уже есть». Отдельный цвет, потому что
+     красная строка на «всё в порядке» пугает зря, а зелёная врёт. */
+  .q.dup{ border-color:rgba(255,184,41,.3); background:rgba(255,184,41,.06); }
+  .q.dup .st{ color:var(--saffron); }
+  .v-link{ border:0; background:none; padding:0; font:inherit; color:inherit;
+    text-decoration:underline; text-underline-offset:3px; cursor:pointer; }
+  .v-link:focus-visible{ outline:2px solid var(--ring); outline-offset:2px; }
 
   /* ── лента ── */
   .filters{ display:flex; align-items:center; gap:var(--sp-4);
@@ -241,26 +264,28 @@
 
   <div id="failZone" role="alert"></div>
 
-  <!-- приём -->
+  <!-- ПРИЁМ. Одно окно на всё: текст и файлы уходят одной отправкой, потому
+       что человек и говорит одной фразой — «вот прайс, цены с сентября».
+       Ни одного выбора типа: разбираться, что прислали, — работа VELOR. -->
   <section>
     <div class="drop" id="drop">
-      <div class="big">Перетащите файлы сюда</div>
-      <div class="small" id="dropHint">или вставьте скриншот из буфера обмена (Ctrl+V).<br>
-        Принимаем изображения, PDF, Word, Excel, CSV и текст.</div>
-      <div class="row">
-        <button class="v-btn" type="button" id="pickBtn2">Выбрать файлы</button>
-      </div>
-      <input type="file" id="fileInput" multiple hidden>
-    </div>
+      <h2 class="big">Расскажите VELOR о вашем бизнесе</h2>
+      <p class="small" id="dropHint">Отправьте текст, фото, документ, таблицу или
+        просто напишите сообщение. VELOR сам разберётся.</p>
 
-    <div class="note">
-      <label for="noteText" class="sec-h" style="margin-bottom:var(--sp-2)">Или просто напишите</label>
+      <label for="noteText" class="v-sr-only">Что рассказать VELOR</label>
       <textarea id="noteText" maxlength="20000"
-        placeholder="Поставщик поднял цену на розы до 180 ₽ · Клиент просил доставку к 8 марта · Аренда выросла на 12%"></textarea>
-      <div class="foot">
-        <span class="sub" id="noteCount">Заметка сохранится как есть — разбирать её будете не вы</span>
-        <button class="v-btn" type="button" id="noteBtn" disabled>Сохранить заметку</button>
+        placeholder="Поставщик поднял цену на розы до 180 ₽ · Новая услуга: экспресс-маникюр 2500 ₽ · Вот прайс с сентября"></textarea>
+
+      <div class="chips" id="chips" aria-live="polite"></div>
+
+      <div class="row">
+        <button class="v-btn ghost" type="button" id="pickBtn2">Прикрепить файлы</button>
+        <button class="v-btn" type="button" id="sendBtn" disabled>Передать VELOR</button>
       </div>
+      <div class="small hint" id="noteCount">Перетащите файлы сюда или вставьте
+        скриншот из буфера (Ctrl+V). Принимаем изображения, PDF, Word, Excel, CSV и текст.</div>
+      <input type="file" id="fileInput" multiple hidden>
     </div>
 
     <div class="queue" id="queue" aria-live="polite"></div>
@@ -634,9 +659,12 @@ async function load(reset, waitAttempt = 0){
     failEl.innerHTML = '';
     limits = { max_mb: d.max_mb, max_files: d.max_files, accept: d.accept || [] };
     document.getElementById('fileInput').accept = limits.accept.map(e => '.' + e).join(',');
-    document.getElementById('dropHint').innerHTML =
-      'или вставьте скриншот из буфера обмена (Ctrl+V).<br>' +
-      `Изображения, PDF, Word, Excel, CSV и текст — до ${d.max_mb} МБ, до ${d.max_files} файлов за раз.`;
+    // Обещание в заголовке не трогаем: пределы — это подсказка у кнопки, а не
+    // условие, с которого начинается разговор с человеком.
+    idleHint = 'Перетащите файлы сюда или вставьте скриншот из буфера (Ctrl+V). '
+      + `Изображения, PDF, Word, Excel, CSV и текст — до ${d.max_mb} МБ, `
+      + `до ${d.max_files} файлов за раз.`;
+    refreshSend();
     paintState(d.overview);
     total = d.total || 0;
 
@@ -660,9 +688,22 @@ async function load(reset, waitAttempt = 0){
   }
 }
 
-// ── приём файлов ──
+// ── ЕДИНОЕ ОКНО ─────────────────────────────────────────────────────────
+// Текст и файлы уходят ОДНОЙ отправкой. Раньше это были два запроса, и
+// пояснение отрывалось от того, что оно поясняет: «вот прайс» приходило
+// отдельно от прайса. Поэтому файлы сначала прикрепляются — человек видит,
+// что именно уйдёт, — и только потом отправляются вместе с текстом.
 const drop = document.getElementById('drop');
 const fileInput = document.getElementById('fileInput');
+const chipsEl = document.getElementById('chips');
+const sendBtn = document.getElementById('sendBtn');
+const noteText = document.getElementById('noteText');
+const noteCount = document.getElementById('noteCount');
+let attached = [];
+// Подсказка у кнопки, когда отправлять пока нечего. Точные пределы приезжают
+// с сервера при первой загрузке — до этого говорим то же самое без цифр.
+let idleHint = 'Перетащите файлы сюда или вставьте скриншот из буфера (Ctrl+V). '
+  + 'Принимаем изображения, PDF, Word, Excel, CSV и текст.';
 
 function qRow(name){
   const el = document.createElement('div');
@@ -672,51 +713,120 @@ function qRow(name){
   return el;
 }
 
-async function send(files){
+function paintChips(){
+  chipsEl.innerHTML = attached.map((f, i) => `<span class="chip">
+    <span class="nm">${esc(f.name)}</span><span class="sz">${size(f.size)}</span>
+    <button type="button" data-off="${i}" aria-label="Убрать ${esc(f.name)}">×</button>
+  </span>`).join('');
+  chipsEl.querySelectorAll('[data-off]').forEach(b => b.addEventListener('click', () => {
+    attached.splice(Number(b.dataset.off), 1);
+    paintChips(); refreshSend();
+  }));
+}
+
+function refreshSend(){
+  const n = noteText.value.trim().length;
+  sendBtn.disabled = !n && !attached.length;
+  const bits = [];
+  if (attached.length) bits.push(attached.length + ' ' + plural(attached.length,
+    'файл', 'файла', 'файлов'));
+  if (n) bits.push(n.toLocaleString('ru-RU') + ' из 20 000 знаков');
+  noteCount.textContent = bits.length ? 'Готово к отправке: ' + bits.join(' · ') : idleHint;
+}
+
+function attach(files){
   const arr = [...files];
   if (!arr.length) return;
-  if (arr.length > limits.max_files){
+  if (attached.length + arr.length > limits.max_files){
     toast(`За один раз — не больше ${limits.max_files} файлов`);
     return;
   }
+  attached = attached.concat(arr);
+  paintChips(); refreshSend();
+  // После перетаскивания фокус уводим на кнопку: отправка в одно нажатие или
+  // один Enter, без поиска глазами, куда теперь.
+  sendBtn.focus();
+}
+
+async function send(){
+  const text = noteText.value.trim();
+  const files = attached;
+  if (!text && !files.length) return;
+
   const rows = new Map();
-  arr.forEach(f => rows.set(f.name, qRow(f.name)));
+  files.forEach(f => rows.set(f.name, qRow(f.name)));
+  const noteRow = text ? qRow('Заметка') : null;
+
   const fd = new FormData();
-  arr.forEach(f => fd.append('files', f, f.name));
+  if (text) fd.append('text', text);
+  files.forEach(f => fd.append('files', f, f.name));
+
+  const wasLabel = sendBtn.textContent;
+  sendBtn.disabled = true; sendBtn.textContent = 'Передаю…';
+  const fail = why => {
+    rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = why; });
+    if (noteRow){ noteRow.className = 'q bad'; noteRow.querySelector('.st').textContent = why; }
+  };
   try{
-    const r = await fetch('/api/inbox/upload', { method: 'POST', body: fd });
+    const r = await fetch('/api/inbox/intake', { method: 'POST', body: fd });
     if (r.status === 402){
-      rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = 'пробный период завершён'; });
+      fail('пробный период завершён');
       toast('Пробный период завершён — приём новых материалов остановлен');
       return;
     }
     if (!r.ok){
       let why = 'сервер отказал';
       try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
-      rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = why; });
+      fail(why);
       return;
     }
     const d = await r.json();
-    (d.saved || []).forEach(it => {
-      const el = rows.get(it.filename);
-      if (el){ el.className = 'q good'; el.querySelector('.st').textContent = 'принято'; }
-    });
-    (d.failed || []).forEach(f => {
-      const el = rows.get(f.filename);
-      if (el){ el.className = 'q bad'; el.querySelector('.st').textContent = f.error; }
-    });
-    if ((d.saved || []).length) await load(true);
-    // Успешные строки убираем — они уже видны в ленте; неудачные оставляем,
-    // иначе человек не узнает, что именно не прошло.
-    setTimeout(() => queueEl.querySelectorAll('.q.good').forEach(el => el.remove()), 2500);
+    const mark = (name, cls, st, openId) => {
+      const el = name === 'Заметка' ? noteRow : rows.get(name);
+      if (!el) return;
+      el.className = 'q ' + cls;
+      const box = el.querySelector('.st');
+      if (openId){
+        // Повтор ведёт к первому материалу: там уже есть разбор и решения по
+        // нему, и человеку нужно именно это, а не сообщение «дубль».
+        box.innerHTML = '';
+        const a = document.createElement('button');
+        a.type = 'button'; a.className = 'v-link'; a.textContent = st;
+        a.addEventListener('click', () => openItem(openId));
+        box.appendChild(a);
+      } else {
+        box.textContent = st;
+      }
+    };
+    (d.accepted || []).forEach(it => mark(it.kind === 'text' ? 'Заметка' : it.filename,
+                                          'good', it.cannot_read ? 'принято, но прочитать не смогу' : 'принято'));
+    // Повтор — не ошибка. Говорим прямо: это уже есть, выводы по нему сделаны.
+    (d.duplicates || []).forEach(it => mark(it.kind === 'text' ? 'Заметка' : it.filename,
+                                            'dup', 'уже присылали — открыть',
+                                            it.duplicate_of || it.id));
+    (d.rejected || []).forEach(f => mark(f.what, 'bad', f.error));
+    (d.accepted || []).forEach(it => { if (it.cannot_read) toast(it.cannot_read); });
+
+    if ((d.accepted || []).length){
+      noteText.value = ''; attached = []; paintChips();
+      await load(true);
+    } else if ((d.duplicates || []).length && !(d.rejected || []).length){
+      noteText.value = ''; attached = []; paintChips();
+    }
+    // Принятое уже видно в ленте — строку убираем; повторы и отказы остаются,
+    // иначе человек не узнает, что именно не прошло и почему.
+    setTimeout(() => queueEl.querySelectorAll('.q.good').forEach(el => el.remove()), 2600);
   }catch{
-    rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = 'нет связи с сервером'; });
+    fail('нет связи с сервером');
+  }finally{
+    sendBtn.textContent = wasLabel; refreshSend();
   }
 }
 
 document.getElementById('pickBtn').addEventListener('click', () => fileInput.click());
 document.getElementById('pickBtn2').addEventListener('click', () => fileInput.click());
-fileInput.addEventListener('change', e => { send(e.target.files); e.target.value = ''; });
+sendBtn.addEventListener('click', send);
+fileInput.addEventListener('change', e => { attach(e.target.files); e.target.value = ''; });
 
 // перетаскивание: гасим стандартное поведение и на документе тоже, иначе
 // промах мимо рамки открывает файл в соседней вкладке и работа теряется
@@ -727,56 +837,30 @@ drop.addEventListener('dragover', () => drop.classList.add('over'));
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
 drop.addEventListener('drop', e => {
   drop.classList.remove('over');
-  if (e.dataTransfer && e.dataTransfer.files.length) send(e.dataTransfer.files);
+  if (e.dataTransfer && e.dataTransfer.files.length) attach(e.dataTransfer.files);
 });
 
-// скриншот из буфера: Ctrl+V прямо на странице
+// скриншот из буфера: Ctrl+V прямо на странице. Работает и внутри поля ввода —
+// человек пишет «вот чек» и тут же вставляет его, не переводя фокус.
 document.addEventListener('paste', e => {
-  if (document.activeElement === document.getElementById('noteText')) return;
   const files = [...(e.clipboardData?.items || [])]
     .filter(i => i.kind === 'file')
     .map(i => i.getAsFile())
     .filter(Boolean);
-  if (!files.length) return;
+  if (!files.length) return;      // обычный текст вставляется как обычно
   e.preventDefault();
   // У вставленного скриншота имени нет — даём своё, иначе в ленте
   // окажется десяток одинаковых «image.png».
   const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  send(files.map((f, i) => new File([f], `Скриншот ${stamp}${i ? '-' + i : ''}.png`, { type: f.type })));
+  attach(files.map((f, i) => new File([f], `Скриншот ${stamp}${i ? '-' + i : ''}.png`,
+                                      { type: f.type })));
 });
 
-// ── заметка ──
-const noteText = document.getElementById('noteText');
-const noteBtn = document.getElementById('noteBtn');
-const noteCount = document.getElementById('noteCount');
-noteText.addEventListener('input', () => {
-  const n = noteText.value.trim().length;
-  noteBtn.disabled = !n;
-  noteCount.textContent = n
-    ? n.toLocaleString('ru-RU') + ' из 20 000 знаков'
-    : 'Заметка сохранится как есть — разбирать её будете не вы';
-});
-noteBtn.addEventListener('click', async () => {
-  const text = noteText.value.trim();
-  if (!text) return;
-  noteBtn.disabled = true; noteBtn.textContent = 'Сохраняю…';
-  try{
-    const r = await fetch('/api/inbox', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
-    if (!r.ok){
-      let why = 'Не сохранилось — проверьте связь с сервером';
-      try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
-      toast(why);
-    } else {
-      noteText.value = '';
-      noteCount.textContent = 'Заметка сохранится как есть — разбирать её будете не вы';
-      toast('Заметка во входящих');
-      await load(true);
-    }
-  }catch{ toast('Не сохранилось — проверьте связь с сервером'); }
-  noteBtn.textContent = 'Сохранить заметку'; noteBtn.disabled = !noteText.value.trim();
+// ── поле ввода ──
+noteText.addEventListener('input', refreshSend);
+// Ctrl+Enter — отправка, не покидая поля: привычка из любого мессенджера.
+noteText.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && !sendBtn.disabled) send();
 });
 
 // ── просмотр ──
@@ -1104,6 +1188,7 @@ document.getElementById('segs').addEventListener('click', e => {
   load(true);
 });
 moreEl.addEventListener('click', () => load(false));
+refreshSend();
 load(true);
 </script>
 </body>

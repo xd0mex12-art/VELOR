@@ -16,7 +16,8 @@ import re
 
 import requests
 
-from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Request
+from fastapi import (FastAPI, Header, HTTPException, UploadFile, File, Form,
+                     Request)
 from fastapi.responses import FileResponse, Response, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -37,6 +38,7 @@ import trial
 import identity
 import storage
 import understanding
+import intake
 import entities
 import graph
 import director
@@ -2926,36 +2928,13 @@ def _extract_text(filename: str, data: bytes) -> str:
 # догадки о содержимом: мы принимаем, сохраняем оригинал, пишем метаданные
 # и ставим статус RECEIVED.
 
-INBOX_MAX_BYTES = int(_os.getenv("INBOX_MAX_MB", "25")) * 1024 * 1024
-INBOX_MAX_FILES = 10          # за один заход — чтобы одна форма не легла на минуту
-INBOX_NOTE_MAX = 20000        # знаков в заметке
-
-# Что принимаем. Список нарочно широкий: Inbox — приёмник, а не фильтр.
-# Но исполняемое и активное содержимое не принимаем совсем: такой файл
-# бесполезен для разбора и опасен на выдаче.
-INBOX_TYPES = {
-    # изображения и скриншоты
-    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
-    "gif": "image/gif", "webp": "image/webp", "bmp": "image/bmp",
-    "heic": "image/heic", "heif": "image/heif", "tif": "image/tiff", "tiff": "image/tiff",
-    # документы
-    "pdf": "application/pdf",
-    "doc": "application/msword",
-    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "rtf": "application/rtf", "odt": "application/vnd.oasis.opendocument.text",
-    # таблицы
-    "xls": "application/vnd.ms-excel",
-    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "ods": "application/vnd.oasis.opendocument.spreadsheet",
-    "csv": "text/csv", "tsv": "text/tab-separated-values",
-    # текст и данные
-    "txt": "text/plain", "md": "text/markdown", "json": "application/json",
-    "xml": "application/xml", "zip": "application/zip",
-    # голосовые: расшифровки пока нет, но принять и сохранить обязаны —
-    # иначе тип VOICE_INFORMATION недостижим, а материал теряется
-    "ogg": "audio/ogg", "oga": "audio/ogg", "mp3": "audio/mpeg",
-    "m4a": "audio/mp4", "wav": "audio/wav", "amr": "audio/amr",
-}
+# Пределы и список принимаемых типов живут в intake.py: они одинаковы для
+# кабинета, бота и всего, что появится дальше. Здесь — только имена, под
+# которыми их знает остальной сервер.
+INBOX_MAX_BYTES = intake.MAX_BYTES
+INBOX_MAX_FILES = intake.MAX_FILES
+INBOX_NOTE_MAX = intake.NOTE_MAX
+INBOX_TYPES = intake.TYPES
 
 # Показать в браузере можно только то, что браузер не исполнит. SVG сюда не
 # входит намеренно: это документ со скриптами, отданный inline — готовый XSS
@@ -2964,23 +2943,10 @@ INBOX_INLINE = {"image/jpeg", "image/png", "image/gif", "image/webp",
                 "image/bmp", "application/pdf"}
 
 
-def _inbox_ext(filename: str) -> str:
-    """Расширение из имени файла — в нижнем регистре, без точки."""
-    name = (filename or "").strip().replace("\\", "/").split("/")[-1]
-    dot = name.rfind(".")
-    return name[dot + 1:].lower() if dot > 0 else ""
-
-
-def _inbox_safe_name(filename: str) -> str:
-    """
-    Имя для показа и для скачивания. Путь из него убираем полностью: имя
-    приходит от пользователя, а в файловую систему оно и так не попадает —
-    там своё имя из storage.new_key(). Здесь важно другое: не дать управляющим
-    символам и переводам строк уехать в заголовок Content-Disposition.
-    """
-    name = (filename or "").strip().replace("\\", "/").split("/")[-1]
-    name = re.sub(r"[\x00-\x1f\x7f\"]", "", name)[:180]
-    return name or "файл"
+# Разбор имени файла — общий с приёмом: одно и то же имя не должно
+# превращаться в разное в зависимости от того, кто его читает.
+_inbox_ext = intake.ext_of
+_inbox_safe_name = intake.safe_name
 
 
 def _inbox_disposition(kind: str, filename: str) -> str:
@@ -3021,36 +2987,10 @@ def _actor(x_auth: str, bid: int):
     return "business", bid
 
 
-def _inbox_understand(bid: int, item_id: int) -> None:
-    """
-    Запустить разбор материала.
-
-    В обычной работе — отдельным потоком: чтение PDF и ответ модели занимают
-    секунды, а форма приёма должна отпускать человека сразу. В тестах и при
-    отключённых фоновых задачах считаем на месте, чтобы поведение было
-    предсказуемым, а не «когда-нибудь потом».
-    """
-    if _os.getenv("DISABLE_SYNC_WORKER"):
-        try:
-            understanding.process(bid, item_id)
-        except Exception:
-            logging.exception("Inbox: разбор упал (biz %s, материал %s)", bid, item_id)
-        return
-    import threading
-    threading.Thread(target=_understand_safely, args=(bid, item_id),
-                     name=f"velor-inbox-{item_id}", daemon=True).start()
-
-
-def _understand_safely(bid: int, item_id: int) -> None:
-    """Фоновый разбор: упасть он может, а уронить сервер — нет."""
-    try:
-        understanding.process(bid, item_id)
-    except Exception:
-        logging.exception("Inbox: разбор упал (biz %s, материал %s)", bid, item_id)
-        try:
-            database.set_inbox_status(item_id, bid, "FAILED", "Разбор не удался")
-        except Exception:
-            pass
+# Запуск разбора — тоже часть приёма, а не веб-слоя: бот и почта должны
+# разбирать материал так же, как кабинет, и падать так же безобидно.
+_inbox_understand = intake.understand
+_understand_safely = intake._understand_safely
 
 
 def _inbox_result_public(res: dict | None, item: dict | None = None) -> dict | None:
@@ -3145,26 +3085,44 @@ class InboxNote(BaseModel):
     business_id: int = 0
 
 
+def _intake_source(raw: str) -> str:
+    """Откуда пришло. Незнакомое слово — «web»: врать про источник нельзя."""
+    value = (raw or "web").strip().lower()
+    return value if value in database.INBOX_SOURCES else "web"
+
+
+def _item_public(bid: int, item_id: int, duplicate: bool = False,
+                 of: int | None = None) -> dict:
+    """Принятый материал наружу: сам материал плюс разбор, если он уже готов."""
+    raw = database.get_inbox_item(item_id, bid)
+    item = _inbox_public(raw)
+    item["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id), raw)
+    if duplicate:
+        item["duplicate"] = True
+        item["duplicate_of"] = of
+    note = intake.unreadable_note(raw.get("filename") or "")
+    if note:
+        item["cannot_read"] = note
+    return item
+
+
 @app.post("/api/inbox")
 def api_inbox_note(body: InboxNote, x_auth: str = Header(default="")):
     """Текстовая заметка: самый частый способ что-то «скинуть» на ходу."""
     bid = _resolve_bid(x_auth, body.business_id)
     require_active(bid)
-    text = (body.text or "").strip()
-    if not text:
-        raise HTTPException(status_code=400, detail="Пустая заметка — напишите хоть слово.")
-    if len(text) > INBOX_NOTE_MAX:
-        raise HTTPException(status_code=413,
-                            detail=f"Заметка длиннее {INBOX_NOTE_MAX} знаков — сократите или приложите файлом.")
-    title = (body.title or "").strip() or (text.splitlines()[0][:120] if text else "Заметка")
-    item_id = database.add_inbox_item(
-        bid, kind="text", title=title, body=text,
-        size=len(text.encode("utf-8")), source=body.source)
-    _inbox_understand(bid, item_id)
-    raw = database.get_inbox_item(item_id, bid)
-    item = _inbox_public(raw)
-    item["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id), raw)
-    return {"ok": True, "item": item}
+    actor, actor_id = _actor(x_auth, bid)
+    try:
+        got = intake.receive_text(bid, body.text or "", title=body.title,
+                                  source=_intake_source(body.source),
+                                  actor=actor, actor_id=actor_id)
+    except intake.IntakeError as e:
+        # Слишком длинная заметка — это «не помещается», а не «неверный запрос»:
+        # у 413 в интерфейсе своя подсказка, и терять её нельзя.
+        code = 413 if "длиннее" in str(e) else 400
+        raise HTTPException(status_code=code, detail=str(e))
+    return {"ok": True,
+            "item": _item_public(bid, got["item_id"], got["duplicate"], got["of"])}
 
 
 @app.post("/api/inbox/upload")
@@ -3183,46 +3141,72 @@ async def api_inbox_upload(files: list[UploadFile] = File(...),
         raise HTTPException(status_code=413,
                             detail=f"За один раз — не больше {INBOX_MAX_FILES} файлов.")
 
+    actor, actor_id = _actor(x_auth, bid)
     saved, failed = [], []
     for f in files:
         name = _inbox_safe_name(f.filename)
-        ext = _inbox_ext(f.filename)
         try:
             data = await f.read()
         except Exception:
             failed.append({"filename": name, "error": "Файл не удалось прочитать"})
             continue
-        if not data:
-            failed.append({"filename": name, "error": "Файл пустой"})
-            continue
-        if len(data) > INBOX_MAX_BYTES:
-            failed.append({"filename": name,
-                           "error": f"Больше {INBOX_MAX_BYTES // (1024*1024)} МБ"})
-            continue
-        if ext not in INBOX_TYPES:
-            failed.append({"filename": name,
-                           "error": "Такой тип файла пока не принимаем"})
-            continue
-        # Тип берём по расширению, а не из заголовка запроса: заголовок
-        # присылает клиент, и верить ему при выдаче файла нельзя.
-        mime = INBOX_TYPES[ext]
-        key = storage.new_key(name)
         try:
-            storage.put(bid, key, data)
-        except Exception:
-            logging.exception("Inbox: не удалось сохранить файл (biz %s)", bid)
-            failed.append({"filename": name, "error": "Хранилище недоступно"})
+            got = intake.receive_file(bid, f.filename or name, data,
+                                      source=_intake_source(source),
+                                      actor=actor, actor_id=actor_id)
+        except intake.IntakeError as e:
+            failed.append({"filename": name, "error": str(e).rstrip(".")})
             continue
-        item_id = database.add_inbox_item(
-            bid, kind="file", title=name, filename=name, mime=mime,
-            size=len(data), storage_key=key, source=source)
-        _inbox_understand(bid, item_id)
-        raw = database.get_inbox_item(item_id, bid)
-        row = _inbox_public(raw)
-        row["result"] = _inbox_result_public(database.get_inbox_result(bid, item_id), raw)
-        saved.append(row)
+        saved.append(_item_public(bid, got["item_id"], got["duplicate"], got["of"]))
 
     return {"ok": bool(saved), "saved": saved, "failed": failed}
+
+
+@app.post("/api/inbox/intake")
+async def api_intake(text: str = Form(default=""),
+                     files: list[UploadFile] = File(default=None),
+                     source: str = Form(default="web"),
+                     business_id: int = Form(default=0),
+                     x_auth: str = Header(default="")):
+    """
+    Одна дверь: текст и файлы одной отправкой.
+
+    Так человек и говорит: «вот прайс, цены с сентября» — фраза и файл вместе.
+    Раньше это были два запроса, и пояснение отрывалось от того, что оно
+    поясняет. Ни одного поля «выберите тип» здесь нет и не будет: разбираться,
+    что прислали, — работа VELOR, а не отправителя.
+
+    Отвечаем по каждой части отдельно: принято, уже было, не приняли. Один
+    плохой файл в пачке не отменяет остальные.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    actor, actor_id = _actor(x_auth, bid)
+
+    payload = []
+    for f in (files or []):
+        try:
+            payload.append((f.filename or "файл", await f.read()))
+        except Exception:
+            payload.append((f.filename or "файл", b""))   # пустое отсеет приём
+
+    try:
+        got = intake.receive(bid, text=text, files=payload,
+                             source=_intake_source(source),
+                             actor=actor, actor_id=actor_id)
+    except intake.IntakeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "ok": bool(got["accepted"]),
+        "accepted": [_item_public(bid, i) for i in got["accepted"]],
+        # Повтор — не ошибка и не успех. Показываем ровно то, что случилось:
+        # «это уже есть, вот оно» — и ведём к первому материалу, из которого
+        # выводы уже сделаны.
+        "duplicates": [dict(_item_public(bid, d["id"], True, d["of"]),
+                            what=d["what"]) for d in got["duplicates"]],
+        "rejected": got["rejected"],
+    }
 
 
 @app.get("/api/inbox/{item_id}")
@@ -3350,7 +3334,7 @@ def api_inbox_action(item_id: int, body: InboxAction, x_auth: str = Header(defau
     # исходное предложение будет уже неоткуда.
     proposed = understanding.prefill(body.action, res, item) or {}
     try:
-        detail, entity, entity_id, used = understanding.apply_action(
+        detail, entity, entity_id, used, made = understanding.apply_action(
             bid, item_id, body.action, res, auto=False, data=body.data)
     except understanding.ActionError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -3360,14 +3344,25 @@ def api_inbox_action(item_id: int, body: InboxAction, x_auth: str = Header(defau
 
     changes = understanding.diff(proposed, used) if body.data is not None else {}
     actor, actor_id = _actor(x_auth, bid)
+    said_type, said_id = understanding.named_result(entity, entity_id, made)
     decision_id = database.add_inbox_decision(
         bid, item_id, "edited" if changes else "confirmed", result_id=res["id"],
-        action=body.action, entity_type=entity, entity_id=entity_id,
+        action=body.action, entity_type=said_type, entity_id=said_id,
         original=proposed, corrected=used, changes=changes,
         actor=actor, actor_id=actor_id, note=detail)
     # Знание родилось — записываем, из чего. Без этой строки запись в памяти
-    # выглядит как взявшаяся ниоткуда, и проверить её будет нечем.
-    if entity and entity_id:
+    # выглядит как взявшаяся ниоткуда, и проверить её будет нечем. У прайса
+    # записей столько же, сколько позиций: происхождение нужно каждой.
+    for one in (made or []):
+        database.add_memory_link(
+            bid, one["entity_type"], one["entity_id"],
+            event="edited" if one["what"] == "updated" else "created",
+            source_kind="inbox", item_id=item_id, result_id=res["id"],
+            decision_id=decision_id, confidence=res.get("confidence"),
+            actor=actor, actor_id=actor_id,
+            note=("Обновлено из прайса: " if one["what"] == "updated"
+                  else "Из прайса: ") + one["title"][:120])
+    if entity and entity_id and not made:
         database.add_memory_link(
             bid, entity, entity_id, event="created", source_kind="inbox",
             item_id=item_id, result_id=res["id"], decision_id=decision_id,
@@ -3376,13 +3371,14 @@ def api_inbox_action(item_id: int, body: InboxAction, x_auth: str = Header(defau
 
     applied = list(res.get("applied") or [])
     applied.append({"action": body.action, "auto": False, "detail": detail,
-                    "entity_type": entity, "entity_id": entity_id,
+                    "entity_type": said_type, "entity_id": said_id,
+                    "items": len(made) or None,
                     "edited": bool(changes)})
     database.mark_result_applied(res["id"], bid, applied)
     if body.action != "ask_user":
         database.set_inbox_status(item_id, bid, "PROCESSED")
     raw = database.get_inbox_item(item_id, bid)
-    return {"ok": True, "detail": detail, "entity_type": entity, "entity_id": entity_id,
+    return {"ok": True, "detail": detail, "entity_type": said_type, "entity_id": said_id,
             "changes": changes,
             "result": _inbox_result_public(database.get_inbox_result(bid, item_id), raw),
             "item": _inbox_public(raw),
