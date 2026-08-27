@@ -666,13 +666,22 @@ def _handle_one(bid: int, ig_id: str, item: dict) -> bool:
                            once_key=f"ig-attach:{sender}")
         return True
 
-    import botcore
+    import sales
     client = database.get_client(client_id, bid) or {"id": client_id, "name": name}
     try:
-        reply = botcore.reply_for(bid, client, text, channel=PROVIDER, save_incoming=False)
+        decision = sales.answer(bid, client, text, channel=PROVIDER)
     except Exception:
-        log.exception("Instagram: ответ не построен (biz %s)", bid)
-        reply = None
+        # Откатываться на прежнее ядро здесь НЕЛЬЗЯ: оно отвечает без проверки
+        # на выдумку, и сбой в защите обернулся бы выдуманной ценой. Молчим и
+        # зовём человека — это худший ответ клиенту и единственно честный.
+        log.exception("AI-продавец не отработал (biz %s)", bid)
+        decision = {"reply": sales.HOLD_REPLY, "handoff": True, "draft": None,
+                    "reason": "Внутренняя ошибка ответа — отвечает человек."}
+
+    if decision.get("handoff"):
+        _handoff(bid, sender, decision, text)
+
+    reply = decision.get("reply")
     if not reply or not token:
         return True
     try:
@@ -691,6 +700,24 @@ def _handle_one(bid: int, ig_id: str, item: dict) -> bool:
         # собственный ответ за вмешательство человека и не замолчать зря.
         database.ig_seen_mid(bid, out_mid)
     return True
+
+
+def _handoff(bid, igsid, decision, question):
+    """
+    Передать разговор человеку и объяснить, почему.
+
+    Владельцу показываем и причину, и черновик, который VELOR хотел отправить.
+    Причина отвечает на вопрос «что случилось», черновик — на куда более
+    полезный «чего не хватает в памяти бизнеса»: чаще всего там ровно та цена
+    или то условие, которые никто не внёс.
+    """
+    reason = (decision.get("reason") or "VELOR не уверен в ответе.")[:400]
+    draft = (decision.get("draft") or "")[:2000] or None
+    database.ig_thread_pause(bid, igsid, True, by="ai_unsure")
+    database.ig_thread_reason(bid, igsid, why=reason, draft=draft)
+    database.log_event(
+        bid, "reply", "Instagram: нужен человек", reason,
+        level="important", once_key=f"ig-unsure:{igsid}")
 
 
 def _ts(value) -> str:

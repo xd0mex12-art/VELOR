@@ -42,6 +42,7 @@ import graph
 import director
 import connections
 import instagram
+import sales
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -4517,6 +4518,58 @@ async def api_instagram_webhook(request: Request):
     return {"ok": True}
 
 
+class AiPolicyIn(BaseModel):
+    channel: str = "instagram"
+    level: int | None = None
+    grants: list[str] | None = None
+    business_id: int = 0
+
+
+@app.get("/api/ai/policy")
+def api_ai_policy(channel: str = "instagram", business_id: int = 0,
+                  x_auth: str = Header(default="")):
+    """
+    Насколько самостоятельно VELOR разговаривает с клиентами в этом канале.
+
+    Отдаём и текущую настройку, и весь справочник: владелец должен читать не
+    коды разрешений, а что именно они позволяют. «send_price» ему ни о чём не
+    говорит, «называть цены из каталога» — говорит всё.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    pol = sales.policy(bid, channel)
+    return {
+        "policy": pol,
+        "levels": sales.levels_public(),
+        "permissions": sales.permissions_public(),
+        "dangerous": list(sales.DANGEROUS),
+        "default_level": sales.DEFAULT_LEVEL,
+        # Продавец силён ровно настолько, насколько полна память бизнеса.
+        # Пустой каталог — это не «ИИ плохой», это нечего продавать, и увидеть
+        # это надо здесь, а не по молчанию канала.
+        "memory": sales.memory_health(bid),
+    }
+
+
+@app.post("/api/ai/policy")
+def api_ai_policy_set(body: AiPolicyIn, x_auth: str = Header(default="")):
+    """
+    Изменить автономию.
+
+    Опасные действия включаются только отсюда и только поимённо: ни один
+    уровень их не выдаёт. Каждое включение попадает в историю компании — чтобы
+    на вопрос «кто разрешил VELOR давать скидки» был ответ.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    who, _ = _actor(x_auth, bid)
+    try:
+        pol = sales.set_policy(bid, body.channel or "instagram",
+                               level=body.level, grants=body.grants, actor=who)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "policy": pol}
+
+
 @app.get("/api/instagram/threads")
 def api_instagram_threads(business_id: int = 0, x_auth: str = Header(default="")):
     """Все переписки директа: кто написал, когда, сколько осталось на ответ."""
@@ -4542,7 +4595,8 @@ def api_instagram_thread(igsid: str, business_id: int = 0,
     return {"thread": t,
             "client": database.get_client(t["client_id"], bid),
             "messages": database.get_client_messages(t["client_id"], bid, limit=200),
-            "window": instagram.window_state(bid, igsid)}
+            "window": instagram.window_state(bid, igsid),
+            "policy": sales.policy(bid, "instagram")}
 
 
 class IgReplyIn(BaseModel):

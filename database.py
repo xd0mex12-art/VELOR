@@ -287,6 +287,11 @@ def _migrate_columns(conn):
         # Каким каналом пришло сообщение. Пусто — Telegram или веб: так было до
         # появления второго канала, и переписывать прошлое задним числом нельзя.
         ("messages", "channel", "TEXT"),
+        # Почему разговор ушёл человеку и что VELOR хотел сказать. Черновик
+        # нужен владельцу больше, чем причина: по нему видно, какой цены или
+        # какого условия не хватает в памяти бизнеса.
+        ("ig_threads", "paused_why", "TEXT"),
+        ("ig_threads", "ai_draft", "TEXT"),
         ("timeline", "read_at", "TEXT"),                 # центр уведомлений: прочитанность
         ("timeline", "level", "TEXT DEFAULT 'info'"),    # info | important
         ("finance_entries", "op_date", "TEXT"),          # дата операции по выписке
@@ -759,6 +764,28 @@ def init_db():
                )"""
         )
 
+        # ---------- АВТОНОМИЯ AI-ПРОДАВЦА ----------
+        # Насколько самостоятельно VELOR разговаривает с клиентами в канале.
+        # Отдельно по каналам: директ и телеграм — разные аудитории, и владелец
+        # вправе доверять им по-разному.
+        #
+        # Уровень и поимённые разрешения хранятся врозь не для красоты: уровень
+        # это готовый набор для обычных действий, а опасные (скидка, возврат,
+        # цена мимо прайса) не входят ни в один уровень и включаются только
+        # поштучно. Слив их в одно поле, мы однажды выдали бы право на скидку
+        # вместе с повышением уровня.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS ai_policy (
+                   business_id INTEGER NOT NULL,
+                   channel     TEXT NOT NULL,
+                   level       INTEGER,
+                   grants      TEXT,               -- JSON: разрешения поимённо
+                   updated_at  TEXT DEFAULT (datetime('now')),
+                   updated_by  TEXT,
+                   PRIMARY KEY (business_id, channel)
+               )"""
+        )
+
         # ---------- INSTAGRAM КАК КАНАЛ ----------
         # Переписка в директе. Отдельная таблица, потому что здесь живут факты
         # самого канала, которым не место в карточке клиента: его id в Instagram,
@@ -782,6 +809,8 @@ def init_db():
                    ai_paused    INTEGER DEFAULT 0,  -- разговор ведёт человек
                    paused_by    TEXT,
                    paused_at    TEXT,
+                   paused_why   TEXT,               -- чего не хватило VELOR
+                   ai_draft     TEXT,               -- что он хотел ответить
                    created_at   TEXT DEFAULT (datetime('now')),
                    UNIQUE(business_id, igsid)
                )"""
@@ -1804,7 +1833,7 @@ def delete_business(business_id):
         # Без этого от удалённой компании оставался бы её журнал происхождения.
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections",
-                    "ig_threads", "ig_seen"):
+                    "ig_threads", "ig_seen", "ai_policy"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -3501,6 +3530,58 @@ def save_message(business_id, client_id, role, content, channel=None, created_at
         )
 
 
+# ---------- АВТОНОМИЯ AI-ПРОДАВЦА ----------
+
+def ai_policy(business_id, channel):
+    """Настройка автономии канала. None — владелец её ещё не трогал."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM ai_policy WHERE business_id = ? AND channel = ?",
+            (business_id, channel)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["grants"] = _json.loads(d.get("grants") or "[]")
+    except (ValueError, TypeError):
+        d["grants"] = []
+    return d
+
+
+def save_ai_policy(business_id, channel, level=None, grants=None, actor=None):
+    """
+    Записать уровень и/или разрешения.
+
+    None означает «не трогали»: включить право, не сбив уровень, и поднять
+    уровень, не тронув права, — два разных действия, и путать их нельзя.
+    """
+    cur = ai_policy(business_id, channel) or {}
+    new_level = cur.get("level") if level is None else int(level)
+    new_grants = cur.get("grants") or [] if grants is None else list(grants)
+    blob = _json.dumps(new_grants, ensure_ascii=False)
+    with _connect() as conn:
+        if cur:
+            conn.execute(
+                """UPDATE ai_policy SET level = ?, grants = ?, updated_by = ?,
+                       updated_at = datetime('now')
+                   WHERE business_id = ? AND channel = ?""",
+                (new_level, blob, actor, business_id, channel))
+        else:
+            conn.execute(
+                """INSERT INTO ai_policy (business_id, channel, level, grants, updated_by)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (business_id, channel, new_level, blob, actor))
+
+
+def ig_thread_reason(business_id, igsid, why=None, draft=None):
+    """Запомнить, чего VELOR не хватило и что он хотел ответить."""
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE ig_threads SET paused_why = ?, ai_draft = ?
+               WHERE business_id = ? AND igsid = ?""",
+            (why, draft, business_id, str(igsid)))
+
+
 # ---------- INSTAGRAM: переписки и защита от повторов ----------
 
 def find_business_by_ig_id(ig_id):
@@ -3620,13 +3701,18 @@ def ig_thread_pause(business_id, igsid, paused=True, by="owner"):
     ответил из приложения Instagram» — разные события, и по ним видно, где
     людям приходится вмешиваться чаще всего.
     """
+    on = 1 if paused else 0
     with _connect() as conn:
+        # Возвращая разговор VELOR, стираем и причину, и черновик: они
+        # относились к прошлой остановке, а оставленные висеть объясняли бы
+        # владельцу то, чего уже нет.
         conn.execute(
             """UPDATE ig_threads SET ai_paused = ?, paused_by = ?,
-                   paused_at = CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END
+                   paused_at = CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END,
+                   paused_why = CASE WHEN ? = 1 THEN paused_why ELSE NULL END,
+                   ai_draft   = CASE WHEN ? = 1 THEN ai_draft   ELSE NULL END
                WHERE business_id = ? AND igsid = ?""",
-            (1 if paused else 0, by if paused else None, 1 if paused else 0,
-             business_id, str(igsid)))
+            (on, by if paused else None, on, on, on, business_id, str(igsid)))
 
 
 def ig_thread_paused(business_id, igsid):

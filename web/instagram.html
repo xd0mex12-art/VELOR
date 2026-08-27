@@ -94,6 +94,58 @@
     align-items:center; }
   .acts .cnt{ font-size:var(--fs-caption); color:var(--ash); margin-left:auto; }
 
+  /* автономия продавца */
+  .auto{ margin-top:var(--sp-6); border:1px solid var(--hairline);
+    border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-5); }
+  .auto h3, .limits h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); }
+  .auto .lead{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--silver);
+    line-height:1.6; max-width:70ch; }
+  .gap{ margin-top:var(--sp-4); border-left:2px solid var(--saffron);
+    padding-left:var(--sp-3); font-size:var(--fs-sm); color:var(--silver); line-height:1.6; }
+  .levels{ margin-top:var(--sp-5); display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(228px,1fr)); gap:var(--sp-3); }
+  .lv{ text-align:left; min-height:44px; padding:var(--sp-4); border-radius:var(--r-md);
+    border:1px solid var(--hairline); background:var(--surface-2); color:inherit;
+    display:flex; flex-direction:column; gap:6px; transition:border-color var(--dur-fast); }
+  .lv:hover{ border-color:var(--hairline-2); }
+  .lv:focus-visible{ outline:2px solid var(--ring); outline-offset:2px; }
+  /* Выбранный уровень отмечен и рамкой, и словом «сейчас»: одним цветом
+     состояние показывать нельзя — его не увидят те, кто цвет не различает. */
+  .lv[aria-pressed="true"]{ border-color:var(--iris); background:var(--tint-iris); }
+  .lv .n{ font-size:var(--fs-caption); color:var(--ash); letter-spacing:.1em; }
+  .lv .t{ font-size:var(--fs-body); font-weight:var(--fw-med); }
+  .lv .d{ font-size:var(--fs-sm); color:var(--silver); line-height:1.5; }
+  .lv .now{ font-size:var(--fs-caption); color:var(--ink-iris); }
+
+  .perms{ margin-top:var(--sp-6); }
+  .perms .cap{ font-size:var(--fs-caption); color:var(--ash); letter-spacing:.1em;
+    text-transform:uppercase; margin-bottom:var(--sp-3); }
+  .pm{ display:flex; gap:var(--sp-3); align-items:flex-start; padding:var(--sp-3) 0;
+    border-bottom:1px solid var(--hairline); }
+  .pm:last-child{ border-bottom:0; }
+  .pm .mark{ flex:none; width:20px; font-size:var(--fs-body); line-height:1.4; }
+  .pm.on  .mark{ color:var(--ink-verdant); }
+  .pm.off .mark{ color:var(--ash); }
+  .pm .txt{ flex:1; min-width:0; }
+  .pm .txt b{ font-weight:var(--fw-med); font-size:var(--fs-body); }
+  .pm .txt .d{ margin-top:3px; font-size:var(--fs-sm); color:var(--silver); line-height:1.5; }
+  .pm .act{ flex:none; }
+  .danger{ margin-top:var(--sp-6); border:1px solid rgba(255,107,107,.28);
+    border-radius:var(--r-md); padding:var(--sp-4); background:rgba(255,107,107,.04); }
+  .danger .cap{ color:var(--ink-coral); }
+
+  /* почему VELOR замолчал */
+  .why-box{ border:1px solid rgba(255,184,41,.3); background:rgba(255,184,41,.05);
+    border-radius:var(--r-md); padding:var(--sp-4); font-size:var(--fs-sm);
+    line-height:1.55; color:var(--silver); }
+  .why-box b{ color:var(--bone); font-weight:var(--fw-med); }
+  .why-box .draft{ margin-top:var(--sp-3); padding-top:var(--sp-3);
+    border-top:1px solid var(--hairline); color:var(--ash); }
+  /* Переносы держит только сам черновик: пояснение вокруг него — обычный
+     текст, и разрывы вёрстки в нём выглядели бы поломкой. */
+  .why-box q{ color:var(--silver); white-space:pre-wrap; }
+
   .limits{ margin-top:var(--sp-6); border:1px solid var(--hairline);
     border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-5); }
   .limits h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
@@ -146,6 +198,8 @@
 
   <div id="failZone" role="alert"></div>
   <div id="body"><div class="v-sk panel"></div></div>
+
+  <section class="auto" id="autonomy" hidden></section>
 
   <section class="limits" id="limits" hidden>
     <h3>Что Instagram не разрешает</h3>
@@ -288,6 +342,10 @@ function chatHTML(){
         paused ? 'Отвечает человек' : 'Отвечает VELOR'}</span>
     </div>
     <div class="win ${line.tone}">${esc(line.text)}</div>
+    ${paused && t.paused_why ? `<div class="why-box">
+      <b>VELOR остановился и позвал вас.</b> ${esc(t.paused_why)}
+      ${t.ai_draft ? `<div class="draft">Он хотел ответить так: <q>${esc(t.ai_draft)}</q> — но отправлять непроверенное нельзя. Если это правда, допишите её в память бизнеса, и дальше он ответит сам.</div>` : ''}
+    </div>` : ''}
     <div class="scroll" id="scroll">${
       msgs.length ? msgs.map(m => `<div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">${
         esc(m.content)}<span class="t num">${esc(when(m.created_at))}</span></div>`).join('')
@@ -424,6 +482,111 @@ function paintLimits(d){
   document.getElementById('limits').hidden = false;
 }
 
+// ── автономия ──────────────────────────────────────────────────────────────
+// Владелец читает не коды разрешений, а что именно они позволяют: «send_price»
+// не говорит ему ничего, «называть цены из каталога» — говорит всё.
+let POL = null;
+
+function permHTML(p, allowed){
+  const on = allowed.includes(p.key);
+  const act = p.danger
+    ? `<button class="v-btn ${on ? 'ghost ' : ''}sm" type="button"
+         data-perm="${esc(p.key)}" data-on="${on}">${on ? 'Запретить' : 'Разрешить'}</button>`
+    : '';
+  return `<div class="pm ${on ? 'on' : 'off'}">
+    <span class="mark" aria-hidden="true">${on ? '✓' : '—'}</span>
+    <span class="txt"><b>${esc(p.title)}</b>
+      <span class="v-sr-only">${on ? ' — разрешено' : ' — запрещено'}</span>
+      <span class="d">${esc(p.means)}</span></span>
+    ${act ? `<span class="act">${act}</span>` : ''}
+  </div>`;
+}
+
+function paintAutonomy(d){
+  POL = d;
+  const pol = d.policy, allowed = pol.allowed || [];
+  const safe = d.permissions.filter(p => !p.danger);
+  const risky = d.permissions.filter(p => p.danger);
+  const mem = d.memory || {};
+  const box = document.getElementById('autonomy');
+
+  box.innerHTML = `
+    <h3>Автономия VELOR в директе</h3>
+    <p class="lead">Насколько самостоятельно он разговаривает с клиентами. Цены,
+      условия и сроки он в любом случае берёт только из памяти бизнеса: чего там
+      нет — не скажет, а позовёт вас.</p>
+    ${(mem.gaps || []).length ? `<div class="gap">${
+      mem.gaps.map(g => esc(g)).join(' ')} Пока это так, продавец будет часто
+      передавать разговор вам — ему просто нечего ответить.</div>` : ''}
+
+    <div class="levels" role="group" aria-label="Уровень автономии">${
+      d.levels.map(l => `<button class="lv" type="button" data-level="${l.level}"
+        aria-pressed="${l.level === pol.level}">
+        <span class="n num">УРОВЕНЬ ${l.level}</span>
+        <span class="t">${esc(l.title)}</span>
+        <span class="d">${esc(l.means)}</span>
+        ${l.level === pol.level ? '<span class="now">Выбран сейчас</span>' : ''}
+      </button>`).join('')}</div>
+
+    <div class="perms">
+      <div class="cap">Что он может сейчас</div>
+      ${safe.map(p => permHTML(p, allowed)).join('')}
+    </div>
+
+    <div class="danger">
+      <div class="cap">Опасные действия — каждое включается отдельно</div>
+      <p class="lead">Ни один уровень их не даёт, включая четвёртый. Даже
+        разрешённые, они не позволяют выдумывать: скидка должна быть записана в
+        правилах работы, иначе проверка не пропустит ответ.</p>
+      ${risky.map(p => permHTML(p, allowed)).join('')}
+    </div>`;
+  box.hidden = false;
+  wireAutonomy();
+}
+
+function wireAutonomy(){
+  document.querySelectorAll('.lv').forEach(b => b.addEventListener('click', async () => {
+    if (Number(b.dataset.level) === POL.policy.level) return;
+    await savepolicy({ level: Number(b.dataset.level) }, b, 'Меняю…');
+  }));
+  document.querySelectorAll('[data-perm]').forEach(b => b.addEventListener('click', async () => {
+    const key = b.dataset.perm, on = b.dataset.on === 'true';
+    // Разрешить опасное действие — решение, а не переключатель: спрашиваем дважды.
+    if (!on && b.dataset.sure !== '1'){
+      b.dataset.sure = '1'; b.textContent = 'Точно разрешить?';
+      return;
+    }
+    const granted = new Set(POL.policy.granted || []);
+    on ? granted.delete(key) : granted.add(key);
+    await saveperms([...granted], b, on ? 'Запрещаю…' : 'Разрешаю…');
+  }));
+}
+
+async function saveperms(grants, btn, label){ await savepolicy({ grants }, btn, label); }
+
+async function savepolicy(patch, btn, label){
+  const was = btn.textContent;
+  btn.disabled = true; btn.textContent = label;
+  try{
+    const r = await fetch('/api/ai/policy', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ channel:'instagram', ...patch })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не получилось изменить'); btn.textContent = was; }
+    else { toast('Сохранено'); await loadPolicy(); return; }
+  }catch{ toast('Нет связи с сервером'); btn.textContent = was; }
+  btn.disabled = false;
+}
+
+async function loadPolicy(){
+  try{
+    const r = await fetch('/api/ai/policy?channel=instagram');
+    if (!r.ok) throw new Error('http');
+    paintAutonomy(await r.json());
+  }catch{ document.getElementById('autonomy').hidden = true; }
+}
+
 function paintFail(msg){
   document.getElementById('failZone').innerHTML = `
     <div class="v-fail"><div><div class="t">Директ не загрузился</div>
@@ -452,6 +615,7 @@ async function load(quiet){
   DATA = d;
   document.getElementById('failZone').innerHTML = '';
   paintState(d); paintLimits(d);
+  loadPolicy();
   if (!quiet) paint(); else { paintThreadsOnly(); }
 }
 
