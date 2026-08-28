@@ -295,8 +295,24 @@ def create(business_id, *, title=None, interest=None, client_id=None,
           note=note or ("Возможность из «%s»" % (source or "—")))
     database.log_event(business_id, "client", "Новая возможность",
                        _short(title, 180), once_key="lead:%s" % lead_id)
+    # Слышим возможность сразу же: и слова клиента, и описание, которое владелец
+    # написал руками, — это одинаково его собственные слова, а не догадка.
+    _observe(business_id, lead_id, " ".join(x for x in (title, interest) if x),
+             message_id=message_id,
+             source="owner" if (source or "") == "manual" else "client")
     _react(business_id)
     return lead_id
+
+
+def _observe(business_id, lead_id, text, *, message_id=None, source="client"):
+    """Пересчитать оценку. Оценка не обязана существовать, чтобы лид жил."""
+    try:
+        import qualify
+        return qualify.observe(business_id, lead_id, text,
+                               message_id=message_id, source=source)
+    except Exception:
+        log.exception("Оценка возможности не пересчиталась (biz %s)", business_id)
+        return None
 
 
 def _react(business_id):
@@ -359,10 +375,13 @@ def from_message(business_id, client, text, *, source, channel=None,
         found, why = intent(text)
 
         if alive:
-            # Тот же разговор: третье сообщение подряд — не третий лид.
+            # Тот же разговор: третье сообщение подряд — не третий лид. Но
+            # третье сообщение — это новое наблюдение: «сколько стоит» → «а
+            # доставка?» → «нужно завтра» и есть растущее намерение.
             touch(business_id, alive["id"], message_id=message_id)
             if found:
                 _enrich(business_id, alive, text, interest=interest)
+            _observe(business_id, alive["id"], text, message_id=message_id)
             return alive["id"]
 
         if not found:
@@ -378,7 +397,8 @@ def from_message(business_id, client, text, *, source, channel=None,
             interest=_short(interest or text, 500),
             client_id=client_id, source=source, channel=channel or source,
             value=amount, currency=currency, why=why, message_id=message_id,
-            actor="velor", actor_id=None, note="Клиент написал сам")
+            actor="velor", actor_id=None, note="Клиент написал сам",
+            meta={"value_src": "client"} if amount else None)
     except Exception:
         log.exception("Не удалось завести возможность (biz %s)", business_id)
         return None
@@ -401,6 +421,7 @@ def _enrich(business_id, lead, text, interest=None):
         if amount:
             fields["value"] = amount
             fields["currency"] = currency
+            fields["meta"] = dict(lead.get("meta") or {}, value_src="client")
     if fields:
         database.update_lead(lead["id"], business_id, **fields)
         _link(business_id, lead["id"], "edited", source_kind="ai", actor="velor",
@@ -471,6 +492,26 @@ def owner_update(business_id, lead_id, fields, *, actor="business", actor_id=Non
     for name in ("title", "interest", "client_id", "source", "channel"):
         if name in fields and fields[name] not in (None, ""):
             clean[name] = fields[name]
+    # Оценку тоже можно поправить рукой. Сказал владелец «этот лид горячий» —
+    # значит горячий: он знает про клиента то, чего нет ни в одном сообщении.
+    # Дальше правила эту оценку не пересчитывают (см. owner_fields).
+    import qualify
+    drop = set()
+    for name, allowed in (("intent", qualify.INTENT_ORDER),
+                          ("fit", qualify.FIT_ORDER),
+                          ("priority", qualify.PRIORITY_ORDER)):
+        if name not in fields:
+            continue
+        if fields[name]:
+            if fields[name] not in allowed:
+                raise LeadError("Неизвестное значение поля «%s»." % name)
+            clean[name] = fields[name]
+        elif name in set(lead.get("owner_fields") or []):
+            # Пустое значение от человека здесь означает «считай сам»: владелец
+            # возвращает поле правилам. Без этого решение, принятое однажды,
+            # осталось бы навсегда — а обстоятельства меняются.
+            clean[name] = None
+            drop.add(name)
     if "value" in fields:
         raw = fields["value"]
         # Пустое значение от человека означает «сумму не знаем», а не «ноль».
@@ -486,7 +527,8 @@ def owner_update(business_id, lead_id, fields, *, actor="business", actor_id=Non
     if not clean:
         return lead
 
-    clean["owner_fields"] = sorted(set(lead.get("owner_fields") or []) | set(clean))
+    clean["owner_fields"] = sorted(
+        (set(lead.get("owner_fields") or []) | set(clean)) - drop)
     clean["last_activity_at"] = database.now()
     database.update_lead(lead_id, business_id, **clean)
     _link(business_id, lead_id, "edited", source_kind="manual", actor=actor,
@@ -578,6 +620,7 @@ def on_order(business_id, client_id, order_id, *, amount=None, channel=None):
         if amount and not lead.get("value") and "value" not in set(lead.get("owner_fields") or []):
             extra["value"] = amount
             extra["currency"] = "RUB"
+            extra["meta"] = dict(lead.get("meta") or {}, value_src="order")
         set_status(business_id, lead["id"], WON, order_id=order_id,
                    actor="velor", source_kind=channel or "auto", extra=extra)
         return lead["id"]
@@ -586,8 +629,19 @@ def on_order(business_id, client_id, order_id, *, amount=None, channel=None):
         return None
 
 
-def public(lead):
-    """Лид наружу: то же самое, но словами, которые можно показать человеку."""
+def public(lead, gap=None):
+    """
+    Лид наружу: то же самое, но словами, которые можно показать человеку.
+
+    Вместе с оценкой: насколько человек хочет купить, наше ли это, сколько
+    денег и что делать сейчас. Часть оценки зависит от времени и потому
+    считается здесь, а не берётся из колонки: «бизнес молчит третий час» через
+    сутки так и осталось бы третьим часом.
+
+    gap — уже посчитанный разрыв «клиент написал / бизнес ответил». В списке он
+    приходит одним запросом на всю страницу; поодиночке это было бы полсотни
+    запросов ради двух дат.
+    """
     if not lead:
         return None
     d = dict(lead)
@@ -605,4 +659,10 @@ def public(lead):
     # так же, как названные суммы.
     d["guess"] = guess
     d["why"] = list((d.get("meta") or {}).get("why") or [])
+    try:
+        import qualify
+        d["q"] = qualify.view(lead, gap=gap)
+    except Exception:
+        log.exception("Оценка возможности не собралась (lead %s)", lead.get("id"))
+        d["q"] = {}
     return d

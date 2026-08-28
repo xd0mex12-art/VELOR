@@ -361,6 +361,25 @@ def _migrate_columns(conn):
         # сохранении — а это ровно то, что человеку нужно прочитать, когда он
         # видит «ничего не изменилось» и не понимает почему.
         ("inbox_results", "notes", "TEXT"),
+        # ── оценка возможности ──────────────────────────────────────────────
+        # Три разных вопроса, три разные колонки. Один общий балл ответил бы
+        # сразу на все и ни на один: «73» не объясняет, дорогая это сделка или
+        # горячая, и что с ней делать.
+        ("leads", "intent", "TEXT"),            # low|medium|high — хочет ли купить
+        ("leads", "fit", "TEXT"),               # unknown|low|medium|high — наше ли это
+        # Приоритет считается на лету и в колонке НЕ хранится: он зависит от
+        # времени («бизнес молчит третий час»), а записанное время устаревает
+        # молча. В колонке лежит только то, что владелец поставил рукой, —
+        # понять, что это его решение, можно по owner_fields.
+        ("leads", "priority", "TEXT"),
+        # Оценка суммы по собственному прайсу. Отдельно от value: value — то,
+        # что назвали вслух, estimated_value — то, что мы посчитали сами, и
+        # смешивать их значило бы выдать расчёт за слова клиента.
+        ("leads", "estimated_value", "INTEGER"),
+        ("leads", "wanted_at", "TEXT"),         # к какой дате нужно, если её назвали
+        # Наблюдения с происхождением: что услышали, в каком сообщении и когда.
+        ("leads", "signals", "TEXT"),
+        ("leads", "qualified_at", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -4048,7 +4067,14 @@ LEAD_OPEN = ("new", "qualified", "in_progress")
 LEAD_FIELDS = ("client_id", "title", "interest", "status", "source", "channel",
                "value", "currency", "order_id", "lost_reason", "owner_fields",
                "meta", "first_message_id", "last_message_id",
-               "last_activity_at", "converted_at", "lost_at")
+               "last_activity_at", "converted_at", "lost_at",
+               # оценка возможности: чем она сильна, насколько наша и почему
+               "intent", "fit", "priority", "estimated_value", "wanted_at",
+               "signals", "qualified_at")
+
+# Поля, которые хранятся строкой JSON. Пустое значение — не «null», а пустой
+# список или словарь: иначе каждый вызывающий писал бы свою проверку на None.
+LEAD_JSON = {"meta": dict, "owner_fields": list, "signals": list}
 
 
 def now():
@@ -4063,13 +4089,16 @@ def now():
 def _lead_row(row):
     """Строка лида наружу: JSON-поля разобраны, число — числом."""
     d = dict(row)
-    for key in ("meta", "owner_fields"):
+    for key, empty in LEAD_JSON.items():
+        if key not in d:
+            continue
         raw = d.get(key)
         try:
-            d[key] = _json.loads(raw) if raw else ({} if key == "meta" else [])
+            d[key] = _json.loads(raw) if raw else empty()
         except (ValueError, TypeError):
-            d[key] = {} if key == "meta" else []
-    d["value"] = int(d["value"]) if d.get("value") not in (None, "") else None
+            d[key] = empty()
+    for key in ("value", "estimated_value"):
+        d[key] = int(d[key]) if d.get(key) not in (None, "") else None
     return d
 
 
@@ -4206,15 +4235,21 @@ def update_lead(lead_id, business_id, **fields):
     for key, val in fields.items():
         if key not in LEAD_FIELDS:
             continue
-        if key == "value":
+        if key in ("value", "estimated_value"):
             sets[key] = _lead_value(val)
         elif key == "status":
             if val not in LEAD_STATUSES:
                 raise ValueError("Неизвестный статус лида: %s" % val)
             sets[key] = val
-        elif key in ("meta", "owner_fields"):
+        elif key in LEAD_JSON:
             if isinstance(val, (dict, list, tuple, set)):
-                val = sorted(set(val)) if isinstance(val, (list, tuple, set)) else val
+                # owner_fields — множество имён, его сортируем; signals —
+                # последовательность наблюдений, и её порядок сам по себе
+                # смысл: по нему видно, как намерение росло.
+                if key == "owner_fields":
+                    val = sorted(set(val))
+                elif isinstance(val, (tuple, set)):
+                    val = list(val)
                 sets[key] = _json.dumps(val, ensure_ascii=False)
             else:
                 sets[key] = val
@@ -4300,6 +4335,72 @@ def lead_messages(business_id, lead_id, limit=100):
 def leads_of_client(business_id, client_id, limit=20):
     """Все возможности одного человека — и живые, и закрытые."""
     return list_leads(business_id, client_id=client_id, limit=limit)
+
+
+def last_exchanges(business_id, client_ids):
+    """
+    То же, что last_exchange, но сразу по списку людей — одним запросом.
+
+    Список возможностей показывается страницами по полсотни, и спрашивать про
+    каждую отдельно значило бы делать полсотни запросов ради двух дат.
+    """
+    ids = [int(c) for c in (client_ids or []) if c]
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT client_id,
+                       MAX(CASE WHEN role = 'user' THEN created_at END) AS last_in,
+                       MAX(CASE WHEN role = 'user' THEN id END)         AS last_in_id,
+                       MAX(CASE WHEN role != 'user' THEN created_at END) AS last_out,
+                       MAX(CASE WHEN role != 'user' THEN id END)        AS last_out_id
+                  FROM messages
+                 WHERE business_id = ? AND client_id IN ({marks})
+                 GROUP BY client_id""",
+            (business_id, *ids),
+        ).fetchall()
+    out = {}
+    for r in rows:
+        out[int(r["client_id"])] = {
+            "last_in_at": r["last_in"], "last_out_at": r["last_out"],
+            "last_in_id": r["last_in_id"],
+            "unanswered": bool(r["last_in_id"]) and (
+                not r["last_out_id"] or r["last_out_id"] < r["last_in_id"]),
+        }
+    return out
+
+
+def last_exchange(business_id, client_id):
+    """
+    Когда клиент написал в последний раз и когда ему в последний раз ответили.
+
+    Нужно ради одного вопроса, который стоит денег: «клиент спросил, а бизнес
+    молчит?». Считаем в базе одним запросом — спрашивается это по каждой живой
+    возможности, и вытаскивать ради двух дат всю переписку было бы расточительно.
+    """
+    if not client_id:
+        return {"last_in_at": None, "last_out_at": None, "last_in_id": None,
+                "unanswered": False}
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT MAX(CASE WHEN role = 'user' THEN created_at END) AS last_in,
+                      MAX(CASE WHEN role = 'user' THEN id END)         AS last_in_id,
+                      MAX(CASE WHEN role != 'user' THEN created_at END) AS last_out,
+                      MAX(CASE WHEN role != 'user' THEN id END)        AS last_out_id
+                 FROM messages WHERE business_id = ? AND client_id = ?""",
+            (business_id, int(client_id)),
+        ).fetchone()
+    last_in_id = row["last_in_id"]
+    last_out_id = row["last_out_id"]
+    return {
+        "last_in_at": row["last_in"], "last_out_at": row["last_out"],
+        "last_in_id": last_in_id,
+        # Сравниваем по id, а не по времени: две реплики в одну секунду
+        # различаются порядком записи, и «ответили раньше, чем спросили» —
+        # это ошибка сравнения строк, а не факт.
+        "unanswered": bool(last_in_id) and (not last_out_id or last_out_id < last_in_id),
+    }
 
 
 # ---------- ФИНАНСЫ (модуль AI-директор) ----------

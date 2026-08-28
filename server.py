@@ -46,6 +46,7 @@ import connections
 import instagram
 import sales
 import leads
+import qualify
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -941,6 +942,11 @@ class LeadPatch(BaseModel):
     # поле вовсе»: первое стирает значение, второе оставляет как было.
     value: str | None = None
     source: str | None = None
+    # Оценку владелец тоже может поставить рукой: он знает про клиента то,
+    # чего нет ни в одном сообщении. Дальше правила её не пересчитывают.
+    intent: str | None = None
+    fit: str | None = None
+    priority: str | None = None
     business_id: int = 0
 
 
@@ -952,7 +958,7 @@ class LeadStatusIn(BaseModel):
 
 
 def _lead_dicts():
-    """Словари состояний и причин — фронт не должен знать их наизусть."""
+    """Словари состояний, причин и уровней — фронт не должен знать их наизусть."""
     return {
         "statuses": [{"key": s, "title": leads.STATUS_RU[s],
                       "hint": leads.STATUS_HINT.get(s, ""),
@@ -960,24 +966,73 @@ def _lead_dicts():
         "reasons": [{"key": k, "title": v} for k, v in leads.LOST_REASONS.items()],
         "sources": [{"key": s, "title": entities.SOURCE_RU.get(s, s)}
                     for s in leads.SOURCES],
+        "levels": {
+            "intent": [{"key": k, "title": qualify.INTENT_RU[k],
+                        "hint": qualify.INTENT_HINT.get(k, "")}
+                       for k in qualify.INTENT_ORDER],
+            "fit": [{"key": k, "title": qualify.FIT_RU[k],
+                     "hint": qualify.FIT_HINT.get(k, "")}
+                    for k in qualify.FIT_ORDER],
+            "priority": [{"key": k, "title": qualify.PRIORITY_RU[k]}
+                         for k in qualify.PRIORITY_ORDER],
+        },
     }
+
+
+def _leads_public(bid, rows):
+    """
+    Возможности наружу вместе с оценкой.
+
+    Разрыв «клиент написал — бизнес молчит» спрашиваем ОДНИМ запросом на всю
+    страницу: поодиночке это полсотни походов в базу ради двух дат.
+    """
+    gaps = database.last_exchanges(bid, [r.get("client_id") for r in rows])
+    return [leads.public(r, gap=gaps.get(r.get("client_id"))) for r in rows]
 
 
 @app.get("/api/leads")
 def api_leads(business_id: int = 0, status: str = "", limit: int = 50,
               offset: int = 0, x_auth: str = Header(default="")):
     """
-    Воронка бизнеса: сами возможности и цифры по ним.
+    Воронка бизнеса: сами возможности, оценка каждой и цифры по всем.
 
-    Цифры считаются из таблицы лидов — другого способа узнать, сколько их, в
-    системе больше нет.
+    Открытые отдаются в порядке «кому отвечать первым», а не по дате: список,
+    отсортированный по времени, отвечает на вопрос «что случилось недавно», а
+    владельцу нужен ответ на «где я теряю деньги прямо сейчас».
     """
     bid = _resolve_bid(x_auth, business_id)
     status = status if (status in leads.STATUSES or status == "open") else None
-    rows = database.list_leads(bid, status=status, limit=max(1, min(limit, 200)),
-                               offset=max(0, offset))
-    out = {"items": [leads.public(r) for r in rows],
-           "stats": leads.overview(bid),
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    if status in (None, "open"):
+        # Сортировка по важности возможна только над всем срезом: приоритет
+        # считается в момент показа, и в SQL его нет. Берём срез целиком (он у
+        # малого бизнеса невелик) и режем на страницы уже здесь.
+        rows = database.list_leads(bid, status=status, limit=500, offset=0)
+        items = _leads_public(bid, rows)
+        items.sort(key=lambda i: qualify.rank(i.get("q") or {}), reverse=True)
+        page = items[offset:offset + limit]
+    else:
+        rows = database.list_leads(bid, status=status, limit=limit, offset=offset)
+        page = _leads_public(bid, rows)
+        items = None
+
+    stats = leads.overview(bid)
+    # Сколько возможностей требуют внимания прямо сейчас. Считается по тем же
+    # правилам, что и приоритет в карточке: второго счётчика с другой логикой
+    # в системе быть не должно.
+    if items is not None:
+        open_items = [i for i in items if i.get("open")]
+    else:
+        open_items = _leads_public(bid, database.list_leads(bid, status="open",
+                                                            limit=500))
+    stats["attention"] = sum(
+        1 for i in open_items
+        if (i.get("q") or {}).get("priority") in (qualify.URGENT, qualify.HIGH))
+    stats["waiting"] = sum(1 for i in open_items if (i.get("q") or {}).get("unanswered"))
+
+    out = {"items": page, "stats": stats,
            "total": database.count_leads(bid, status=status)}
     out.update(_lead_dicts())
     return out

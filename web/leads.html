@@ -52,6 +52,46 @@
   .st.won{ color:var(--verdant); }
   .st.lost{ color:var(--ash); }
 
+  /* приоритет: слово плюс цвет, никогда один цвет.
+     Он отвечает не «сколько баллов», а «смотреть ли сюда сейчас». */
+  .pri{ display:inline-flex; align-items:center; gap:7px; font-weight:var(--fw-semi);
+    font-size:var(--fs-caption); letter-spacing:.06em; padding:5px 12px;
+    border-radius:var(--r-pill); white-space:nowrap; text-transform:uppercase; }
+  .pri i{ width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+  .pri.urgent{ color:var(--coral); background:rgba(255,107,107,.14); }
+  .pri.high{ color:var(--saffron); background:rgba(255,184,41,.12); }
+  .pri.medium{ color:var(--lilac); background:var(--tint-iris); }
+  .pri.low{ color:var(--ash); background:var(--surface-2); }
+  .waiting{ font-size:var(--fs-caption); color:var(--coral); }
+
+  /* оценка в карточке: четыре ответа и причины под каждым */
+  .q{ display:grid; grid-template-columns:repeat(3,1fr); gap:var(--sp-4);
+    padding:var(--sp-4) 0 var(--sp-5); border-bottom:1px solid var(--hairline);
+    margin-bottom:var(--sp-5); }
+  @media(max-width:760px){ .q{ grid-template-columns:1fr; } }
+  .q .k{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); }
+  .q .v{ font-weight:var(--fw-reg); font-size:var(--fs-h3); letter-spacing:-.02em;
+    margin-top:6px; }
+  .q .v.est{ color:var(--saffron); }
+  .q ul{ list-style:none; margin-top:var(--sp-3); display:flex;
+    flex-direction:column; gap:5px; }
+  .q li{ font-size:var(--fs-sm); font-weight:var(--fw-thin); color:var(--silver);
+    padding-left:16px; position:relative; line-height:1.4; }
+  .q li::before{ content:'✓'; position:absolute; left:0; color:var(--verdant);
+    font-size:11px; top:2px; }
+  .q li.no::before{ content:'—'; color:var(--ash); }
+
+  /* что делать сейчас — самая крупная строка карточки */
+  .act{ display:flex; align-items:flex-start; gap:var(--sp-3);
+    padding:var(--sp-4); border-radius:var(--r-lg); background:var(--surface);
+    border:1px solid var(--hairline); margin-bottom:var(--sp-4); }
+  .act.hot{ border-color:rgba(255,107,107,.35); background:rgba(255,107,107,.06); }
+  .act .t{ font-weight:var(--fw-med); font-size:var(--fs-base); }
+  .act .d{ font-size:var(--fs-sm); font-weight:var(--fw-thin); color:var(--silver);
+    margin-top:3px; }
+  .risk{ margin-top:var(--sp-3); font-size:var(--fs-sm); color:var(--saffron); }
+
   /* раскрытая карточка */
   .card{ display:none; padding:0 0 var(--sp-6); }
   .lead-row.open .card{ display:block; }
@@ -205,7 +245,7 @@ const moreEl = document.getElementById('more');
 const foundEl = document.getElementById('found');
 const failEl = document.getElementById('failZone');
 let segment = 'open', offset = 0, total = 0, loading = false;
-let DICT = { statuses: [], reasons: [], sources: [] };
+let DICT = { statuses: [], reasons: [], sources: [], levels: {} };
 
 function statusTitle(key){
   const s = DICT.statuses.find(x => x.key === key);
@@ -221,8 +261,11 @@ function paintState(d){
       '<span>они появятся сами, когда клиент спросит цену или захочет записаться</span>';
     return;
   }
-  const cls = s.open ? 'good' : 'warn';
-  const word = s.open ? 'Есть с кем работать' : 'Открытых нет';
+  const cls = s.attention ? 'warn' : (s.open ? 'good' : 'calm');
+  const word = s.attention
+    ? s.attention + ' ' + plural(s.attention, 'требует внимания', 'требуют внимания',
+                                 'требуют внимания')
+    : (s.open ? 'Ничего срочного' : 'Открытых нет');
   const tail = [
     s.open + ' ' + plural(s.open, 'в работе', 'в работе', 'в работе'),
     s.closed ? 'конверсия ' + s.conversion + '%' : 'закрытых пока нет',
@@ -232,8 +275,12 @@ function paintState(d){
 
 function paintKpi(d){
   const s = d.stats || {};
+  // Первая цифра — не «сколько всего», а «сколько ждёт сейчас»: ради этого
+  // ответа страницу и открывают.
   const cards = [
-    ['Всего возможностей', s.total, s.last30 ? '+' + s.last30 + ' за 30 дней' : 'новых за месяц не было', 'up'],
+    ['Требуют внимания', s.attention || 0,
+     s.waiting ? s.waiting + ' ждут ответа' : 'все вопросы отвечены',
+     (s.attention ? 'hot' : '')],
     ['В работе', s.open, s.new ? s.new + ' ещё не трогали' : 'все в работе'],
     ['Купили', s.won, s.closed ? 'из ' + s.closed + ' закрытых' : 'закрытых пока нет'],
     ['Конверсия', s.closed ? s.conversion + '%' : '—',
@@ -242,8 +289,9 @@ function paintKpi(d){
   document.getElementById('kpi').innerHTML = cards.map(([k, v, sub, cls]) =>
     '<div class="v-kpi-card">' +
       '<div class="k">' + k + '</div>' +
-      '<div class="v num">' + (typeof v === 'number' ? v.toLocaleString('ru-RU') : esc(v)) + '</div>' +
-      '<div class="s ' + (cls === 'up' && s.last30 ? 'up' : '') + '">' + esc(sub) + '</div>' +
+      '<div class="v num"' + (cls === 'hot' ? ' style="color:var(--saffron)"' : '') + '>' +
+        (typeof v === 'number' ? v.toLocaleString('ru-RU') : esc(v)) + '</div>' +
+      '<div class="s">' + esc(sub) + '</div>' +
     '</div>').join('');
 }
 
@@ -257,20 +305,73 @@ function rowMeta(l){
 }
 
 function leadHTML(l){
+  const q = l.q || {};
+  // Деньги показываем и оценочные — но подписью «≈», чтобы их нельзя было
+  // спутать с суммой, которую человек назвал сам.
+  const sum = l.value ? '<span class="sum num">' + money(l.value) + '</span>'
+    : (q.money ? '<span class="sum num est" style="color:var(--saffron)">≈ ' + money(q.money) + '</span>'
+               : '<span class="sum none">сумму не называли</span>');
   return '' +
     '<div class="lead-row" data-id="' + l.id + '">' +
       '<div class="top" role="button" tabindex="0" aria-expanded="false">' +
         '<div>' +
           '<div class="nm">' + (esc(l.title) || 'Возможность') + '<span class="chev" aria-hidden="true"></span></div>' +
           '<div class="meta">' + rowMeta(l) + '</div>' +
+          (q.unanswered && l.open
+            ? '<div class="waiting">ждёт ответа' + (q.waiting_ru ? ' ' + esc(q.waiting_ru) : '') + '</div>'
+            : '') +
         '</div>' +
         '<div class="rt">' +
-          '<span class="st ' + esc(l.status) + '"><i></i>' + esc(l.status_ru) + '</span>' +
-          (l.value ? '<span class="sum num">' + money(l.value) + '</span>'
-                   : '<span class="sum none">сумму не называли</span>') +
+          (l.open && q.priority
+            ? '<span class="pri ' + esc(q.priority) + '"><i></i>' + esc(q.priority_ru) + '</span>'
+            : '<span class="st ' + esc(l.status) + '"><i></i>' + esc(l.status_ru) + '</span>') +
+          sum +
         '</div>' +
       '</div>' +
       '<div class="card" data-loaded="0"><div class="v-sk row"></div></div>' +
+    '</div>';
+}
+
+// Оценка возможности: четыре ответа и причина под каждым. Причина обязательна —
+// без неё это был бы тот самый непрозрачный балл, ради отказа от которого всё
+// и затевалось.
+function qHTML(l){
+  const q = l.q || {};
+  if (!q.priority) return '';
+  const li = (arr, cls) => (arr || []).slice(0, 4)
+    .map(x => '<li' + (cls ? ' class="' + cls + '"' : '') + '>' + esc(x) + '</li>').join('');
+
+  const action = q.action
+    ? '<div class="act' + (q.priority === 'urgent' || q.priority === 'high' ? ' hot' : '') + '">' +
+        '<span class="pri ' + esc(q.priority) + '"><i></i>' + esc(q.priority_ru) + '</span>' +
+        '<div><div class="t">' + esc(q.action) + '</div>' +
+        '<div class="d">' + esc(q.action_hint || '') + '</div></div>' +
+      '</div>'
+    : '';
+
+  const risks = (q.risks || []).length
+    ? '<div class="risk">⚠ ' + (q.risks || []).map(esc).join(' · ') + '</div>' : '';
+
+  const moneyLine = q.money
+    ? '<div class="v' + (q.money_estimated ? ' est' : '') + '">' +
+        (q.money_estimated ? '≈ ' : '') + money(q.money) + '</div>' +
+      '<ul><li' + (q.money_estimated ? ' class="no"' : '') + '>' +
+        esc(q.money_src || '') + '</li>' +
+        (q.money_estimated ? '<li class="no">это наша оценка, а не слова клиента</li>' : '') +
+        (q.wanted_at ? '<li>нужно к ' + esc(q.wanted_at) + '</li>' : '') + '</ul>'
+    : '<div class="v" style="color:var(--ash)">не знаем</div>' +
+      '<ul><li class="no">сумму никто не называл — придумывать её нельзя</li>' +
+      (q.wanted_at ? '<li>нужно к ' + esc(q.wanted_at) + '</li>' : '') + '</ul>';
+
+  return action + risks +
+    '<div class="q">' +
+      '<div><div class="k">Хочет купить</div>' +
+        '<div class="v">' + esc(q.intent_ru) + '</div>' +
+        '<ul>' + li(q.intent_why) + '</ul></div>' +
+      '<div><div class="k">Наше ли это</div>' +
+        '<div class="v">' + esc(q.fit_ru) + '</div>' +
+        '<ul>' + li(q.fit_why, q.fit === 'unknown' || q.fit === 'low' ? 'no' : '') + '</ul></div>' +
+      '<div><div class="k">Деньги</div>' + moneyLine + '</div>' +
     '</div>';
 }
 
@@ -285,7 +386,13 @@ function cardHTML(d){
   // читает как ошибку системы, а не как предположение о его деньгах.
   const FIELD_RU = {title: 'чего хочет', interest: 'подробности',
                     value: 'сумма', currency: 'валюта', status: 'состояние',
-                    lost_reason: 'причина', client_id: 'клиент', source: 'источник'};
+                    lost_reason: 'причина', client_id: 'клиент', source: 'источник',
+                    intent: 'намерение', fit: 'соответствие', priority: 'приоритет'};
+  const LV = DICT.levels || {intent: [], fit: [], priority: []};
+  const lvOpts = (list, cur) => ['<option value="">— считает VELOR —</option>']
+    .concat((list || []).map(o =>
+      '<option value="' + o.key + '"' + (o.key === cur ? ' selected' : '') + '>' +
+      esc(o.title) + '</option>')).join('');
   const guessKeys = Object.keys(d.lead.guess || {});
   const guessHTML = guessKeys.length
     ? '<div class="guess"><div class="h">VELOR предполагает — но это не факт</div>' +
@@ -314,7 +421,9 @@ function cardHTML(d){
       esc(l.owner_fields.map(k => FIELD_RU[k] || k).join(', ')) + '.</div>'
     : '';
 
+  const owned = new Set(l.owner_fields || []);
   return '' +
+    qHTML(l) +
     '<div class="fields">' +
       '<div class="f" style="grid-column:1/-1"><label>Чего хочет человек</label>' +
         '<input name="title" value="' + esc(l.title) + '"></div>' +
@@ -327,6 +436,15 @@ function cardHTML(d){
         '<input value="' + esc(l.client_name || 'не привязан') + '" disabled></div>' +
       '<div class="f" style="grid-column:1/-1"><label>Подробности</label>' +
         '<textarea name="interest" rows="2">' + esc(l.interest || '') + '</textarea></div>' +
+      // Оценку можно поправить рукой: владелец знает про клиента то, чего нет
+      // ни в одном сообщении. После правки правила это поле не пересчитывают.
+      '<div class="f"><label>Хочет купить</label>' +
+        '<select name="intent">' + lvOpts(LV.intent, owned.has('intent') ? l.intent : '') + '</select></div>' +
+      '<div class="f"><label>Наше ли это</label>' +
+        '<select name="fit">' + lvOpts(LV.fit, owned.has('fit') ? l.fit : '') + '</select></div>' +
+      '<div class="f"><label>Приоритет</label>' +
+        '<select name="priority">' + lvOpts(LV.priority, owned.has('priority') ? l.priority : '') + '</select>' +
+        '<div class="hint">Пусто — считает VELOR, заново при каждом открытии.</div></div>' +
     '</div>' +
     '<div class="card-acts">' +
       '<button class="v-btn save" type="button">Сохранить</button>' +
@@ -345,9 +463,12 @@ async function loadCard(el){
     if (!r.ok) throw 0;
     const d = await r.json();
     DICT = { statuses: d.statuses || DICT.statuses, reasons: d.reasons || DICT.reasons,
-             sources: d.sources || DICT.sources };
+             sources: d.sources || DICT.sources, levels: d.levels || DICT.levels };
     box.innerHTML = cardHTML(d);
     box.dataset.loaded = '1';
+    // Запоминаем состояние, с которым карточку открыли: сравнивать его с
+    // содержимым строки нельзя — там теперь стоит приоритет, а не состояние.
+    box.dataset.status = d.lead.status || '';
     wireCard(el, box);
   }catch{
     box.innerHTML = '<div class="v-fail"><div><div class="t">Карточка не открылась</div>' +
@@ -384,8 +505,7 @@ function wireCard(el, box){
     delete data.status; delete data.lost_reason;
     try{
       await post('/api/leads/' + id, data);
-      const now = el.querySelector('.st');
-      if (status && status !== now.classList[1]){
+      if (status && status !== box.dataset.status){
         await post('/api/leads/' + id + '/status', {status: status, lost_reason: reason || null});
       }
       toast('Сохранено');
@@ -448,7 +568,8 @@ async function load(more){
     const r = await fetch(url);
     if (!r.ok) throw 0;
     const d = await r.json();
-    DICT = { statuses: d.statuses || [], reasons: d.reasons || [], sources: d.sources || [] };
+    DICT = { statuses: d.statuses || [], reasons: d.reasons || [],
+             sources: d.sources || [], levels: d.levels || {} };
     failEl.innerHTML = '';
     paintState(d); paintKpi(d);
     total = d.total || 0;
