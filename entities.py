@@ -514,6 +514,97 @@ def _label_order(row):
     return {"title": _short(row.get("text"), 70) or "без описания", "sub": " · ".join(bits)}
 
 
+# ── лид: коммерческая возможность ──────────────────────────────────────────
+# Своей формы и своего аудита у лида нет и не нужно: реестр уже умеет и то, и
+# другое. Здесь он только объясняет, из каких полей состоит и где живёт.
+
+def _lead_status_options():
+    import leads
+    return [_opt(s, leads.STATUS_RU[s]) for s in leads.STATUSES]
+
+
+def _lead_reason_options():
+    import leads
+    return [_opt(k, v) for k, v in leads.LOST_REASONS.items()]
+
+
+def _lead_source_options():
+    import leads
+    return [_opt(s, SOURCE_RU.get(s) or s) for s in leads.SOURCES]
+
+
+def _make_lead(bid, data):
+    import leads
+    lid = leads.create(
+        bid, title=data["title"], interest=data.get("interest") or None,
+        client_id=data.get("client_id"), source=data.get("source") or "manual",
+        value=data.get("value") or None,
+        currency="RUB" if data.get("value") else None,
+        status=data.get("status") or leads.NEW,
+        # Всё, что владелец вписал руками, сразу его: заводя возможность
+        # вручную, он уже поручился за каждое слово в форме.
+        owner_fields=[k for k in ("title", "interest", "value") if data.get(k)],
+        note="Заведено вручную")
+    return lid, "Возможность: " + _short(data["title"], 60)
+
+
+def _read_lead(bid, eid):
+    row = database.get_lead(int(eid), bid)
+    if not row:
+        return None
+    return {"title": row.get("title") or "", "interest": row.get("interest") or "",
+            "client_id": row.get("client_id") or "", "status": row.get("status") or "new",
+            "source": row.get("source") or "", "value": row.get("value") or "",
+            "lost_reason": row.get("lost_reason") or ""}
+
+
+def _update_lead(bid, eid, data):
+    import leads
+    lead = leads.owner_update(bid, int(eid), {
+        "title": data.get("title"), "interest": data.get("interest"),
+        "client_id": data.get("client_id") or None,
+        "source": data.get("source") or None,
+        "value": data.get("value", ""),
+        "status": data.get("status") or None,
+        "lost_reason": data.get("lost_reason") or None,
+    })
+    return "Возможность: " + _short((lead or {}).get("title") or data.get("title"), 60)
+
+
+def _match_lead(bid, data):
+    """
+    Узнаём ту же возможность, а не любую.
+
+    У человека — его открытый разговор: второе сообщение из той же переписки не
+    должно заводить второй лид. Без человека — по названию среди открытых: тот
+    же материал, присланный дважды, описывает одну и ту же возможность.
+    """
+    import leads
+    if data.get("client_id"):
+        alive = leads.open_for(bid, int(data["client_id"]))
+        return alive["id"] if alive else None
+    want = norm_title(data.get("title"))
+    if not want:
+        return None
+    for row in database.list_leads(bid, status="open", limit=200):
+        if norm_title(row.get("title")) == want:
+            return row["id"]
+    return None
+
+
+def _label_lead(row):
+    import leads
+    bits = [leads.STATUS_RU.get(row.get("status"), row.get("status") or "")]
+    if row.get("client_name"):
+        bits.append(row["client_name"])
+    if row.get("value"):
+        bits.append(_money(row["value"]))
+    if row.get("lost_reason"):
+        bits.append(leads.LOST_REASONS.get(row["lost_reason"], row["lost_reason"]))
+    return {"title": _short(row.get("title"), 70) or "возможность",
+            "sub": " · ".join(b for b in bits if b)}
+
+
 GOAL_METRICS = ("income", "profit", "clients", "orders", "subscribers")
 
 
@@ -659,6 +750,37 @@ ENTITIES = {
         "archive": _archiver("clients"),
         "delete": lambda bid, eid: database.delete_client(int(eid), bid),
         "blockers": _client_blockers,
+    },
+    "lead": {
+        "title": "Возможность", "plural": "Возможности", "group": "money",
+        "where": "leads.html",
+        "fields": [f("title", "Чего хочет человек", "text", True,
+                     "букет на свадьбу, стрижка, доставка 50 роз"),
+                   f("client_id", "Клиент", "ref", False, "если он уже в базе",
+                     options_of=_client_options),
+                   f("value", "Сумма", "int", False,
+                     "только если её НАЗВАЛИ — пусто значит «не знаем»"),
+                   f("status", "Состояние", "text", False, "",
+                     options_of=lambda bid: _lead_status_options()),
+                   f("interest", "Подробности", "text", False,
+                     "своими словами: что именно нужно", main=False),
+                   f("source", "Откуда пришёл", "text", False, "",
+                     options_of=lambda bid: _lead_source_options(), main=False),
+                   f("lost_reason", "Почему не сложилось", "text", False,
+                     "заполняется, когда возможность закрыта",
+                     options_of=lambda bid: _lead_reason_options(), main=False)],
+        "make": _make_lead, "read": _read_lead, "update": _update_lead,
+        "match": _match_lead,
+        "row": lambda bid, eid: database.get_lead(int(eid), bid),
+        "list": lambda bid, limit, offset, archived=False: (
+            [] if archived else database.list_leads(bid, limit=limit, offset=offset)),
+        "count": lambda bid, archived=False: (
+            0 if archived else database.count_leads(bid)),
+        "label": _label_lead,
+        # Архива у возможности нет — у неё есть состояние. Закрытая возможность
+        # не прячется: из неё считается конверсия, и спрятанный проигрыш врал бы
+        # в воронке ровно так же, как спрятанный расход в прибыли.
+        "delete": lambda bid, eid: database.delete_lead(int(eid), bid),
     },
     "order": {
         "title": "Заявка", "plural": "Заявки", "group": "money",
@@ -1073,6 +1195,10 @@ SOURCE_RU = {
     "telegram": "из Telegram", "inbox": "из входящих", "ozon": "из Ozon",
     "amocrm": "из amoCRM", "csv": "из выписки", "xlsx": "из выписки",
     "pdf": "из выписки", "manual": "внесено вручную", "web": "внесено вручную",
+    # Каналы, из которых приходят коммерческие возможности. Словарь один на всю
+    # систему: два списка источников дали бы «telegram» и «Telegram» как два
+    # разных источника в одной воронке.
+    "instagram": "из Instagram", "website": "с сайта", "other": "другое",
 }
 
 

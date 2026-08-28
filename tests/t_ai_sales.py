@@ -266,8 +266,18 @@ d = sales.answer(bid, cl, "Сколько стоит букет пионов?")
 check("подтверждённый ответ уходит клиенту", d["reply"] and "4500" in d["reply"], d)
 check("и человека не зовут", not d["handoff"], d)
 check("лид записан", any(a["action"] == sales.CREATE_LEAD for a in d["actions"]), d["actions"])
-check("интерес попал в карточку",
-      "букет пионов" in (database.get_client(cl["id"], bid).get("notes") or ""),
+# ИЗМЕНЕНО ОСОЗНАННО. Раньше здесь проверялось, что интерес дописан в
+# clients.notes: тогда «лид» и был строчкой в заметке. У такой записи нет ни
+# состояния, ни причины проигрыша, и посчитать её нельзя — теперь возможность
+# это отдельная запись, и проверять надо её, а не заметку.
+_leads = database.list_leads(bid, client_id=cl["id"])
+check("возможность заведена отдельной записью", len(_leads) == 1, _leads)
+check("интерес попал в возможность",
+      _leads and "пион" in ((_leads[0].get("interest") or "")
+                            + (_leads[0].get("title") or "")).lower(), _leads)
+check("и она открыта", _leads and _leads[0]["status"] == "new", _leads)
+check("в заметках клиента интереса больше нет",
+      "Интерес:" not in (database.get_client(cl["id"], bid).get("notes") or ""),
       database.get_client(cl["id"], bid).get("notes"))
 check("в промпт ушла память бизнеса", "4500" in ASKED[-1], ASKED[-1][-400:])
 

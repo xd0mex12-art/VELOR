@@ -136,8 +136,21 @@ def reply_for(bid, client, text, channel=None, save_incoming=True):
     """
     business = database.get_business(bid) or {"name": "бизнес"}
     full_name = client.get("name") or "клиент"
+    mid = None
     if save_incoming:
-        database.save_message(bid, client["id"], "user", text, channel=channel)
+        mid = database.save_message(bid, client["id"], "user", text, channel=channel)
+
+    # Сообщение клиента остаётся сообщением — его никуда не переносят. Но если
+    # в нём слышно коммерческое намерение, над перепиской появляется отдельная
+    # запись: возможность. Она заводится ДО всех проверок ниже, потому что
+    # именно при выключенном ИИ и кончившемся лимите владельцу важнее всего
+    # видеть, кто спрашивал цену, пока продавец молчал.
+    try:
+        import leads
+        leads.from_message(bid, client, text, source=channel or "telegram",
+                           channel=channel, message_id=mid)
+    except Exception:
+        logging.exception("Возможность из разговора не завелась (biz %s)", bid)
 
     # Лимит тарифа исчерпан — вежливо принимаем без ИИ.
     if database.plan_status(business)["over"]:
@@ -189,6 +202,14 @@ def reply_for(bid, client, text, channel=None, save_incoming=True):
         )
         if order.get("phone") and not client.get("phone"):
             database.update_client(client["id"], bid, phone=order["phone"])
+        # Заявка оформлена — возможность стала сделкой. Заявка при этом
+        # остаётся там же, где была: лид только ссылается на неё.
+        try:
+            import leads
+            leads.on_order(bid, client["id"], order_id,
+                           amount=order.get("amount"), channel=channel)
+        except Exception:
+            logging.exception("Заявка не связалась с возможностью (biz %s)", bid)
         logging.info("[biz %s] Новый заказ №%s от %s", bid, order_id, full_name)
         if not reply:
             reply = f"Готово! Ваша заявка №{order_id} принята."

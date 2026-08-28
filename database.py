@@ -863,6 +863,52 @@ def init_db():
                )"""
         )
 
+        # ЛИДЫ — коммерческие возможности. Не клиент и не заявка, а то, что
+        # между ними: человек проявил интерес, но ещё ничего не купил.
+        #
+        # Почему отдельной таблицей. Раньше «лид» был строчкой «Интерес: …» в
+        # заметках клиента. У такой записи нет ни статуса, ни истории, ни
+        # причины проигрыша, а главное — её нельзя посчитать: количество лидов
+        # приходилось выводить из переписки, заметок и заявок, и три способа
+        # давали три разных числа. Одна возможность — одна строка здесь.
+        #
+        # client_id пустой допустим: человек может написать раньше, чем назовёт
+        # себя. Один клиент имеет НЕСКОЛЬКО лидов: майский букет и августовская
+        # свадьба — две разные возможности, а не два клиента.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS leads (
+                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id   INTEGER NOT NULL,
+                   client_id     INTEGER,
+                   title         TEXT NOT NULL,      -- коротко: о чём возможность
+                   interest      TEXT,               -- чего человек хочет, его словами
+                   status        TEXT DEFAULT 'new', -- new|qualified|in_progress|won|lost
+                   source        TEXT,               -- telegram|instagram|website|manual|…
+                   channel       TEXT,               -- канал переписки, если он был
+                   value         INTEGER,            -- сумма, ТОЛЬКО если её назвали
+                   currency      TEXT,
+                   order_id      INTEGER,            -- чем закончилась: существующая заявка
+                   lost_reason   TEXT,               -- price|competitor|no_response|…
+                   -- Какие поля правил человек. Автоматика их не трогает: цена,
+                   -- исправленная владельцем, не должна возвращаться к догадке
+                   -- модели при следующем сообщении.
+                   owner_fields  TEXT,
+                   -- Догадки и обстоятельства. Сюда же уходит всё, что VELOR
+                   -- предположил: в колонки попадает только сказанное вслух.
+                   meta          TEXT,
+                   -- История разговора не копируется внутрь лида: она уже есть
+                   -- в messages. Здесь только границы — от какого сообщения до
+                   -- какого шёл этот разговор.
+                   first_message_id INTEGER,
+                   last_message_id  INTEGER,
+                   created_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+                   updated_at       TEXT,
+                   last_activity_at TEXT,
+                   converted_at     TEXT,
+                   lost_at          TEXT
+               )"""
+        )
+
         # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
         _migrate_columns(conn)
 
@@ -906,6 +952,14 @@ def init_db():
             ("idx_finance_biz_kind",     "finance_entries", "business_id, kind"),
             ("idx_links_src",            "entity_links",    "business_id, src_type, src_id"),
             ("idx_links_dst",            "entity_links",    "business_id, dst_type, dst_id"),
+            # Лиды спрашивают тремя вопросами: покажи все, покажи по статусу
+            # («сколько открытых») и покажи по клиенту («есть ли у него живая
+            # возможность»). Последний — на КАЖДОЕ входящее сообщение, поэтому
+            # без индекса воронка тормозила бы сам разговор.
+            ("idx_leads_biz_created",    "leads",           "business_id, created_at"),
+            ("idx_leads_biz_status",     "leads",           "business_id, status"),
+            ("idx_leads_biz_client",     "leads",           "business_id, client_id"),
+            ("idx_leads_biz_source",     "leads",           "business_id, source"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -1906,7 +1960,7 @@ def delete_business(business_id):
         # Без этого от удалённой компании оставался бы её журнал происхождения.
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections",
-                    "ig_threads", "ig_seen", "ai_policy"):
+                    "ig_threads", "ig_seen", "ai_policy", "leads"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -3596,13 +3650,18 @@ def save_message(business_id, client_id, role, content, channel=None, created_at
     до появления второго канала; проставлять его задним числом было бы догадкой.
     created_at нужен, когда сообщение подтянуто из чужой истории: время у него
     своё, и подменять его моментом загрузки — значит переписать прошлое.
+
+    Возвращает id реплики. Он нужен лиду: возможность помнит, с какого
+    сообщения разговор начался, — и это дешевле и честнее, чем копировать
+    текст переписки внутрь карточки.
     """
     with _connect() as conn:
-        conn.execute(
+        cur = conn.execute(
             """INSERT INTO messages (business_id, client_id, role, content, channel, created_at)
                VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))""",
             (business_id, client_id, role, content, channel, created_at),
         )
+        return cur.lastrowid
 
 
 # ---------- АВТОНОМИЯ AI-ПРОДАВЦА ----------
@@ -3973,6 +4032,274 @@ def update_order_status(order_id, status, business_id):
         )
     if status in ("принят", "выполнен", "отменён"):
         log_event(business_id, "order", f"Заказ №{order_id} — {status}")
+
+
+# ---------- ЛИДЫ (коммерческие возможности) ----------
+#
+# Здесь только хранение. Что считать лидом, когда его заводить и как он живёт —
+# в leads.py: база не должна знать про коммерческий смысл, а смысл не должен
+# знать про SQL.
+
+LEAD_STATUSES = ("new", "qualified", "in_progress", "won", "lost")
+# Открытый лид — тот, по которому ещё можно что-то сделать. Именно он
+# продолжается следующим сообщением, а не заводится заново.
+LEAD_OPEN = ("new", "qualified", "in_progress")
+
+LEAD_FIELDS = ("client_id", "title", "interest", "status", "source", "channel",
+               "value", "currency", "order_id", "lost_reason", "owner_fields",
+               "meta", "first_message_id", "last_message_id",
+               "last_activity_at", "converted_at", "lost_at")
+
+
+def now():
+    """Сейчас — в том же виде, в каком время пишет сама база (CURRENT_TIMESTAMP).
+
+    Иначе «последняя активность» и «создан» оказались бы в разных форматах, и
+    сравнение дат в SQL молча перестало бы работать.
+    """
+    return datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _lead_row(row):
+    """Строка лида наружу: JSON-поля разобраны, число — числом."""
+    d = dict(row)
+    for key in ("meta", "owner_fields"):
+        raw = d.get(key)
+        try:
+            d[key] = _json.loads(raw) if raw else ({} if key == "meta" else [])
+        except (ValueError, TypeError):
+            d[key] = {} if key == "meta" else []
+    d["value"] = int(d["value"]) if d.get("value") not in (None, "") else None
+    return d
+
+
+def _lead_value(value):
+    """
+    Сумма лида. Пусто — значит НЕ ЗНАЕМ, и это записывается как NULL, а не 0.
+
+    Разница принципиальная: 0 читается как «сделка на ноль рублей» и портит
+    средний чек, а «бюджет не назвали» — обычное состояние живого лида.
+    """
+    if value in (None, "", "null"):
+        return None
+    v = _money(value)
+    return v or None
+
+
+def add_lead(business_id, title, *, client_id=None, interest=None, status="new",
+             source=None, channel=None, value=None, currency=None, meta=None,
+             owner_fields=None, first_message_id=None, last_message_id=None):
+    """Завести лид. Возвращает id."""
+    if not business_id:
+        raise ValueError("add_lead требует business_id (защита арендаторов)")
+    status = status if status in LEAD_STATUSES else "new"
+    stamp = now()
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO leads (business_id, client_id, title, interest, status,
+                                  source, channel, value, currency, meta, owner_fields,
+                                  first_message_id, last_message_id, last_activity_at,
+                                  updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (business_id, int(client_id) if client_id else None,
+             str(title or "").strip()[:200], (interest or None), status,
+             source or None, channel or None, _lead_value(value),
+             (currency or None) if _lead_value(value) else None,
+             _json.dumps(meta or {}, ensure_ascii=False),
+             _json.dumps(sorted(set(owner_fields or [])), ensure_ascii=False),
+             first_message_id, last_message_id, stamp, stamp),
+        )
+        return cur.lastrowid
+
+
+def get_lead(lead_id, business_id):
+    """Лид вместе с именем и телефоном клиента — в списке они нужны всегда."""
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT l.*, c.name AS client_name, c.phone AS client_phone
+                 FROM leads l LEFT JOIN clients c
+                   ON c.id = l.client_id AND c.business_id = l.business_id
+                WHERE l.id = ? AND l.business_id = ?""",
+            (int(lead_id), business_id),
+        ).fetchone()
+    return _lead_row(row) if row else None
+
+
+def list_leads(business_id, status=None, client_id=None, source=None,
+               limit=50, offset=0):
+    """
+    Лиды бизнеса. status='open' — все незакрытые: так о них и спрашивают.
+    """
+    where = ["l.business_id = ?"]
+    args = [business_id]
+    if status == "open":
+        where.append("l.status IN (%s)" % ",".join("?" * len(LEAD_OPEN)))
+        args += list(LEAD_OPEN)
+    elif status in LEAD_STATUSES:
+        where.append("l.status = ?")
+        args.append(status)
+    if client_id:
+        where.append("l.client_id = ?")
+        args.append(int(client_id))
+    if source:
+        where.append("l.source = ?")
+        args.append(source)
+    args += [int(limit), max(0, int(offset or 0))]
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT l.*, c.name AS client_name, c.phone AS client_phone
+                 FROM leads l LEFT JOIN clients c
+                   ON c.id = l.client_id AND c.business_id = l.business_id
+                WHERE """ + " AND ".join(where) + """
+                ORDER BY l.id DESC LIMIT ? OFFSET ?""",
+            tuple(args),
+        ).fetchall()
+    return [_lead_row(r) for r in rows]
+
+
+def count_leads(business_id, status=None):
+    where, args = ["business_id = ?"], [business_id]
+    if status == "open":
+        where.append("status IN (%s)" % ",".join("?" * len(LEAD_OPEN)))
+        args += list(LEAD_OPEN)
+    elif status in LEAD_STATUSES:
+        where.append("status = ?")
+        args.append(status)
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM leads WHERE " + " AND ".join(where), tuple(args)
+        ).fetchone()
+    return int(row["n"] or 0)
+
+
+def open_lead_of_client(business_id, client_id):
+    """
+    Живая возможность этого клиента, если она есть. Самая свежая из открытых.
+
+    Ради неё и существует индекс по (business_id, client_id): вопрос задаётся
+    на каждое входящее сообщение.
+    """
+    if not client_id:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT * FROM leads
+                WHERE business_id = ? AND client_id = ?
+                  AND status IN (%s)
+                ORDER BY COALESCE(last_activity_at, created_at) DESC, id DESC
+                LIMIT 1""" % ",".join("?" * len(LEAD_OPEN)),
+            (business_id, int(client_id), *LEAD_OPEN),
+        ).fetchone()
+    return _lead_row(row) if row else None
+
+
+def update_lead(lead_id, business_id, **fields):
+    """
+    Изменить лид — только в своём бизнесе.
+
+    Списки и словари (owner_fields, meta) складываем в JSON здесь: вызывающему
+    коду не нужно помнить, как они хранятся.
+    """
+    if not business_id:
+        raise ValueError("update_lead требует business_id (защита арендаторов)")
+    sets = {}
+    for key, val in fields.items():
+        if key not in LEAD_FIELDS:
+            continue
+        if key == "value":
+            sets[key] = _lead_value(val)
+        elif key == "status":
+            if val not in LEAD_STATUSES:
+                raise ValueError("Неизвестный статус лида: %s" % val)
+            sets[key] = val
+        elif key in ("meta", "owner_fields"):
+            if isinstance(val, (dict, list, tuple, set)):
+                val = sorted(set(val)) if isinstance(val, (list, tuple, set)) else val
+                sets[key] = _json.dumps(val, ensure_ascii=False)
+            else:
+                sets[key] = val
+        else:
+            sets[key] = val
+    if not sets:
+        return False
+    sets["updated_at"] = now()
+    cols = ", ".join(f"{k} = ?" for k in sets)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE leads SET {cols} WHERE id = ? AND business_id = ?",
+            (*sets.values(), int(lead_id), business_id),
+        )
+        return bool(cur.rowcount)
+
+
+def delete_lead(lead_id, business_id):
+    if not business_id:
+        raise ValueError("delete_lead требует business_id (защита арендаторов)")
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM leads WHERE id = ? AND business_id = ?",
+                           (int(lead_id), business_id))
+        return bool(cur.rowcount)
+
+
+def leads_overview(business_id):
+    """
+    Воронка числами. Всё считается ЗДЕСЬ, из таблицы лидов, — второго способа
+    узнать «сколько у нас лидов» в системе больше нет.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT COUNT(*) AS total,
+                      COALESCE(SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END),0) AS new,
+                      COALESCE(SUM(CASE WHEN status = 'qualified' THEN 1 ELSE 0 END),0) AS qualified,
+                      COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END),0) AS in_progress,
+                      COALESCE(SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END),0) AS won,
+                      COALESCE(SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END),0) AS lost,
+                      COALESCE(SUM(CASE WHEN date(created_at) >= date('now','-30 day')
+                                        THEN 1 ELSE 0 END),0) AS last30
+                 FROM leads WHERE business_id = ?""",
+            (business_id,),
+        ).fetchone()
+    out = {k: int(row[k] or 0) for k in
+           ("total", "new", "qualified", "in_progress", "won", "lost", "last30")}
+    out["open"] = out["new"] + out["qualified"] + out["in_progress"]
+    # Конверсия считается от ЗАКРЫТЫХ: делить выигранные на все — значит
+    # занижать её ровно на те лиды, по которым ещё идёт разговор.
+    closed = out["won"] + out["lost"]
+    out["closed"] = closed
+    out["conversion"] = round(out["won"] * 100 / closed) if closed else 0
+    return out
+
+
+def lead_messages(business_id, lead_id, limit=100):
+    """
+    Переписка, из которой вырос лид. Не копия — выборка из messages по границам
+    разговора. Поэтому «почему лид потерян» смотрится в тех же словах, которые
+    клиент писал на самом деле, и правка карточки историю не переписывает.
+    """
+    lead = get_lead(lead_id, business_id)
+    if not lead or not lead.get("client_id"):
+        return []
+    first = lead.get("first_message_id") or 0
+    last = lead.get("last_message_id") or 0
+    args = [business_id, lead["client_id"]]
+    where = "business_id = ? AND client_id = ?"
+    if first:
+        where += " AND id >= ?"
+        args.append(int(first))
+    if last:
+        where += " AND id <= ?"
+        args.append(int(last))
+    args.append(int(limit))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM messages WHERE {where} ORDER BY id ASC LIMIT ?", tuple(args)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def leads_of_client(business_id, client_id, limit=20):
+    """Все возможности одного человека — и живые, и закрытые."""
+    return list_leads(business_id, client_id=client_id, limit=limit)
 
 
 # ---------- ФИНАНСЫ (модуль AI-директор) ----------

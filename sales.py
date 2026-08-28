@@ -618,7 +618,7 @@ def answer(business_id: int, client: dict, text: str, channel: str = "instagram"
         # осторожность. А вот заявку по такому разговору не создаём: она
         # опиралась бы на цифру, которой никто не подтверждал.
         out["actions"] = _apply(business_id, client, data,
-                                allowed - {CREATE_ORDER}, channel, out)
+                                allowed - {CREATE_ORDER}, channel, out, text)
         return out
 
     if not reply:
@@ -627,7 +627,7 @@ def answer(business_id: int, client: dict, text: str, channel: str = "instagram"
         return out
 
     # Действия делаем ДО отправки: если заявка не создалась, обещать её нельзя.
-    out["actions"] = _apply(business_id, client, data, allowed, channel, out)
+    out["actions"] = _apply(business_id, client, data, allowed, channel, out, text)
 
     if asked_handoff:
         out.update(handoff=True, reason=asked_handoff, reply=reply)
@@ -637,7 +637,7 @@ def answer(business_id: int, client: dict, text: str, channel: str = "instagram"
     return out
 
 
-def _apply(business_id, client, data, allowed, channel, out) -> list[dict]:
+def _apply(business_id, client, data, allowed, channel, out, said="") -> list[dict]:
     """
     Сделать то, что разрешено, и честно отметить то, что не разрешено.
 
@@ -685,20 +685,25 @@ def _apply(business_id, client, data, allowed, channel, out) -> list[dict]:
 
     if interest:
         if CREATE_LEAD in allowed:
-            # Лид у нас не отдельная таблица, а клиент, который ещё не покупал:
-            # заводить вторую сущность значило бы завести вторую правду. Поэтому
-            # «создать лида» = закрепить за карточкой интерес и отметить событие.
-            note = (client.get("notes") or "").strip()
-            line = "Интерес: " + interest
-            if line[:40] not in note:
-                database.update_client(client_id, business_id,
-                                       notes=(note + "\n" + line).strip()[:2000])
-            database.add_memory_link(
-                business_id, "client", client_id, event="edited", source_kind="ai",
-                actor="velor", note="AI-продавец: " + line[:200])
-            database.log_event(business_id, "client", "Новый лид из " + channel,
-                               interest[:200], once_key=f"lead:{client_id}")
-            done.append({"action": CREATE_LEAD, "interest": interest})
+            # Лид — отдельная запись, а не строчка в заметках клиента. Раньше
+            # «создать лида» означало дописать «Интерес: пионы» в notes: у такой
+            # записи не было ни состояния, ни причины проигрыша, и посчитать её
+            # было нельзя. Теперь этим занимается leads — одна дверь и для
+            # продавца, и для бота, и для руки владельца.
+            #
+            # Решает при этом не модель: она заполняет интерес всегда, даже
+            # когда человек спросил адрес. Заводить возможность или нет —
+            # проверяют правила по словам самого клиента.
+            import leads
+            lead_id = leads.from_message(
+                business_id, client, said or interest, source=channel,
+                channel=channel, interest=interest)
+            if lead_id:
+                done.append({"action": CREATE_LEAD, "interest": interest,
+                             "lead_id": lead_id})
+            else:
+                done.append({"action": CREATE_LEAD, "interest": interest,
+                             "skipped": "разговор пока не о покупке"})
         else:
             done.append({"action": CREATE_LEAD, "skipped": "нет разрешения"})
 
@@ -716,6 +721,19 @@ def _apply(business_id, client, data, allowed, channel, out) -> list[dict]:
             database.add_memory_link(
                 business_id, "order", oid, event="created", source_kind="ai",
                 actor="velor", note=f"AI-продавец оформил заявку из канала «{channel}»")
+            # Заявка появилась — значит, возможность стала сделкой. Новой
+            # системы заказов для этого не заводим: лид просто ссылается на
+            # существующую заявку, и конверсия считается по факту, а не по
+            # ощущению, что «вроде купил».
+            try:
+                import leads
+                won = leads.on_order(business_id, client_id, oid,
+                                     amount=amount if isinstance(amount, (int, float)) else None,
+                                     channel=channel)
+                if won:
+                    done.append({"action": CREATE_LEAD, "lead_id": won, "won": True})
+            except Exception:
+                log.exception("Заявка не связалась с возможностью (biz %s)", business_id)
             done.append({"action": CREATE_ORDER, "order_id": oid})
         else:
             # Клиент готов, а права оформить заявку нет. Это не «ничего не

@@ -644,7 +644,7 @@ def _handle_one(bid: int, ig_id: str, item: dict) -> bool:
                               last_in_at=when)
 
     body = text or note or "[сообщение без текста]"
-    database.save_message(bid, client_id, "user", body, channel=PROVIDER)
+    mid = database.save_message(bid, client_id, "user", body, channel=PROVIDER)
 
     if created:
         database.log_event(bid, "client", "Клиент из Instagram",
@@ -653,6 +653,19 @@ def _handle_one(bid: int, ig_id: str, item: dict) -> bool:
     # Триал закончился — принимаем и молчим, ровно как в Telegram.
     if trial.access(business)["read_only"]:
         return True
+
+    # Возможность замечаем ЗДЕСЬ, а не там, где отвечает продавец. Разница
+    # видна в худший момент: переписку ведёт человек или кончился лимит тарифа —
+    # продавец молчит, а клиент всё равно спросил цену. Именно тогда владельцу
+    # и нужна воронка.
+    if text:
+        try:
+            import leads
+            leads.from_message(bid, {"id": client_id}, text,
+                               source=PROVIDER, channel=PROVIDER, message_id=mid)
+        except Exception:
+            log.exception("Возможность из директа не завелась (biz %s)", bid)
+
     if database.ig_thread_paused(bid, sender):
         database.log_event(bid, "reply", "Instagram: новое сообщение",
                            body[:200], once_key=f"ig-manual:{sender}")

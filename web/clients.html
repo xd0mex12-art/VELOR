@@ -276,6 +276,17 @@ function cardHTML(d){
           <span class="who">${m.role === 'user' ? 'клиент' : 'сотрудник'}</span>${esc(m.content)}</div>`).join('')
       }</div></div>`
     : '';
+  // Возможности этого человека. Один человек — несколько возможностей: майский
+  // букет и августовская свадьба стоят здесь рядом как две разные истории.
+  const leads = d.leads || [];
+  const leadsHTML = leads.length
+    ? `<div class="hist"><div class="h">Возможности</div><div class="orders">${
+        leads.map(l => `<div class="o"><span class="d num">${esc((l.created_at||'').slice(0,10))}</span>
+          <span>${esc(l.title)}${l.value ? ' — <span class="num">'+money(l.value)+'</span>' : ''}</span>
+          <span class="d">${esc(l.status_ru)}${l.lost_reason_ru ? ' · ' + esc(l.lost_reason_ru) : ''}</span></div>`).join('')
+      }</div><div class="v-empty" style="padding-top:8px">Открыть и изменить — на странице
+      <a href="leads.html">«Возможности»</a>.</div></div>`
+    : '';
   const aiHTML = `
     <div class="ai-sum">
       <div class="cap"><span>Резюме AI</span>
@@ -298,6 +309,7 @@ function cardHTML(d){
         · ${c.orders_count || 0} ${plural(c.orders_count || 0, 'заказ', 'заказа', 'заказов')}</span>
     </div>
     ${aiHTML}
+    ${leadsHTML}
     <div class="hist"><div class="h">История заказов</div><div class="orders">${ordersHTML}</div></div>
     ${chatHTML}`;
 }

@@ -62,7 +62,16 @@ async def ai_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
     business = database.get_business(bid) or {"name": "бизнес"}
     client = database.get_or_create_client(bid, tg_user_id=user.id, name=user.full_name)
 
-    database.save_message(bid, client["id"], "user", text)
+    mid = database.save_message(bid, client["id"], "user", text)
+
+    # Та же дверь воронки, что и у вебхука: режим запуска бота не должен менять
+    # то, что бизнес видит у себя в кабинете.
+    try:
+        import leads
+        leads.from_message(bid, client, text, source="telegram",
+                           channel="telegram", message_id=mid)
+    except Exception:
+        logging.exception("Возможность из разговора не завелась (biz %s)", bid)
 
     # Лимит тарифа: если бизнес исчерпал месячный пакет сообщений — вежливо тормозим.
     if database.plan_status(business)["over"]:
@@ -103,6 +112,12 @@ async def ai_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         if order.get("phone") and not client.get("phone"):
             database.update_client(client["id"], bid, phone=order["phone"])
+        try:
+            import leads
+            leads.on_order(bid, client["id"], order_id,
+                           amount=order.get("amount"), channel="telegram")
+        except Exception:
+            logging.exception("Заявка не связалась с возможностью (biz %s)", bid)
         logging.info("[biz %s] Новый заказ №%s от %s", bid, order_id, user.full_name)
         if not reply:
             reply = f"Готово! Ваша заявка №{order_id} принята."

@@ -45,6 +45,7 @@ import director
 import connections
 import instagram
 import sales
+import leads
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -876,7 +877,11 @@ def api_client_card(client_id: int, business_id: int = 0, x_auth: str = Header(d
     messages = database.get_client_messages(client_id, bid)
     summary, advice = _ensure_client_summary(bid, client, orders, messages)
     client.pop("password", None)
+    # Возможности человека — прямо в его карточке. Один человек, несколько
+    # возможностей: майский букет и августовская свадьба стоят здесь рядом и
+    # видны как две разные истории, а не как одна запутанная переписка.
     return {"client": client, "orders": orders, "messages": messages,
+            "leads": [leads.public(l) for l in database.leads_of_client(bid, client_id)],
             "summary": summary, "advice": advice}
 
 
@@ -910,6 +915,170 @@ def api_update_client(client_id: int, body: ClientPatch, x_auth: str = Header(de
     fields = body.model_dump(exclude={"business_id"}, exclude_none=True)
     database.update_client(client_id, bid, **fields)
     signals.react(bid, "client")   # клиентская база влияет на рекомендации Директора
+    return {"ok": True}
+
+
+# ---------- ВОЗМОЖНОСТИ (лиды) ----------
+#
+# Обычный ресурс, а не двадцать эндпоинтов: список, карточка, создание, правка
+# и смена состояния. Всё остальное про лид уже умеет реестр записей
+# (/api/memory/entity/lead) — второй набор форм заводить незачем.
+
+class LeadIn(BaseModel):
+    title: str
+    interest: str | None = None
+    client_id: int | None = None
+    value: int | None = None
+    source: str | None = None
+    business_id: int = 0
+
+
+class LeadPatch(BaseModel):
+    title: str | None = None
+    interest: str | None = None
+    client_id: int | None = None
+    # Пустая строка означает «сумму не знаем» и отличается от «не присылали
+    # поле вовсе»: первое стирает значение, второе оставляет как было.
+    value: str | None = None
+    source: str | None = None
+    business_id: int = 0
+
+
+class LeadStatusIn(BaseModel):
+    status: str
+    lost_reason: str | None = None
+    order_id: int | None = None
+    business_id: int = 0
+
+
+def _lead_dicts():
+    """Словари состояний и причин — фронт не должен знать их наизусть."""
+    return {
+        "statuses": [{"key": s, "title": leads.STATUS_RU[s],
+                      "hint": leads.STATUS_HINT.get(s, ""),
+                      "open": s in leads.OPEN} for s in leads.STATUSES],
+        "reasons": [{"key": k, "title": v} for k, v in leads.LOST_REASONS.items()],
+        "sources": [{"key": s, "title": entities.SOURCE_RU.get(s, s)}
+                    for s in leads.SOURCES],
+    }
+
+
+@app.get("/api/leads")
+def api_leads(business_id: int = 0, status: str = "", limit: int = 50,
+              offset: int = 0, x_auth: str = Header(default="")):
+    """
+    Воронка бизнеса: сами возможности и цифры по ним.
+
+    Цифры считаются из таблицы лидов — другого способа узнать, сколько их, в
+    системе больше нет.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    status = status if (status in leads.STATUSES or status == "open") else None
+    rows = database.list_leads(bid, status=status, limit=max(1, min(limit, 200)),
+                               offset=max(0, offset))
+    out = {"items": [leads.public(r) for r in rows],
+           "stats": leads.overview(bid),
+           "total": database.count_leads(bid, status=status)}
+    out.update(_lead_dicts())
+    return out
+
+
+@app.get("/api/leads/{lead_id}")
+def api_lead_card(lead_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Карточка возможности: сама она, переписка, из которой выросла, и история.
+
+    Переписка не копия: она берётся из messages по границам разговора. Поэтому
+    ответ на вопрос «почему не сложилось» — это те же слова, которые клиент
+    писал на самом деле.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    lead = database.get_lead(lead_id, bid)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Возможность не найдена")
+    out = {"lead": leads.public(lead),
+           "messages": database.lead_messages(bid, lead_id),
+           "history": database.memory_links(bid, "lead", lead_id),
+           "order": database.get_order(lead["order_id"], bid) if lead.get("order_id") else None}
+    out.update(_lead_dicts())
+    return out
+
+
+@app.post("/api/leads")
+def api_lead_add(body: LeadIn, x_auth: str = Header(default="")):
+    """
+    Завести возможность руками.
+
+    Ради встречи в офлайне не нужно выдумывать сообщение от клиента: владелец
+    просто описывает, кого встретил и чего человек хочет.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    title = (body.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Нужно описать, чего хочет человек")
+    if body.client_id and not database.get_client(body.client_id, bid):
+        raise HTTPException(status_code=404, detail="Такого клиента у вас нет")
+    actor, actor_id = _actor(x_auth, bid)
+    lead_id = leads.create(
+        bid, title=title[:200], interest=(body.interest or "").strip()[:2000] or None,
+        client_id=body.client_id, value=body.value or None,
+        currency="RUB" if body.value else None,
+        source=(body.source if body.source in leads.SOURCES else "manual"),
+        actor=actor, actor_id=actor_id, note="Заведено вручную",
+        owner_fields=[k for k, v in (("title", title), ("interest", body.interest),
+                                     ("value", body.value)) if v])
+    return {"ok": True, "id": lead_id, "lead": leads.public(database.get_lead(lead_id, bid))}
+
+
+@app.post("/api/leads/{lead_id}")
+def api_lead_update(lead_id: int, body: LeadPatch, x_auth: str = Header(default="")):
+    """Правка владельца. Всё, чего он коснулся, автоматика больше не меняет."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    if not database.get_lead(lead_id, bid):
+        raise HTTPException(status_code=404, detail="Возможность не найдена")
+    fields = body.model_dump(exclude={"business_id"}, exclude_unset=True)
+    if fields.get("client_id") and not database.get_client(fields["client_id"], bid):
+        raise HTTPException(status_code=404, detail="Такого клиента у вас нет")
+    actor, actor_id = _actor(x_auth, bid)
+    try:
+        lead = leads.owner_update(bid, lead_id, fields, actor=actor, actor_id=actor_id)
+    except leads.LeadError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "lead": leads.public(lead)}
+
+
+@app.post("/api/leads/{lead_id}/status")
+def api_lead_status(lead_id: int, body: LeadStatusIn, x_auth: str = Header(default="")):
+    """
+    Отметить, чем кончилось. «Купил» связывается с существующей заявкой, «не
+    сложилось» требует причины — иначе проигрыш ничего не объясняет.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    if not database.get_lead(lead_id, bid):
+        raise HTTPException(status_code=404, detail="Возможность не найдена")
+    if body.status not in leads.STATUSES:
+        raise HTTPException(status_code=400, detail="Неизвестное состояние")
+    if body.order_id and not database.get_order(body.order_id, bid):
+        raise HTTPException(status_code=404, detail="Такой заявки у вас нет")
+    actor, actor_id = _actor(x_auth, bid)
+    try:
+        lead = leads.set_status(bid, lead_id, body.status, reason=body.lost_reason,
+                                order_id=body.order_id, actor=actor, actor_id=actor_id)
+    except leads.LeadError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "lead": leads.public(lead)}
+
+
+@app.post("/api/leads/{lead_id}/delete")
+def api_lead_delete(lead_id: int, business_id: int = 0, x_auth: str = Header(default="")):
+    """Удалить ошибочную возможность. Клиент и переписка остаются на месте."""
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    if not database.delete_lead(lead_id, bid):
+        raise HTTPException(status_code=404, detail="Возможность не найдена")
     return {"ok": True}
 
 

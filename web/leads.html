@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Возможности</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Возможности — не «ещё один список», а ответ на один вопрос: с кем прямо
+     сейчас можно заработать. Поэтому наверху открытые, а закрытые — за срезом.
+     Вся раскладка (шапка, цифры, состояния, кнопки) берётся из velor.css;
+     здесь только то, чего нет больше нигде: строка возможности и её карточка. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  body main{ padding-top:104px; padding-bottom:80px; }
+
+  .tools{ display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap;
+    margin:var(--sp-8) 0 var(--sp-5); }
+
+  /* строка возможности */
+  .lead-row{ border-bottom:1px solid var(--hairline); }
+  .lead-row .top{ display:grid; grid-template-columns:1fr auto; gap:var(--sp-4);
+    align-items:center; padding:var(--sp-4) 0; min-height:64px; cursor:pointer;
+    transition:background var(--dur), padding-left var(--dur); }
+  .lead-row .top:hover{ background:linear-gradient(90deg,var(--tint-iris),transparent 70%);
+    padding-left:12px; }
+  .lead-row .nm{ font-weight:var(--fw-reg); font-size:var(--fs-base); letter-spacing:-.01em; }
+  .lead-row .meta{ margin-top:3px; font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    color:var(--ash); }
+  .lead-row .rt{ text-align:right; white-space:nowrap; display:flex;
+    flex-direction:column; align-items:flex-end; gap:4px; }
+  .lead-row .sum{ font-size:var(--fs-body); color:var(--verdant); }
+  .lead-row .sum.none{ color:var(--ash); font-size:var(--fs-sm); }
+  .chev{ display:inline-block; width:0; height:0; margin-left:8px; vertical-align:middle;
+    border:4px solid transparent; border-top-color:var(--ash);
+    transition:transform var(--dur); }
+  .lead-row.open .chev{ transform:rotate(180deg); }
+
+  /* состояние: точка + слово, а не только цвет */
+  .st{ display:inline-flex; align-items:center; gap:7px; font-weight:var(--fw-med);
+    font-size:var(--fs-caption); padding:5px 12px; border-radius:var(--r-pill);
+    background:var(--surface-2); white-space:nowrap; }
+  .st i{ width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+  .st.new{ color:var(--lilac); }
+  .st.qualified{ color:var(--ink-iris); }
+  .st.in_progress{ color:var(--saffron); }
+  .st.won{ color:var(--verdant); }
+  .st.lost{ color:var(--ash); }
+
+  /* раскрытая карточка */
+  .card{ display:none; padding:0 0 var(--sp-6); }
+  .lead-row.open .card{ display:block; }
+  .card .fields{ display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4);
+    margin-bottom:var(--sp-4); }
+  @media(max-width:640px){ .card .fields{ grid-template-columns:1fr; } }
+  .f label{ display:block; font-size:var(--fs-caption); color:var(--ash);
+    margin-bottom:6px; }
+  .f input, .f select, .f textarea{ width:100%; min-height:44px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:10px 14px;
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:16px; }
+  .f textarea{ resize:vertical; }
+  .f input:focus, .f select:focus, .f textarea:focus{ outline:none;
+    border-color:var(--ring); background:var(--tint-iris); }
+  .f .hint{ font-size:var(--fs-caption); color:var(--ash); margin-top:5px; }
+  .card-acts{ display:flex; gap:var(--sp-2); flex-wrap:wrap; align-items:center; }
+  .card-acts .sub{ font-size:var(--fs-sm); color:var(--ash); }
+
+  /* догадки ИИ — отдельно и подписанные: они не факт */
+  .guess{ margin-top:var(--sp-4); border-left:2px solid var(--saffron);
+    padding:var(--sp-3) var(--sp-4); background:rgba(255,184,41,.06);
+    border-radius:0 var(--r-sm) var(--r-sm) 0; }
+  .guess .h{ font-weight:var(--fw-med); font-size:var(--fs-sm); color:var(--saffron); }
+  .guess .d{ font-size:var(--fs-sm); color:var(--silver); margin-top:4px; }
+
+  .why{ margin-top:var(--sp-3); font-size:var(--fs-sm); color:var(--ash); }
+  .why b{ color:var(--silver); font-weight:var(--fw-reg); }
+
+  /* переписка, из которой выросла возможность */
+  .chat{ margin-top:var(--sp-5); }
+  .chat .h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
+  .chat .scroll{ max-height:260px; overflow-y:auto; display:flex;
+    flex-direction:column; gap:var(--sp-2); }
+  .msg{ padding:10px 14px; border-radius:var(--r-md); background:var(--surface-2);
+    font-size:var(--fs-body); font-weight:var(--fw-thin); }
+  .msg.user{ background:var(--tint-iris); }
+  .msg .who{ display:block; font-size:var(--fs-caption); color:var(--ash);
+    margin-bottom:3px; }
+
+  /* форма «встретил человека» */
+  .add{ display:none; border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5); margin-bottom:var(--sp-6); }
+  .add.on{ display:block; }
+  .add .fields{ display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4);
+    margin-bottom:var(--sp-4); }
+  @media(max-width:640px){ .add .fields{ grid-template-columns:1fr; } }
+
+  #toast{ position:fixed; left:50%; bottom:26px; transform:translate(-50%,20px);
+    background:var(--sheet); border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    padding:12px 22px; font-size:var(--fs-body); box-shadow:var(--shadow-pop);
+    opacity:0; pointer-events:none; transition:opacity var(--dur), transform var(--dur);
+    z-index:80; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:560px){ body main{ padding-top:92px; } }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Возможности</h1>
+      <p class="v-lead">Люди, которые проявили интерес, но ещё ничего не купили.
+        VELOR замечает их сам — в боте и в директе, — а вы отмечаете, чем
+        закончилось. Из этих отметок и складывается конверсия.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Считаю воронку…</span>
+      </div>
+    </div>
+    <div class="v-acts">
+      <button class="v-btn" type="button" id="addBtn">Встретил человека</button>
+    </div>
+  </header>
+
+  <div class="v-kpi" id="kpi" aria-live="polite">
+    <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
+  </div>
+
+  <!-- возможность руками: без выдуманного сообщения от клиента -->
+  <section class="add" id="add" aria-label="Новая возможность">
+    <div class="fields">
+      <div class="f" style="grid-column:1/-1">
+        <label for="nTitle">Чего хочет человек</label>
+        <input id="nTitle" placeholder="Свадебный букет для Анны" autocomplete="off">
+      </div>
+      <div class="f">
+        <label for="nValue">Сумма</label>
+        <input id="nValue" type="text" inputmode="numeric" placeholder="если её назвали">
+        <div class="hint">Пусто — значит «не знаем». Ноль здесь не то же самое.</div>
+      </div>
+      <div class="f">
+        <label for="nClient">Клиент</label>
+        <select id="nClient"><option value="">— пока не в базе —</option></select>
+      </div>
+      <div class="f" style="grid-column:1/-1">
+        <label for="nInterest">Подробности</label>
+        <textarea id="nInterest" rows="2" placeholder="Что именно нужно, к какой дате, что обсуждали"></textarea>
+      </div>
+    </div>
+    <div class="card-acts">
+      <button class="v-btn" type="button" id="nSave">Записать</button>
+      <button class="v-btn ghost" type="button" id="nCancel">Отмена</button>
+    </div>
+  </section>
+
+  <div class="tools">
+    <div class="v-segs" id="segs" role="group" aria-label="Срез воронки">
+      <button class="v-seg" data-seg="open" aria-pressed="true">В работе</button>
+      <button class="v-seg" data-seg="" aria-pressed="false">Все</button>
+      <button class="v-seg" data-seg="won" aria-pressed="false">Купили</button>
+      <button class="v-seg" data-seg="lost" aria-pressed="false">Не сложилось</button>
+    </div>
+  </div>
+
+  <div id="failZone" role="alert"></div>
+  <p class="found" id="found" style="font-size:var(--fs-sm); color:var(--ash); min-height:20px; margin-bottom:var(--sp-3)"></p>
+  <div id="list"><div class="v-sk row"></div><div class="v-sk row"></div><div class="v-sk row"></div></div>
+  <button class="v-btn ghost" id="more" style="display:none; margin-top:var(--sp-5)">Показать ещё</button>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=11"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽';
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+}
+
+const PAGE = 50;
+const listEl = document.getElementById('list');
+const moreEl = document.getElementById('more');
+const foundEl = document.getElementById('found');
+const failEl = document.getElementById('failZone');
+let segment = 'open', offset = 0, total = 0, loading = false;
+let DICT = { statuses: [], reasons: [], sources: [] };
+
+function statusTitle(key){
+  const s = DICT.statuses.find(x => x.key === key);
+  return s ? s.title : key;
+}
+
+// ── состояние экрана: одна строка, объясняющая воронку целиком ──
+function paintState(d){
+  const box = document.getElementById('state');
+  const s = d.stats || {};
+  if (!s.total){
+    box.innerHTML = '<span class="v-badge calm"><i></i>Возможностей пока нет</span>' +
+      '<span>они появятся сами, когда клиент спросит цену или захочет записаться</span>';
+    return;
+  }
+  const cls = s.open ? 'good' : 'warn';
+  const word = s.open ? 'Есть с кем работать' : 'Открытых нет';
+  const tail = [
+    s.open + ' ' + plural(s.open, 'в работе', 'в работе', 'в работе'),
+    s.closed ? 'конверсия ' + s.conversion + '%' : 'закрытых пока нет',
+  ].filter(Boolean).join(' · ');
+  box.innerHTML = '<span class="v-badge ' + cls + '"><i></i>' + word + '</span><span>' + esc(tail) + '</span>';
+}
+
+function paintKpi(d){
+  const s = d.stats || {};
+  const cards = [
+    ['Всего возможностей', s.total, s.last30 ? '+' + s.last30 + ' за 30 дней' : 'новых за месяц не было', 'up'],
+    ['В работе', s.open, s.new ? s.new + ' ещё не трогали' : 'все в работе'],
+    ['Купили', s.won, s.closed ? 'из ' + s.closed + ' закрытых' : 'закрытых пока нет'],
+    ['Конверсия', s.closed ? s.conversion + '%' : '—',
+     s.closed ? 'считается по закрытым' : 'отметьте исход хотя бы одной'],
+  ];
+  document.getElementById('kpi').innerHTML = cards.map(([k, v, sub, cls]) =>
+    '<div class="v-kpi-card">' +
+      '<div class="k">' + k + '</div>' +
+      '<div class="v num">' + (typeof v === 'number' ? v.toLocaleString('ru-RU') : esc(v)) + '</div>' +
+      '<div class="s ' + (cls === 'up' && s.last30 ? 'up' : '') + '">' + esc(sub) + '</div>' +
+    '</div>').join('');
+}
+
+function rowMeta(l){
+  const bits = [];
+  if (l.client_name) bits.push(esc(l.client_name));
+  if (l.source_ru) bits.push(esc(l.source_ru));
+  if (l.created_at) bits.push(esc(String(l.created_at).slice(0, 10)));
+  if (l.lost_reason_ru) bits.push('причина: ' + esc(l.lost_reason_ru));
+  return bits.join(' · ');
+}
+
+function leadHTML(l){
+  return '' +
+    '<div class="lead-row" data-id="' + l.id + '">' +
+      '<div class="top" role="button" tabindex="0" aria-expanded="false">' +
+        '<div>' +
+          '<div class="nm">' + (esc(l.title) || 'Возможность') + '<span class="chev" aria-hidden="true"></span></div>' +
+          '<div class="meta">' + rowMeta(l) + '</div>' +
+        '</div>' +
+        '<div class="rt">' +
+          '<span class="st ' + esc(l.status) + '"><i></i>' + esc(l.status_ru) + '</span>' +
+          (l.value ? '<span class="sum num">' + money(l.value) + '</span>'
+                   : '<span class="sum none">сумму не называли</span>') +
+        '</div>' +
+      '</div>' +
+      '<div class="card" data-loaded="0"><div class="v-sk row"></div></div>' +
+    '</div>';
+}
+
+function cardHTML(d){
+  const l = d.lead;
+  const statusOpts = DICT.statuses.map(s =>
+    '<option value="' + s.key + '"' + (s.key === l.status ? ' selected' : '') + '>' + esc(s.title) + '</option>').join('');
+  const reasonOpts = ['<option value="">— причина —</option>'].concat(DICT.reasons.map(r =>
+    '<option value="' + r.key + '"' + (r.key === l.lost_reason ? ' selected' : '') + '>' + esc(r.title) + '</option>')).join('');
+
+  // Догадку показываем словами, а не именами колонок: «value: 6000» человек
+  // читает как ошибку системы, а не как предположение о его деньгах.
+  const FIELD_RU = {title: 'чего хочет', interest: 'подробности',
+                    value: 'сумма', currency: 'валюта', status: 'состояние',
+                    lost_reason: 'причина', client_id: 'клиент', source: 'источник'};
+  const guessKeys = Object.keys(d.lead.guess || {});
+  const guessHTML = guessKeys.length
+    ? '<div class="guess"><div class="h">VELOR предполагает — но это не факт</div>' +
+      '<div class="d">' + guessKeys.map(k =>
+        esc(FIELD_RU[k] || k) + ' — ' + esc(String(d.lead.guess[k]))).join(' · ') +
+      '. В карточку это не записано: в неё попадает только сказанное вслух.</div></div>'
+    : '';
+
+  const whyHTML = (l.why && l.why.length)
+    ? '<div class="why"><b>Почему это возможность:</b> ' + esc(l.why.join(', ')) + '</div>' : '';
+
+  const orderHTML = d.order
+    ? '<div class="why"><b>Стало заявкой:</b> №' + d.order.id + ' — ' + esc(d.order.text || '') +
+      (d.order.amount ? ' · ' + money(d.order.amount) : '') + '</div>' : '';
+
+  const msgs = d.messages || [];
+  const chatHTML = msgs.length
+    ? '<div class="chat"><div class="h">Разговор, из которого это выросло</div><div class="scroll">' +
+      msgs.map(m => '<div class="msg ' + (m.role === 'user' ? 'user' : 'assistant') + '">' +
+        '<span class="who">' + (m.role === 'user' ? 'клиент' : 'сотрудник') + '</span>' +
+        esc(m.content) + '</div>').join('') + '</div></div>'
+    : '';
+
+  const ownerNote = (l.owner_fields || []).length
+    ? '<div class="why">Ваши правки VELOR не переписывает: ' +
+      esc(l.owner_fields.map(k => FIELD_RU[k] || k).join(', ')) + '.</div>'
+    : '';
+
+  return '' +
+    '<div class="fields">' +
+      '<div class="f" style="grid-column:1/-1"><label>Чего хочет человек</label>' +
+        '<input name="title" value="' + esc(l.title) + '"></div>' +
+      '<div class="f"><label>Состояние</label><select name="status">' + statusOpts + '</select></div>' +
+      '<div class="f"><label>Сумма</label>' +
+        '<input name="value" inputmode="numeric" value="' + (l.value || '') + '">' +
+        '<div class="hint">Пусто — значит «не знаем».</div></div>' +
+      '<div class="f"><label>Почему не сложилось</label><select name="lost_reason">' + reasonOpts + '</select></div>' +
+      '<div class="f"><label>Клиент</label>' +
+        '<input value="' + esc(l.client_name || 'не привязан') + '" disabled></div>' +
+      '<div class="f" style="grid-column:1/-1"><label>Подробности</label>' +
+        '<textarea name="interest" rows="2">' + esc(l.interest || '') + '</textarea></div>' +
+    '</div>' +
+    '<div class="card-acts">' +
+      '<button class="v-btn save" type="button">Сохранить</button>' +
+      '<button class="v-btn ghost won" type="button">Купил</button>' +
+      '<button class="v-btn ghost lost" type="button">Не сложилось</button>' +
+    '</div>' +
+    ownerNote + whyHTML + orderHTML + guessHTML + chatHTML;
+}
+
+async function loadCard(el){
+  const box = el.querySelector('.card');
+  if (box.dataset.loaded === '1') return;
+  const id = el.dataset.id;
+  try{
+    const r = await fetch('/api/leads/' + id);
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    DICT = { statuses: d.statuses || DICT.statuses, reasons: d.reasons || DICT.reasons,
+             sources: d.sources || DICT.sources };
+    box.innerHTML = cardHTML(d);
+    box.dataset.loaded = '1';
+    wireCard(el, box);
+  }catch{
+    box.innerHTML = '<div class="v-fail"><div><div class="t">Карточка не открылась</div>' +
+      '<div class="d">Сервер не ответил. Возможность цела — попробуйте ещё раз.</div></div>' +
+      '<button class="v-btn retry" type="button">Повторить</button></div>';
+    box.querySelector('.retry').addEventListener('click', () => {
+      box.innerHTML = '<div class="v-sk row"></div>'; loadCard(el);
+    });
+  }
+}
+
+async function post(url, body){
+  const r = await fetch(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body || {})
+  });
+  if (!r.ok){
+    let why = 'Не получилось сохранить.';
+    try{ const j = await r.json(); if (j && j.detail) why = j.detail; }catch{}
+    throw new Error(why);
+  }
+  return r.json();
+}
+
+function wireCard(el, box){
+  const id = el.dataset.id;
+
+  box.querySelector('.save').addEventListener('click', async ev => {
+    const btn = ev.currentTarget, was = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Сохраняю…';
+    const data = {};
+    box.querySelectorAll('[name]').forEach(i => { if (!i.disabled) data[i.name] = i.value; });
+    const status = data.status, reason = data.lost_reason;
+    delete data.status; delete data.lost_reason;
+    try{
+      await post('/api/leads/' + id, data);
+      const now = el.querySelector('.st');
+      if (status && status !== now.classList[1]){
+        await post('/api/leads/' + id + '/status', {status: status, lost_reason: reason || null});
+      }
+      toast('Сохранено');
+      reload();
+    }catch(e){ toast(e.message || 'Не получилось сохранить'); }
+    finally{ btn.disabled = false; btn.textContent = was; }
+  });
+
+  box.querySelector('.won').addEventListener('click', () => close(id, 'won', null));
+  box.querySelector('.lost').addEventListener('click', () => {
+    const sel = box.querySelector('[name="lost_reason"]');
+    if (sel && !sel.value){
+      toast('Выберите причину — без неё проигрыш ничего не объясняет');
+      sel.focus();
+      return;
+    }
+    close(id, 'lost', sel ? sel.value : null);
+  });
+}
+
+async function close(id, status, reason){
+  try{
+    await post('/api/leads/' + id + '/status', {status: status, lost_reason: reason});
+    toast(status === 'won' ? 'Отмечено: купил' : 'Отмечено: не сложилось');
+    reload();
+  }catch(e){ toast(e.message || 'Не получилось отметить'); }
+}
+
+function wireRows(){
+  listEl.querySelectorAll('.lead-row').forEach(el => {
+    if (el.dataset.wired === '1') return;
+    el.dataset.wired = '1';
+    const head = el.querySelector('.top');
+    const open = () => {
+      const on = el.classList.toggle('open');
+      head.setAttribute('aria-expanded', on ? 'true' : 'false');
+      if (on) loadCard(el);
+    };
+    head.addEventListener('click', open);
+    head.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); open(); }
+    });
+  });
+}
+
+function fail(msg){
+  failEl.innerHTML = '<div class="v-fail"><div><div class="t">' + esc(msg) + '</div>' +
+    '<div class="d">Данные целы — это не сохранение, а показ. Попробуйте ещё раз.</div></div>' +
+    '<button class="v-btn retry" type="button">Повторить</button></div>';
+  failEl.querySelector('.retry').addEventListener('click', () => { failEl.innerHTML = ''; reload(); });
+}
+
+async function load(more){
+  if (loading) return;
+  loading = true;
+  if (!more){ offset = 0; }
+  try{
+    const url = '/api/leads?limit=' + PAGE + '&offset=' + offset +
+                (segment ? '&status=' + encodeURIComponent(segment) : '');
+    const r = await fetch(url);
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    DICT = { statuses: d.statuses || [], reasons: d.reasons || [], sources: d.sources || [] };
+    failEl.innerHTML = '';
+    paintState(d); paintKpi(d);
+    total = d.total || 0;
+    const html = (d.items || []).map(leadHTML).join('');
+    if (more) listEl.insertAdjacentHTML('beforeend', html);
+    else listEl.innerHTML = html || emptyHTML();
+    wireRows();
+    offset += (d.items || []).length;
+    foundEl.textContent = total
+      ? 'Показано ' + offset + ' из ' + total
+      : '';
+    moreEl.style.display = offset < total ? '' : 'none';
+  }catch{
+    if (!more) listEl.innerHTML = '';
+    fail('Возможности не загрузились');
+  }finally{ loading = false; }
+}
+
+function emptyHTML(){
+  if (segment === 'open')
+    return '<div class="v-empty"><strong>Открытых возможностей нет</strong>' +
+      'Они появятся сами, когда клиент спросит цену, попросит записаться или скажет, что ему нужно. ' +
+      'А встреченного вживую можно записать кнопкой «Встретил человека».</div>';
+  if (segment === 'won')
+    return '<div class="v-empty"><strong>Купивших пока нет</strong>' +
+      'Отметьте «Купил» у возможности, которая стала заявкой, — из этого считается конверсия.</div>';
+  if (segment === 'lost')
+    return '<div class="v-empty"><strong>Потерянных пока нет</strong>' +
+      'Когда отметите «Не сложилось» с причиной, здесь будет видно, что мы теряем чаще всего.</div>';
+  return '<div class="v-empty"><strong>Возможностей пока нет</strong>' +
+    'VELOR заведёт их сам, как только клиент напишет боту или в директ что-то о покупке.</div>';
+}
+
+function reload(){ load(false); }
+
+document.getElementById('segs').addEventListener('click', ev => {
+  const b = ev.target.closest('.v-seg');
+  if (!b) return;
+  segment = b.dataset.seg;
+  document.querySelectorAll('#segs .v-seg').forEach(x =>
+    x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  reload();
+});
+moreEl.addEventListener('click', () => load(true));
+
+// ── возможность руками ──
+const addBox = document.getElementById('add');
+document.getElementById('addBtn').addEventListener('click', async () => {
+  const on = addBox.classList.toggle('on');
+  if (!on) return;
+  document.getElementById('nTitle').focus();
+  try{
+    const r = await fetch('/api/clients?limit=200');
+    if (!r.ok) return;
+    const d = await r.json();
+    const sel = document.getElementById('nClient');
+    sel.innerHTML = '<option value="">— пока не в базе —</option>' +
+      (d.items || []).map(c => '<option value="' + c.id + '">' + esc(c.name || 'без имени') + '</option>').join('');
+  }catch{}
+});
+document.getElementById('nCancel').addEventListener('click', () => addBox.classList.remove('on'));
+document.getElementById('nSave').addEventListener('click', async ev => {
+  const btn = ev.currentTarget, was = btn.textContent;
+  const title = document.getElementById('nTitle').value.trim();
+  if (!title){ toast('Напишите, чего хочет человек'); document.getElementById('nTitle').focus(); return; }
+  const rawValue = document.getElementById('nValue').value.replace(/[^\d]/g, '');
+  btn.disabled = true; btn.textContent = 'Записываю…';
+  try{
+    await post('/api/leads', {
+      title: title,
+      interest: document.getElementById('nInterest').value.trim() || null,
+      client_id: Number(document.getElementById('nClient').value) || null,
+      value: rawValue ? Number(rawValue) : null,
+      source: 'manual'
+    });
+    toast('Записал');
+    addBox.classList.remove('on');
+    document.getElementById('nTitle').value = '';
+    document.getElementById('nValue').value = '';
+    document.getElementById('nInterest').value = '';
+    segment = 'open';
+    document.querySelectorAll('#segs .v-seg').forEach(x =>
+      x.setAttribute('aria-pressed', x.dataset.seg === 'open' ? 'true' : 'false'));
+    reload();
+  }catch(e){ toast(e.message || 'Не получилось записать'); }
+  finally{ btn.disabled = false; btn.textContent = was; }
+});
+
+reload();
+</script>
+</body>
+</html>
