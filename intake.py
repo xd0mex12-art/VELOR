@@ -150,7 +150,32 @@ def fingerprint(*, data: bytes | None = None, text: str | None = None) -> str:
 
 # ── разбор после приёма ────────────────────────────────────────────────────
 
-def understand(business_id: int, item_id: int, background: bool = True) -> None:
+def may_autoapply(business_id: int, channel: str) -> bool:
+    """
+    Разрешено ли VELOR записывать понятое САМ, без нажатия человека.
+
+    Отдельной настройки для этого не заводим: право уже описано уровнем
+    автономии канала (ai_policy), и заводить рядом второе значило бы завести
+    вторую правду. Первый уровень — «только отвечает»: разбирать материал он
+    по-прежнему разбирает, но записывать в память бизнеса без человека не
+    вправе. Со второго — вправе, и то лишь безопасное и при высокой
+    уверенности: это решают пороги в understanding, а не мы.
+
+    Кабинет сюда не попадает: там человек и так стоит перед экраном.
+    """
+    try:
+        import sales
+        return int(sales.policy(business_id, channel).get("level") or 0) >= 2
+    except Exception:
+        # Политику не прочитали — считаем, что права нет. Ошибка в защите
+        # должна оборачиваться лишним вопросом человеку, а не лишней записью.
+        log.exception("Приём: не удалось прочитать автономию канала %s (biz %s)",
+                      channel, business_id)
+        return False
+
+
+def understand(business_id: int, item_id: int, background: bool = True,
+               auto=None) -> None:
     """
     Запустить разбор принятого материала.
 
@@ -160,17 +185,17 @@ def understand(business_id: int, item_id: int, background: bool = True) -> None:
     предсказуемым, а не «когда-нибудь потом».
     """
     if not background or os.getenv("DISABLE_SYNC_WORKER"):
-        _understand_safely(business_id, item_id)
+        _understand_safely(business_id, item_id, auto)
         return
     import threading
-    threading.Thread(target=_understand_safely, args=(business_id, item_id),
+    threading.Thread(target=_understand_safely, args=(business_id, item_id, auto),
                      name=f"velor-intake-{item_id}", daemon=True).start()
 
 
-def _understand_safely(business_id: int, item_id: int) -> None:
+def _understand_safely(business_id: int, item_id: int, auto=None) -> None:
     """Разбор может упасть, а уронить приём — нет: материал уже сохранён."""
     try:
-        understanding.process(business_id, item_id)
+        understanding.process(business_id, item_id, auto=auto)
     except Exception:
         log.exception("Приём: разбор упал (biz %s, материал %s)", business_id, item_id)
         try:
@@ -195,7 +220,7 @@ def _existing(business_id, digest):
 def receive_text(business_id: int, text: str, *, title: str | None = None,
                  source: str = "web", actor: str | None = None,
                  actor_id: int | None = None, meta: dict | None = None,
-                 background: bool = True) -> dict:
+                 background: bool = True, auto=None) -> dict:
     """
     Принять текст: заметку, пересланное сообщение, вставленный кусок письма.
 
@@ -219,14 +244,14 @@ def receive_text(business_id: int, text: str, *, title: str | None = None,
         business_id, kind="text", title=head, body=text,
         size=len(text.encode("utf-8")), source=source,
         content_hash=digest, actor=actor, actor_id=actor_id, meta=meta)
-    understand(business_id, item_id, background=background)
+    understand(business_id, item_id, background=background, auto=auto)
     return {"item_id": item_id, "duplicate": False, "of": None}
 
 
 def receive_file(business_id: int, filename: str, data: bytes, *,
                  source: str = "web", actor: str | None = None,
                  actor_id: int | None = None, meta: dict | None = None,
-                 background: bool = True) -> dict:
+                 background: bool = True, auto=None) -> dict:
     """
     Принять один файл. Проверки те же для любого канала, поэтому они здесь, а
     не в обработчике запроса.
@@ -256,14 +281,14 @@ def receive_file(business_id: int, filename: str, data: bytes, *,
         business_id, kind="file", title=name, filename=name, mime=TYPES[ext],
         size=len(data), storage_key=key, source=source,
         content_hash=digest, actor=actor, actor_id=actor_id, meta=meta)
-    understand(business_id, item_id, background=background)
+    understand(business_id, item_id, background=background, auto=auto)
     return {"item_id": item_id, "duplicate": False, "of": None}
 
 
 def receive(business_id: int, *, text: str | None = None, files=None,
             source: str = "web", actor: str | None = None,
             actor_id: int | None = None, meta: dict | None = None,
-            background: bool = True) -> dict:
+            background: bool = True, auto=None) -> dict:
     """
     Одна дверь: принять текст и файлы одной отправкой.
 
@@ -289,7 +314,8 @@ def receive(business_id: int, *, text: str | None = None, files=None,
     if (text or "").strip():
         try:
             got = receive_text(business_id, text, source=source, actor=actor,
-                               actor_id=actor_id, meta=meta, background=background)
+                               actor_id=actor_id, meta=meta, background=background,
+                               auto=auto)
             (duplicates if got["duplicate"] else accepted).append(
                 {"id": got["item_id"], "of": got["of"], "what": "заметка"}
                 if got["duplicate"] else got["item_id"])
@@ -307,7 +333,8 @@ def receive(business_id: int, *, text: str | None = None, files=None,
         shown = safe_name(name)
         try:
             got = receive_file(business_id, name, data, source=source, actor=actor,
-                               actor_id=actor_id, meta=meta, background=background)
+                               actor_id=actor_id, meta=meta, background=background,
+                               auto=auto)
         except IntakeError as e:
             rejected.append({"what": shown, "error": str(e)})
             continue
@@ -321,3 +348,87 @@ def receive(business_id: int, *, text: str | None = None, files=None,
             accepted.append(got["item_id"])
 
     return {"accepted": accepted, "duplicates": duplicates, "rejected": rejected}
+
+
+# ── что сказать отправителю ────────────────────────────────────────────────
+# Кабинет показывает карточки, бот — текст, завтра появится третий канал. Но
+# СЛОВА должны быть одни: если «нужно подтверждение» в кабинете и «сохранено»
+# в боте означают одно и то же событие, доверять нельзя ни тому, ни другому.
+# Поэтому формулировка живёт здесь, рядом с приёмом, а не в каждом канале.
+
+def _plural(n, one, few, many):
+    a, b = abs(n) % 100, abs(n) % 10
+    if 10 < a < 20:
+        return many
+    if 1 < b < 5:
+        return few
+    return one if b == 1 else many
+
+
+def describe(business_id: int, item_id: int) -> str:
+    """Одна строка о судьбе одного материала: что понял и что с этим сделал."""
+    item = database.get_inbox_item(item_id, business_id) or {}
+    # У файла есть имя, у заметки — только её же текст. Пересказывать человеку
+    # целиком то, что он сам минуту назад написал, незачем: хватит начала,
+    # чтобы он узнал свою мысль в списке.
+    name = (item.get("filename") or "").strip()
+    if not name:
+        name = (item.get("title") or "заметка").strip()
+        if len(name) > 48:
+            name = name[:47].rstrip() + "…"
+    res = database.get_inbox_result(business_id, item_id)
+    if not res:
+        return f"• {name}: принял, разбираю."
+
+    kind = understanding.TYPE_RU.get(res.get("type"), "Не разобрал")
+    data = res.get("extracted_data") or {}
+    applied = res.get("applied") or []
+    bits = [f"• {name}: {kind.lower()}"]
+    if data.get("items_count"):
+        n = int(data["items_count"])
+        bits.append("нашёл %d %s" % (n, _plural(n, "позицию", "позиции", "позиций")))
+    elif data.get("amount"):
+        bits.append("сумма %s" % "{:,}".format(int(data["amount"])).replace(",", " ") + " ₽")
+
+    line = ", ".join(bits)
+    notes = [n for n in (res.get("notes") or []) if str(n).strip()]
+    if notes:
+        # Оговорка важнее итога: она объясняет, почему итог такой.
+        return line + ".\n  " + " ".join(str(n) for n in notes)
+    if applied:
+        # Что именно сделано, словами самого действия: «Товары: добавлено 2,
+        # обновлено 4». Пересказывать это своими словами значит завести второе
+        # описание одного события.
+        line += ".\n  " + "; ".join(a.get("detail") or "" for a in applied if a.get("detail"))
+    elif res.get("type") == "UNKNOWN":
+        line += ".\n  Не понял, что это. Загляните во «Входящие» и подскажите."
+    else:
+        line += ".\n  " + (understanding.NEEDS_RU.get(res.get("level"), "нужно уточнение")
+                           .capitalize() + " — откройте «Входящие».")
+    return line
+
+
+def report(business_id: int, got: dict) -> str:
+    """
+    Человеческий ответ на отправку: что принято, что уже было, что не вышло.
+
+    Ни одного слова о внутреннем устройстве: отправитель не должен знать ни
+    про отпечатки, ни про уровни уверенности — он должен понять, изменились
+    ли его данные и нужно ли ему что-то сделать.
+    """
+    lines = []
+    accepted = got.get("accepted") or []
+    if accepted:
+        lines.append("Готово. Принял %d %s:" % (
+            len(accepted), _plural(len(accepted), "материал", "материала", "материалов")))
+        lines += [describe(business_id, i) for i in accepted]
+
+    for d in (got.get("duplicates") or []):
+        lines.append("• %s: это вы уже присылали — ничего не менял." % d.get("what"))
+
+    for r in (got.get("rejected") or []):
+        lines.append("• %s: не принял. %s" % (r.get("what"), r.get("error")))
+
+    if not lines:
+        return "Ничего не принял — нечего было обрабатывать."
+    return "\n".join(lines)

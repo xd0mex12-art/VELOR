@@ -11,6 +11,45 @@ import ai
 import database
 import trial
 
+log = logging.getLogger("velor.botcore")
+
+
+# ── кто написал ────────────────────────────────────────────────────────────
+# У бота бизнеса два совершенно разных собеседника, и путать их нельзя ни в
+# одну сторону. Клиент пишет, чтобы купить, — его ведёт продавец. Владелец
+# пишет, чтобы что-то рассказать о своём деле, — это материал, и он должен
+# попасть в ту же дверь, что и загрузка из кабинета.
+#
+# Личность владельца определяет СЕРВЕР по своей же записи (owner_identity),
+# а не сообщение. Никакой пометки «я владелец» в тексте не существует и не
+# должно: иначе любой клиент назначил бы себя владельцем одной строкой.
+
+def owner_telegram_id(bid):
+    """Личный Telegram-id владельца, если он подтверждён. Иначе None."""
+    try:
+        business = database.get_business(bid) or {}
+        if not business.get("owner_verified"):
+            return None
+        row = database.owner_identity_get(bid) or {}
+        return (row.get("telegram_user_id") or "").strip() or None
+    except Exception:
+        log.exception("Не удалось прочитать личность владельца (biz %s)", bid)
+        return None
+
+
+def is_owner(bid, tg_user_id):
+    """
+    Это владелец бизнеса? Сравниваем с подтверждённой привязкой.
+
+    Строго по id: username меняется, имя совпадает у тысяч людей, а личный id
+    в Telegram неизменен. Не подтверждён владелец — значит, владельца нет, и
+    все пишущие боту считаются клиентами. Это безопасный отказ: худшее, что
+    случится, — материал владельца уйдёт в разговор с продавцом, а не в
+    память бизнеса.
+    """
+    known = owner_telegram_id(bid)
+    return bool(known) and str(tg_user_id or "").strip() == known
+
 
 def greeting_text(bid):
     """Приветствие бизнеса для команды /start."""
@@ -19,6 +58,49 @@ def greeting_text(bid):
     if ai.ai_available():
         return greeting + "\nПросто напишите, что вам нужно — я всё оформлю."
     return greeting
+
+
+def from_owner(bid, *, text=None, files=None, actor_id=None, channel="telegram"):
+    """
+    Материал от владельца — в ту же дверь, что и загрузка из кабинета.
+
+    Здесь нет ни разбора, ни записи в память: всё это уже написано и живёт в
+    intake/understanding/entities. Задача этой функции ровно одна — не завести
+    второй приёмник, а позвать существующий и пересказать его ответ словами.
+
+    Возвращает текст для отправителя. Ничего не бросает: канал не должен
+    падать из-за того, что материал не удалось разобрать.
+    """
+    import intake
+
+    business = database.get_business(bid) or {}
+    # Триал закончился — данные целы, но менять их нельзя. То же правило, что
+    # и в кабинете (require_active), и формулировка та же.
+    if trial.access(business)["read_only"]:
+        return ("Пробный период завершён — новые материалы я пока не принимаю. "
+                "Всё, что было, на месте.")
+
+    try:
+        got = intake.receive(
+            bid, text=text, files=files or [], source=channel,
+            actor="owner", actor_id=actor_id,
+            meta={"channel": channel},
+            # Право записать понятое БЕЗ нажатия человека даёт уровень
+            # автономии канала, а не факт, что сообщение пришло от владельца.
+            auto=intake.may_autoapply(bid, channel))
+    except intake.IntakeError as e:
+        return str(e)
+    except Exception:
+        log.exception("Приём из канала %s не удался (biz %s)", channel, bid)
+        return ("Не смог обработать. Данные не менял — попробуйте ещё раз "
+                "или загрузите через кабинет.")
+
+    try:
+        return intake.report(bid, got)
+    except Exception:
+        log.exception("Не удалось описать результат приёма (biz %s)", bid)
+        # Материал принят — об этом надо сказать, даже если красиво не вышло.
+        return "Принял. Загляните во «Входящие» — там видно, что я понял."
 
 
 def handle_message(bid, tg_user_id, full_name, text):

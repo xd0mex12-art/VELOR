@@ -127,6 +127,11 @@
   .got-card .what{ font-size:var(--fs-lead); font-weight:var(--fw-reg); letter-spacing:-.02em; }
   .got-card .why{ margin-top:var(--sp-2); font-size:var(--fs-body);
     font-weight:var(--fw-thin); color:var(--silver); line-height:1.5; }
+  /* Оговорки разбора: почему VELOR чего-то НЕ сделал. Отделены полосой, а не
+     цветом текста: это не ошибка и не успех, а объяснение результата. */
+  .got-card .notes{ margin-top:var(--sp-3); border-left:2px solid var(--saffron);
+    padding-left:var(--sp-3); display:grid; gap:var(--sp-1);
+    font-size:var(--fs-sm); color:var(--silver); line-height:1.5; }
 
   /* уверенность — полосой и словом сразу: цвет один смысл не несёт */
   .conf{ display:flex; align-items:center; gap:var(--sp-3); margin-top:var(--sp-4); }
@@ -381,6 +386,11 @@ const STATUS_RU = {
   RECEIVED: 'Принято', PROCESSING: 'В разборе', PROCESSED: 'Разобрано',
   NEEDS_REVIEW: 'Нужен взгляд', FAILED: 'Сбой',
 };
+// Откуда пришёл материал. «web» намеренно пусто: подписывать «из кабинета»
+// то, что человек видит в кабинете, — шум.
+const SOURCE_RU = {
+  telegram: 'из Telegram', email: 'из почты', api: 'по API', import: 'из импорта',
+};
 
 let toastT;
 function toast(msg){
@@ -453,6 +463,10 @@ function itemHTML(it){
   const st = `<span class="st-tag st-${esc(it.status)}"><i></i>${STATUS_RU[it.status] || esc(it.status)}</span>`;
   const meta = [
     it.kind === 'text' ? 'Заметка' : size(it.size),
+    // Откуда пришло. Про кабинет не пишем — человек и так в нём стоит; а вот
+    // «прислано в бот» отвечает на первый же вопрос при разборе: где я это
+    // отправлял и почему не помню, чтобы загружал.
+    SOURCE_RU[it.source] || '',
     ago(it.created_at),
     it.archived_at ? 'в архиве' : '',
   ].filter(Boolean).join(' · ');
@@ -567,6 +581,8 @@ function gotCard(it, res){
           <i></i>${esc(res.needs || '')}</span></div>
       <div class="what">${esc(res.type_ru || '')}</div>
       ${res.summary ? `<div class="why">${esc(res.summary)}</div>` : ''}
+      ${(res.notes || []).length ? `<div class="notes">${
+        (res.notes || []).map(n => `<div>${esc(n)}</div>`).join('')}</div>` : ''}
 
       <div class="conf">
         <span class="val">Уверенность ${esc(res.level_ru || '')}</span>

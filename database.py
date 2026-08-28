@@ -356,6 +356,11 @@ def _migrate_columns(conn):
         # владелец поручился, — разные вещи, и складывать их в одну колонку
         # значит потерять единственную разницу, которая тут важна.
         ("memory_facts", "verified", "INTEGER DEFAULT 1"),
+        # Оговорки разбора: модель промахнулась по цифрам, VELOR не стал
+        # переписывать подтверждённое. Раньше они считались и терялись при
+        # сохранении — а это ровно то, что человеку нужно прочитать, когда он
+        # видит «ничего не изменилось» и не понимает почему.
+        ("inbox_results", "notes", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -3269,7 +3274,9 @@ def get_client_messages(client_id, business_id, limit=50):
     """История переписки клиента (старые -> новые) для показа в карточке."""
     with _connect() as conn:
         rows = conn.execute(
-            """SELECT role, content, created_at FROM messages
+            # Канал — часть истории: у клиента, который писал и в бот, и в
+            # директ, это единственный способ понять, где именно шёл разговор.
+            """SELECT role, content, channel, created_at FROM messages
                WHERE business_id = ? AND client_id = ?
                ORDER BY id DESC LIMIT ?""",
             (business_id, client_id, limit),
@@ -4249,7 +4256,7 @@ def list_inbox(business_id, status=None, archived=False, limit=50, offset=0):
         rows = conn.execute(
             f"""SELECT id, business_id, kind, title, body, filename, mime, size,
                        storage_key, source, status, error, archived_at,
-                       created_at, updated_at
+                       created_at, updated_at, actor, actor_id, content_hash
                   FROM inbox_items WHERE {where}
                  ORDER BY id DESC LIMIT ? OFFSET ?""",
             (*params, max(1, min(int(limit), 200)), max(0, int(offset))),
@@ -4361,8 +4368,8 @@ def save_inbox_result(business_id, item_id, result):
         cur = conn.execute(
             """INSERT INTO inbox_results
                (business_id, item_id, type, confidence, level, summary,
-                extracted, actions, engine, model, error, applied, relations)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                extracted, actions, engine, model, error, applied, relations, notes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (business_id, item_id,
              result.get("type") or "UNKNOWN",
              float(result.get("confidence") or 0),
@@ -4372,7 +4379,8 @@ def save_inbox_result(business_id, item_id, result):
              _json.dumps(result.get("suggested_actions") or [], ensure_ascii=False),
              result.get("engine"), result.get("model"), result.get("error"),
              _json.dumps(result.get("applied") or [], ensure_ascii=False),
-             _json.dumps(result.get("relations") or [], ensure_ascii=False)),
+             _json.dumps(result.get("relations") or [], ensure_ascii=False),
+             _json.dumps(result.get("notes") or [], ensure_ascii=False)),
         )
         return cur.lastrowid
 
@@ -4383,7 +4391,8 @@ def _result_row(row):
         return None
     d = dict(row)
     for src, dst in (("extracted", "extracted_data"), ("actions", "suggested_actions"),
-                     ("applied", "applied"), ("relations", "relations")):
+                     ("applied", "applied"), ("relations", "relations"),
+                     ("notes", "notes")):
         try:
             d[dst] = _json.loads(d.get(src) or ("[]" if src != "extracted" else "{}"))
         except (ValueError, TypeError):

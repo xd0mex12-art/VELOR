@@ -3006,7 +3006,7 @@ def _inbox_result_public(res: dict | None, item: dict | None = None) -> dict | N
     out = {k: res.get(k) for k in
            ("id", "item_id", "type", "confidence", "level", "summary",
             "extracted_data", "suggested_actions", "engine", "model", "error",
-            "applied", "relations", "created_at")}
+            "applied", "relations", "notes", "created_at")}
     out["type_ru"] = understanding.TYPE_RU.get(res.get("type"), "Не разобрал")
     out["level_ru"] = understanding.LEVEL_RU.get(res.get("level"), "низкая")
     out["needs"] = understanding.NEEDS_RU.get(res.get("level"), "нужно уточнение")
@@ -4676,6 +4676,63 @@ def _tg_api(token: str, method: str, **params):
         return None
 
 
+def _tg_files(msg: dict) -> list[dict]:
+    """
+    Что за файлы в сообщении Telegram: [{file_id, name, size}].
+
+    Фото приходит несколькими размерами одного снимка — берём самый крупный,
+    иначе в память бизнеса уедет превью, на котором цену не прочитать. Имя у
+    фото Telegram не передаёт, поэтому даём своё: расширение решает, примем мы
+    материал или нет, и оставлять его пустым нельзя.
+    """
+    out = []
+    photos = msg.get("photo") or []
+    if isinstance(photos, list) and photos:
+        big = max(photos, key=lambda p: (p or {}).get("file_size") or 0)
+        if big.get("file_id"):
+            out.append({"file_id": big["file_id"], "name": "Фото из Telegram.jpg",
+                        "size": big.get("file_size") or 0})
+    for key, default in (("document", None), ("voice", "Голосовое.ogg"),
+                         ("audio", "Аудио.mp3"), ("video", "Видео.mp4")):
+        part = msg.get(key)
+        if not isinstance(part, dict) or not part.get("file_id"):
+            continue
+        name = (part.get("file_name") or default or "").strip()
+        if not name:
+            continue                      # без имени не узнать тип — не берём
+        out.append({"file_id": part["file_id"], "name": name,
+                    "size": part.get("file_size") or 0})
+    return out
+
+
+def _tg_download(token: str, file_id: str) -> bytes | None:
+    """
+    Скачать файл Telegram. None — не вышло, и это не повод падать.
+
+    Размер проверяем ДО скачивания по ответу getFile и ещё раз после: первое
+    бережёт трафик, второе защищает от того, что сервер сказал одно, а отдал
+    другое. Путь приходит от Telegram и в наше хранилище не попадает — там своё
+    имя из storage.new_key().
+    """
+    info = _tg_api(token, "getFile", file_id=file_id)
+    if not info or not info.get("ok"):
+        return None
+    path = ((info.get("result") or {}).get("file_path") or "").strip()
+    size = (info.get("result") or {}).get("file_size") or 0
+    if not path or (size and size > intake.MAX_BYTES):
+        return None
+    try:
+        r = requests.get(f"https://api.telegram.org/file/bot{token}/{path}",
+                         timeout=60, stream=True)
+        if r.status_code != 200:
+            return None
+        data = r.raw.read(intake.MAX_BYTES + 1, decode_content=True)
+    except Exception:
+        logging.exception("Telegram: файл не скачался")
+        return None
+    return None if len(data) > intake.MAX_BYTES else data
+
+
 def set_webhook_for(token: str):
     """Зарегистрировать webhook для одного бота на наш публичный адрес."""
     base = _public_base()
@@ -4708,11 +4765,16 @@ async def api_tg_webhook(token: str, request: Request):
     except Exception:
         logging.exception("Проверка дубля update_id не удалась (biz %s)", bid)
     msg = update.get("message") or update.get("edited_message") or {}
+    if not isinstance(msg, dict):
+        return {"ok": True}
     chat_id = (msg.get("chat") or {}).get("id")
-    text = msg.get("text")
+    # Подпись к фото — такой же текст, как обычное сообщение: человек написал
+    # «вот новый прайс» и приложил файл одной отправкой, и разрывать их нельзя.
+    text = msg.get("text") or msg.get("caption") or ""
     frm = msg.get("from") or {}
-    if not chat_id or not text:
-        return {"ok": True}                       # не текст (фото/стикер) — тихо пропускаем
+    files = _tg_files(msg)
+    if not chat_id or (not text and not files):
+        return {"ok": True}                       # стикер, прочтение, служебное — молчим
     full_name = " ".join(x for x in (frm.get("first_name"), frm.get("last_name")) if x) \
         or frm.get("username") or "клиент"
 
@@ -4730,9 +4792,58 @@ async def api_tg_webhook(token: str, request: Request):
                      "нажмите «Запустить VELOR».")
         return {"ok": True}
 
+    # ── ВЛАДЕЛЕЦ ИЛИ КЛИЕНТ ────────────────────────────────────────────────
+    # Развилка одна и проходит здесь. Владелец рассказывает о своём деле — это
+    # материал, и он идёт в ту же дверь, что и загрузка из кабинета. Клиент
+    # разговаривает — его по-прежнему ведёт продавец, и Lead Engine к этому
+    # маршруту отношения пока не имеет.
+    #
+    # Команды остаются командами для обоих: «/start» — это не сведения о
+    # бизнесе, и записывать его в память было бы нелепо.
+    owner = botcore.is_owner(bid, frm.get("id"))
+    is_command = text.strip().startswith("/")
+
     try:
-        reply = (botcore.greeting_text(bid) if text.strip() == "/start"
-                 else botcore.handle_message(bid, frm.get("id"), full_name, text))
+        if text.strip() == "/start":
+            reply = botcore.greeting_text(bid)
+        elif owner and not is_command:
+            got, missed, huge = [], [], []
+            for f in files:
+                # Размер, заявленный в самом сообщении, проверяем ДО обращения
+                # к Telegram: тянуть сорок мегабайт, чтобы затем отказать, —
+                # это трата и нашего времени, и чужого канала.
+                if f["size"] and f["size"] > intake.MAX_BYTES:
+                    huge.append(f["name"])
+                    continue
+                data = _tg_download(token, f["file_id"])
+                if data is None:
+                    missed.append(f["name"])
+                    continue
+                got.append((f["name"], data))
+            if got or text:
+                reply = botcore.from_owner(bid, text=text, files=got,
+                                           actor_id=frm.get("id"))
+            else:
+                # Всё, что прислали, отсеялось ещё до приёма. Звать приём не за
+                # чем — ему нечего принимать, и «нечего принимать» звучало бы
+                # как наша ошибка, а не как объяснение.
+                reply = "Не принял:"
+            # О несработавших файлах говорим отдельными строками, а не молчим:
+            # иначе владелец решит, что чек принят.
+            if huge:
+                reply += ("\n• " + ", ".join(huge) + ": больше %d МБ — не принимаю."
+                          % (intake.MAX_BYTES // (1024 * 1024)))
+            if missed:
+                reply += "\n• " + ", ".join(missed) + ": не смог скачать из Telegram."
+        elif owner:
+            reply = ("Это команда, а не сведения о бизнесе — я её не записываю. "
+                     "Пришлите текстом, фото или файлом то, что хотите мне рассказать.")
+        elif files and not text:
+            # Клиент прислал вложение без слов. В разговор это не превратить, а
+            # в память бизнеса чужой файл не кладут — принимаем по-человечески.
+            reply = "Спасибо! Получили. Сотрудник посмотрит и ответит."
+        else:
+            reply = botcore.handle_message(bid, frm.get("id"), full_name, text)
     except Exception:
         logging.exception("Ошибка обработки webhook (biz %s)", bid)
         reply = "Ой, я на секунду задумалась. Напишите ещё раз, пожалуйста."

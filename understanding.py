@@ -240,6 +240,12 @@ MARKERS = {
     "SERVICES_OR_PRODUCTS": [
         (r"\bменю\b", 3), (r"ассортимент", 3), (r"наши услуги", 3),
         (r"каталог товаров", 3), (r"перечень услуг", 3),
+        # Так владелец говорит боту, а не пишет в документе. Раньше эти слова
+        # не значили ничего, и «у нас новая услуга — маникюр 2500» без модели
+        # уходило в UNKNOWN: приметы знали только язык бумаг.
+        (r"нов(ая|ый|енькая)\s+(услуг|товар|позици)", 3),
+        (r"добав(ь|ьте|ил[аи]?|или)\s+(услуг|товар|позици)", 3),
+        (r"(появилась|ввели|запустили|теперь есть)\s+(услуг|нов)", 2),
     ],
     "BUSINESS_RULES": [
         (r"регламент", 4), (r"правила работы", 4), (r"\bправила\b", 2),
@@ -292,6 +298,10 @@ INTENT_WORDS = re.compile(r"хочу|хотим|планиру|цель|цели
 # Деньги двигают не только глаголом. «Перевод Иванову 70 000» — это операция,
 # хотя ни «заплатил», ни «получил» здесь нет.
 MONEY_NOUNS = re.compile(r"перевод|оплат|плат[её]ж|выплат|возврат|поступлен|списан", re.I)
+# Слова, которыми называют то, что бизнес ПРОДАЁТ. Нужны, чтобы отличить
+# «маникюр 2500» (позиция прайса) от «отдал 2500» (движение денег): цифра в
+# обоих случаях одна и та же, а смысл противоположный.
+OFFER_WORDS = re.compile(r"услуг|товар|позици|прайс|цен[аыуе]|стоимость|тариф", re.I)
 EXPENSE_WORDS = re.compile(r"заплатил|оплатил|потратил|перевёл|перевел|купил|закупил|списал", re.I)
 
 CATEGORY_WORDS = [
@@ -563,6 +573,13 @@ def classify_by_rules(text: str, filename: str = "", mime: str = "", kind: str =
                         or MONEY_NOUNS.search(text or "")):
             scores["FINANCIAL_TRANSACTION"] = scores.get("FINANCIAL_TRANSACTION", 0) + 4
             hits.setdefault("FINANCIAL_TRANSACTION", []).append("сумма и слово о деньгах")
+        # Названная позиция с ценой рядом со словом об услуге или товаре — это
+        # прайс, пусть и в одну строку. Признак строгий: цену ищет тот же
+        # разборщик, что и в файле прайса, и просто «отдал 2500» его не пройдёт.
+        if OFFER_WORDS.search(text or "") and extract_items(text):
+            scores["SERVICES_OR_PRODUCTS"] = scores.get("SERVICES_OR_PRODUCTS", 0) + 4
+            hits.setdefault("SERVICES_OR_PRODUCTS", []).append(
+                "названа позиция с ценой")
 
     if not scores:
         return "UNKNOWN", 0.0, []
@@ -900,12 +917,17 @@ def _check_model_amount(model_data, text):
 #  ГЛАВНОЕ: разобрать материал
 # ============================================================
 
-def process(business_id, item_id):
+def process(business_id, item_id, auto=None):
     """
     Понять один материал и сохранить результат.
 
     Оригинал не трогаем ни при каком исходе — понимание это отдельный слой
     поверх приёмника, а не замена ему.
+
+    auto=None — как настроено глобально (INBOX_AUTOAPPLY). auto=False —
+    ничего не применять самому, только разобрать и предложить. Второе нужно
+    каналам, у которых автономия VELOR ограничена владельцем: разбор от этого
+    не меняется, меняется только право записать результат без нажатия.
     """
     import storage
     item = database.get_inbox_item(item_id, business_id)
@@ -1023,14 +1045,19 @@ def process(business_id, item_id):
     # Автоматически — только безопасное и только при высокой уверенности.
     # Деньги не двигаются сами никогда: create_expense/create_income safe=False.
     applied, pending_links = [], []
-    if AUTO_APPLY and result["level"] == "HIGH":
+    may_auto = AUTO_APPLY if auto is None else bool(auto)
+    if may_auto and result["level"] == "HIGH":
         for a in result["suggested_actions"]:
             if a["safe"] and a.get("auto"):
                 try:
                     text, entity, entity_id, clean, made = apply_action(
                         business_id, item_id, a["action"], result, auto=True)
-                except ActionError:
-                    continue          # не смогли — просто оставим человеку
+                except ActionError as e:
+                    # Не применили — и человек должен прочитать ПОЧЕМУ. «Ничего
+                    # не изменилось» без объяснения выглядит как поломка, хотя
+                    # чаще всего это сработавшая защита.
+                    result["notes"] = list(result.get("notes") or []) + [str(e)]
+                    continue
                 said_type, said_id = named_result(entity, entity_id, made)
                 applied.append({"action": a["action"], "auto": True, "detail": text,
                                 "entity_type": said_type, "entity_id": said_id,
