@@ -92,6 +92,44 @@
     margin-top:3px; }
   .risk{ margin-top:var(--sp-3); font-size:var(--fs-sm); color:var(--saffron); }
 
+  /* касание: готовый текст и повод, по которому он написан.
+     Отдельного экрана у касаний нет: решение принимается там же, где смотрят
+     на возможность, — иначе владелец читал бы про клиента в одном месте, а
+     решал про него в другом. */
+  .fu{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-4); margin-bottom:var(--sp-4); }
+  .fu.hot{ border-color:rgba(128,82,255,.35); background:var(--tint-iris); }
+  .fu.done{ border-color:rgba(47,212,178,.28); }
+  .fu.stopped{ background:transparent; }
+  .fu .k{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); }
+  .fu .k.done{ color:var(--verdant); }
+  .fu .k.stopped{ color:var(--ash); }
+  .fu .t{ font-weight:var(--fw-med); font-size:var(--fs-base); margin-top:6px; }
+  .fu ul{ list-style:none; margin-top:var(--sp-2); display:flex;
+    flex-direction:column; gap:4px; }
+  .fu li{ font-size:var(--fs-sm); font-weight:var(--fw-thin); color:var(--silver);
+    padding-left:14px; position:relative; line-height:1.45; }
+  .fu li::before{ content:'·'; position:absolute; left:2px; color:var(--ash); }
+  .fu textarea{ width:100%; margin-top:var(--sp-3); min-height:88px;
+    background:var(--surface-2); border:1px solid var(--hairline);
+    border-radius:var(--r-sm); padding:12px 14px; color:var(--bone);
+    font-family:inherit; font-weight:var(--fw-thin); font-size:16px;
+    line-height:1.5; resize:vertical; }
+  .fu textarea:focus{ outline:none; border-color:var(--ring); background:var(--tint-iris); }
+  .fu .said{ margin-top:var(--sp-3); padding:12px 14px; border-radius:var(--r-sm);
+    background:var(--surface-2); font-size:var(--fs-body);
+    font-weight:var(--fw-thin); line-height:1.5; }
+  .fu .acts{ display:flex; gap:var(--sp-2); flex-wrap:wrap; align-items:center;
+    margin-top:var(--sp-3); }
+  .fu .note{ font-size:var(--fs-caption); color:var(--ash); margin-top:var(--sp-2); }
+  .fu .note.warn{ color:var(--saffron); }
+
+  /* одна строка в списке — и ни одной колонки больше */
+  .fu-line{ margin-top:3px; font-size:var(--fs-caption); color:var(--ink-iris); }
+  .fu-line.off{ color:var(--ash); }
+  .fu-line.done{ color:var(--ink-verdant); }
+
   /* раскрытая карточка */
   .card{ display:none; padding:0 0 var(--sp-6); }
   .lead-row.open .card{ display:block; }
@@ -266,9 +304,20 @@ function paintState(d){
     ? s.attention + ' ' + plural(s.attention, 'требует внимания', 'требуют внимания',
                                  'требуют внимания')
     : (s.open ? 'Ничего срочного' : 'Открытых нет');
+  // Сводка по касаниям живёт здесь, а не на отдельной странице аналитики:
+  // это те же возможности, посчитанные с другой стороны, и разводить их по
+  // разным экранам значило бы предложить владельцу сверять их самому.
+  const f = s.followup || {};
+  const fuBits = [];
+  const waiting = (f.scheduled || 0) + (f.approved || 0);
+  if (f.ready) fuBits.push(f.ready + ' ' + plural(f.ready, 'касание готово',
+                                                  'касания готовы', 'касаний готово'));
+  if (waiting) fuBits.push(waiting + ' запланировано');
+  if (f.blocked) fuBits.push(f.blocked + ' остановлено');
   const tail = [
     s.open + ' ' + plural(s.open, 'в работе', 'в работе', 'в работе'),
     s.closed ? 'конверсия ' + s.conversion + '%' : 'закрытых пока нет',
+    fuBits.join(', '),
   ].filter(Boolean).join(' · ');
   box.innerHTML = '<span class="v-badge ' + cls + '"><i></i>' + word + '</span><span>' + esc(tail) + '</span>';
 }
@@ -304,6 +353,48 @@ function rowMeta(l){
   return bits.join(' · ');
 }
 
+// Касание в строке списка — ровно одна строка. Владельцу здесь нужно знать
+// только, ждёт ли его решение и когда уйдёт сообщение; всё остальное он
+// прочитает, когда откроет карточку.
+function fuLine(f){
+  if (!f) return '';
+  if (f.status === 'sent'){
+    return '<div class="fu-line done">касание отправлено' +
+      (f.sent_at ? ' ' + esc(when(f.sent_at)) : '') +
+      (f.outcome_ru ? ' · ' + esc(f.outcome_ru) : '') + '</div>';
+  }
+  if (f.status === 'blocked' || f.status === 'failed'){
+    return '<div class="fu-line off">касание остановлено' +
+      (f.stop_ru || f.error ? ': ' + esc(f.stop_ru || f.error) : '') + '</div>';
+  }
+  // Отменённое в списке не показываем: владелец сам сказал «не писать», и
+  // напоминать ему об этом в каждой строке — не информация, а укор.
+  if (f.status === 'cancelled') return '';
+  if (f.status === 'scheduled'){
+    return '<div class="fu-line">касание уйдёт ' + esc(when(f.recommended_at)) + '</div>';
+  }
+  if (f.status === 'approved'){
+    return '<div class="fu-line">касание разрешено — уйдёт в рабочее время</div>';
+  }
+  return '<div class="fu-line">касание готово — ждёт вашего слова</div>';
+}
+
+// Дату показываем словами, а не строкой из базы: «сегодня в 18:00» человек
+// читает мгновенно, «2026-08-29 18:00:00» — нет.
+function when(raw){
+  if (!raw) return '';
+  const s = String(raw).replace(' ', 'T') + 'Z';
+  const d = new Date(s);
+  if (isNaN(d)) return String(raw).slice(0, 16);
+  const now = new Date();
+  const time = d.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return 'сегодня в ' + time;
+  const tom = new Date(now.getTime() + 86400000);
+  if (d.toDateString() === tom.toDateString()) return 'завтра в ' + time;
+  return d.toLocaleDateString('ru-RU', {day: 'numeric', month: 'long'}) + ' в ' + time;
+}
+
 function leadHTML(l){
   const q = l.q || {};
   // Деньги показываем и оценочные — но подписью «≈», чтобы их нельзя было
@@ -320,6 +411,7 @@ function leadHTML(l){
           (q.unanswered && l.open
             ? '<div class="waiting">ждёт ответа' + (q.waiting_ru ? ' ' + esc(q.waiting_ru) : '') + '</div>'
             : '') +
+          fuLine(l.f) +
         '</div>' +
         '<div class="rt">' +
           (l.open && q.priority
@@ -375,6 +467,82 @@ function qHTML(l){
     '</div>';
 }
 
+// Касание в карточке. Владелец должен за пять секунд понять три вещи:
+// почему мы вообще пишем, что именно будет написано и что случится, если он
+// ничего не сделает. Всё остальное — подробности.
+function fuHTML(d){
+  const list = d.followups || [];
+  const live = list.filter(f => f.live);
+  const f = live.length ? live[live.length - 1]
+                        : (list.length ? list[list.length - 1] : null);
+  const open = (d.lead || {}).open;
+
+  if (!f){
+    return open
+      ? '<div class="fu"><div class="k">Касание</div>' +
+          '<div class="t">Повода написать сейчас нет</div>' +
+          '<ul><li>VELOR предлагает написать, только когда есть настоящее ' +
+          'событие: клиент ждёт ответа, не ответил на предложение или назвал ' +
+          'дату. Придумывать повод он не будет.</li></ul>' +
+          '<div class="acts"><button class="v-btn ghost fu-plan" type="button">' +
+          'Проверить сейчас</button></div></div>'
+      : '';
+  }
+
+  const why = (f.why || []).map(x => '<li>' + esc(x) + '</li>').join('');
+  const attempt = '<li>' + esc(f.attempt_ru) + '</li>';
+
+  if (f.status === 'sent'){
+    return '<div class="fu done"><div class="k done">Отправлено ' +
+        esc(when(f.sent_at)) + '</div>' +
+      '<div class="said">' + esc(f.message || '') + '</div>' +
+      '<ul><li>повод: ' + esc(f.reason_ru) + '</li>' + attempt +
+        (f.outcome_ru ? '<li>чем кончилось: ' + esc(f.outcome_ru) + '</li>'
+                      : '<li>ответа пока нет</li>') + '</ul></div>';
+  }
+
+  if (f.status === 'blocked' || f.status === 'failed' || f.status === 'cancelled'){
+    const head = f.status === 'failed' ? 'Не отправилось' :
+                 f.status === 'cancelled' ? 'Отменено' : 'Не отправляем';
+    return '<div class="fu stopped"><div class="k stopped">' + head + '</div>' +
+      '<div class="t">' + esc(f.stop_ru || f.error || 'причина не записана') + '</div>' +
+      '<ul><li>повод был: ' + esc(f.reason_ru) + '</li>' + attempt + '</ul>' +
+      (f.message ? '<div class="said">' + esc(f.message) + '</div>' : '') + '</div>';
+  }
+
+  // Живое касание: черновик, одобренное или запланированное.
+  const state = f.status === 'scheduled'
+    ? 'уйдёт само ' + when(f.recommended_at)
+    : f.status === 'approved'
+      ? 'вы разрешили — уйдёт в рабочее время'
+      : 'ждёт вашего слова: сам VELOR это сообщение не отправит';
+  // Почему текст такой, какой есть. «Модель не подключена» — это просто факт
+  // о настройке, а вот «модель назвала цену, которой нет в памяти» — это уже
+  // предупреждение: оно показывает, чего в памяти бизнеса не хватает.
+  const rej = f.model_rejected || [];
+  const onlyOff = rej.length === 1 && /не подключена|не ответила/.test(rej[0]);
+  const flagged = !rej.length ? ''
+    : onlyOff
+      ? '<div class="note">Текст собран из фактов разговора: ' + esc(rej[0]) + '.</div>'
+      : '<div class="note warn">Модель написала свой вариант, но он не ушёл: ' +
+        esc(rej.join('; ')) + '. Здесь текст без этих утверждений — по нему ' +
+        'видно, чего не хватает в памяти бизнеса.</div>';
+
+  return '<div class="fu hot" data-fu="' + f.id + '">' +
+      '<div class="k">Касание</div>' +
+      '<div class="t">' + esc(f.reason_ru) + '</div>' +
+      '<ul>' + why + attempt + '<li>' + esc(state) + '</li></ul>' +
+      '<textarea class="fu-text" aria-label="Текст сообщения">' + esc(f.message || '') + '</textarea>' +
+      '<div class="acts">' +
+        '<button class="v-btn fu-send" type="button">Отправить</button>' +
+        '<button class="v-btn ghost fu-save" type="button">Сохранить текст</button>' +
+        (f.status === 'draft'
+          ? '<button class="v-btn ghost fu-later" type="button">Отправить позже</button>' : '') +
+        '<button class="v-btn ghost fu-stop" type="button">Не писать</button>' +
+      '</div>' + flagged +
+    '</div>';
+}
+
 function cardHTML(d){
   const l = d.lead;
   const statusOpts = DICT.statuses.map(s =>
@@ -424,6 +592,7 @@ function cardHTML(d){
   const owned = new Set(l.owner_fields || []);
   return '' +
     qHTML(l) +
+    fuHTML(d) +
     '<div class="fields">' +
       '<div class="f" style="grid-column:1/-1"><label>Чего хочет человек</label>' +
         '<input name="title" value="' + esc(l.title) + '"></div>' +
@@ -514,6 +683,8 @@ function wireCard(el, box){
     finally{ btn.disabled = false; btn.textContent = was; }
   });
 
+  wireFollowup(el, box, id);
+
   box.querySelector('.won').addEventListener('click', () => close(id, 'won', null));
   box.querySelector('.lost').addEventListener('click', () => {
     const sel = box.querySelector('[name="lost_reason"]');
@@ -524,6 +695,62 @@ function wireCard(el, box){
     }
     close(id, 'lost', sel ? sel.value : null);
   });
+}
+
+// Касание: подготовить, переписать, отправить, отменить. Каждое действие —
+// отдельный запрос, и ни одно из них не «наверное отправилось»: сервер
+// возвращает состояние, и показываем мы именно его.
+function wireFollowup(el, box, id){
+  const busy = async (btn, fn) => {
+    const was = btn.textContent;
+    btn.disabled = true; btn.textContent = '…';
+    try{ await fn(); }
+    catch(e){ toast(e.message || 'Не получилось'); }
+    finally{ btn.disabled = false; btn.textContent = was; }
+  };
+  const reopen = () => { box.dataset.loaded = '0'; loadCard(el); };
+  const at = sel => box.querySelector(sel);
+  const fuId = () => { const n = box.querySelector('[data-fu]');
+                       return n ? n.dataset.fu : null; };
+
+  const plan = at('.fu-plan');
+  if (plan) plan.addEventListener('click', ev => busy(ev.currentTarget, async () => {
+    const d = await post('/api/leads/' + id + '/followup', {});
+    toast(d.followup ? 'Касание готово' : (d.why || 'Повода писать нет'));
+    if (d.followup) reopen();
+  }));
+
+  const save = at('.fu-save');
+  if (save) save.addEventListener('click', ev => busy(ev.currentTarget, async () => {
+    await post('/api/followups/' + fuId() + '/edit', {text: at('.fu-text').value});
+    toast('Текст сохранён');
+  }));
+
+  const send = at('.fu-send');
+  if (send) send.addEventListener('click', ev => busy(ev.currentTarget, async () => {
+    const text = at('.fu-text').value;
+    await post('/api/followups/' + fuId() + '/edit', {text: text});
+    const d = await post('/api/followups/' + fuId() + '/send', {});
+    toast(d.ok ? 'Отправлено' : ('Не отправлено: ' + (d.why || 'канал недоступен')));
+    reopen();
+  }));
+
+  const later = at('.fu-later');
+  if (later) later.addEventListener('click', ev => busy(ev.currentTarget, async () => {
+    await post('/api/followups/' + fuId() + '/edit', {text: at('.fu-text').value});
+    const d = await post('/api/followups/' + fuId() + '/approve', {});
+    toast(d.followup && d.followup.status === 'approved'
+      ? 'Уйдёт в рабочее время'
+      : 'Не получилось: ' + ((d.followup || {}).stop_ru || 'канал недоступен'));
+    reopen();
+  }));
+
+  const stop = at('.fu-stop');
+  if (stop) stop.addEventListener('click', ev => busy(ev.currentTarget, async () => {
+    await post('/api/followups/' + fuId() + '/cancel', {});
+    toast('Не пишем');
+    reopen();
+  }));
 }
 
 async function close(id, status, reason){

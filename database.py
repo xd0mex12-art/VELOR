@@ -928,6 +928,42 @@ def init_db():
                )"""
         )
 
+
+        # Касания, которые VELOR предлагает сделать по возможности. Отдельная
+        # таблица, а не поле в лиде: у одной возможности касаний несколько, и
+        # каждое обязано помнить своё — почему предложено, на чём основано,
+        # когда уместно, что написано и чем кончилось.
+        #
+        # Черновик и отправка — РАЗНЫЕ состояния. Пока сообщение не ушло по
+        # сети и не подтвердилось, оно не отправлено, как бы уверенно ни
+        # выглядела очередь: «запланировано» и «отправлено» путать нельзя.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS followups (
+                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id   INTEGER NOT NULL,
+                   lead_id       INTEGER NOT NULL,
+                   client_id     INTEGER,
+                   channel       TEXT,               -- канал ИСХОДНОГО разговора
+                   reason        TEXT NOT NULL,      -- business_gap|customer_no_response|…
+                   trigger       TEXT,               -- что именно случилось, словами
+                   status        TEXT DEFAULT 'draft',
+                   attempt       INTEGER DEFAULT 1,  -- какое это касание по счёту
+                   recommended_at TEXT,              -- когда уместно
+                   message       TEXT,               -- черновик
+                   based_on      TEXT,               -- провенанс: id сообщений и даты
+                   stop_reason   TEXT,
+                   error         TEXT,               -- почему не ушло
+                   tries         INTEGER DEFAULT 0,  -- сколько раз пробовали отправить
+                   outcome       TEXT,               -- replied|converted|rejected|ignored|failed
+                   outcome_at    TEXT,
+                   reply_message_id INTEGER,         -- ответ клиента после касания
+                   order_id      INTEGER,            -- заявка после касания
+                   created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                   updated_at    TEXT,
+                   sent_at       TEXT
+               )"""
+        )
+
         # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
         _migrate_columns(conn)
 
@@ -979,6 +1015,8 @@ def init_db():
             ("idx_leads_biz_status",     "leads",           "business_id, status"),
             ("idx_leads_biz_client",     "leads",           "business_id, client_id"),
             ("idx_leads_biz_source",     "leads",           "business_id, source"),
+            ("idx_followups_biz_status", "followups",       "business_id, status"),
+            ("idx_followups_lead",       "followups",       "business_id, lead_id"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -1979,7 +2017,7 @@ def delete_business(business_id):
         # Без этого от удалённой компании оставался бы её журнал происхождения.
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections",
-                    "ig_threads", "ig_seen", "ai_policy", "leads"):
+                    "ig_threads", "ig_seen", "ai_policy", "leads", "followups"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -3795,6 +3833,21 @@ def ig_thread(business_id, igsid):
     return dict(row) if row else None
 
 
+def ig_thread_of_client(business_id, client_id):
+    """
+    Переписка директа этого клиента. Нужна, когда идти надо в обратную сторону:
+    у нас есть человек в базе, а найти надо его id в Instagram.
+    """
+    if not client_id:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT * FROM ig_threads WHERE business_id = ? AND client_id = ?
+                ORDER BY COALESCE(last_in_at, created_at) DESC LIMIT 1""",
+            (business_id, int(client_id))).fetchone()
+    return dict(row) if row else None
+
+
 def ig_thread_upsert(business_id, igsid, client_id, username=None, name=None,
                      avatar=None, last_in_at=None, last_out_at=None):
     """
@@ -4401,6 +4454,289 @@ def last_exchange(business_id, client_id):
         # это ошибка сравнения строк, а не факт.
         "unanswered": bool(last_in_id) and (not last_out_id or last_out_id < last_in_id),
     }
+
+
+# ---------- КАСАНИЯ (follow-up по возможности) ----------
+#
+# Здесь только хранение. Когда касание уместно, что в нём написать и можно ли
+# его отправить — в followup.py.
+
+# Состояния. Их восемь, и разница между ними — это разница между «мы решили»,
+# «мы собираемся» и «оно ушло». Слить их в одно поле «отправлено?» значит
+# однажды посчитать отправленным то, что не ушло.
+FU_DRAFT = "draft"           # VELOR подготовил, владелец ещё не смотрел
+FU_APPROVED = "approved"     # владелец разрешил — отправить в подходящее время
+FU_SCHEDULED = "scheduled"   # автоматика разрешена, время ещё не пришло
+FU_SENDING = "sending"       # захвачено отправителем; чужой процесс мимо не пройдёт
+FU_SENT = "sent"             # ушло по сети и подтвердилось
+FU_CANCELLED = "cancelled"   # больше не нужно (клиент ответил, владелец отменил)
+FU_BLOCKED = "blocked"       # нельзя отправлять, и написано почему
+FU_FAILED = "failed"         # пробовали отправить, не вышло
+
+FOLLOWUP_STATUSES = (FU_DRAFT, FU_APPROVED, FU_SCHEDULED, FU_SENDING, FU_SENT,
+                     FU_CANCELLED, FU_BLOCKED, FU_FAILED)
+# Живое касание — то, которое ещё может уйти.
+FOLLOWUP_LIVE = (FU_DRAFT, FU_APPROVED, FU_SCHEDULED, FU_SENDING)
+# Что считается потраченной попыткой. Заблокированное и отменённое не считаем:
+# клиент их не видел, и наказывать за них следующую возможность не за что.
+# А вот сорвавшуюся отправку считаем: сообщение могло уйти и не подтвердиться.
+FOLLOWUP_SPENT = (FU_SENT, FU_FAILED, FU_SENDING)
+
+FOLLOWUP_FIELDS = ("channel", "reason", "trigger", "status", "attempt",
+                   "recommended_at", "message", "based_on", "stop_reason",
+                   "error", "tries", "outcome", "outcome_at",
+                   "reply_message_id", "order_id", "sent_at", "client_id")
+
+FOLLOWUP_JSON = {"based_on": dict}
+
+
+def _followup_row(row):
+    d = dict(row)
+    raw = d.get("based_on")
+    try:
+        d["based_on"] = _json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        d["based_on"] = {}
+    for key in ("attempt", "tries"):
+        d[key] = int(d.get(key) or 0)
+    return d
+
+
+def add_followup(business_id, lead_id, *, reason, channel=None, client_id=None,
+                 trigger=None, status=FU_DRAFT, attempt=1, recommended_at=None,
+                 message=None, based_on=None, stop_reason=None):
+    """Записать предложенное касание. Возвращает id."""
+    if not business_id:
+        raise ValueError("add_followup требует business_id (защита арендаторов)")
+    if status not in FOLLOWUP_STATUSES:
+        status = FU_DRAFT
+    stamp = now()
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO followups (business_id, lead_id, client_id, channel,
+                                      reason, trigger, status, attempt,
+                                      recommended_at, message, based_on,
+                                      stop_reason, updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (business_id, int(lead_id), int(client_id) if client_id else None,
+             channel or None, reason, trigger or None, status, int(attempt or 1),
+             recommended_at or None, message or None,
+             _json.dumps(based_on or {}, ensure_ascii=False),
+             stop_reason or None, stamp),
+        )
+        return cur.lastrowid
+
+
+def get_followup(followup_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM followups WHERE id = ? AND business_id = ?",
+            (int(followup_id), business_id)).fetchone()
+    return _followup_row(row) if row else None
+
+
+def list_followups(business_id, *, lead_id=None, status=None, live=False,
+                   due_before=None, limit=100, offset=0):
+    """
+    Касания бизнеса. status может быть строкой или набором строк.
+
+    due_before — только те, чьё время уже пришло: это и есть очередь отправки.
+    """
+    where, args = ["business_id = ?"], [business_id]
+    if lead_id:
+        where.append("lead_id = ?")
+        args.append(int(lead_id))
+    if live:
+        where.append("status IN (%s)" % ",".join("?" * len(FOLLOWUP_LIVE)))
+        args += list(FOLLOWUP_LIVE)
+    elif isinstance(status, (list, tuple, set)):
+        vals = [v for v in status if v in FOLLOWUP_STATUSES]
+        if vals:
+            where.append("status IN (%s)" % ",".join("?" * len(vals)))
+            args += vals
+    elif status in FOLLOWUP_STATUSES:
+        where.append("status = ?")
+        args.append(status)
+    if due_before:
+        where.append("COALESCE(recommended_at, created_at) <= ?")
+        args.append(due_before)
+    args += [int(limit), max(0, int(offset or 0))]
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM followups WHERE " + " AND ".join(where) +
+            " ORDER BY COALESCE(recommended_at, created_at) ASC, id ASC"
+            " LIMIT ? OFFSET ?", tuple(args)).fetchall()
+    return [_followup_row(r) for r in rows]
+
+
+def update_followup(followup_id, business_id, **fields):
+    """Изменить касание — только в своём бизнесе."""
+    if not business_id:
+        raise ValueError("update_followup требует business_id (защита арендаторов)")
+    sets = {}
+    for key, val in fields.items():
+        if key not in FOLLOWUP_FIELDS:
+            continue
+        if key == "status" and val not in FOLLOWUP_STATUSES:
+            raise ValueError("Неизвестное состояние касания: %s" % val)
+        if key in FOLLOWUP_JSON and isinstance(val, (dict, list)):
+            sets[key] = _json.dumps(val, ensure_ascii=False)
+        else:
+            sets[key] = val
+    if not sets:
+        return False
+    sets["updated_at"] = now()
+    cols = ", ".join(f"{k} = ?" for k in sets)
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE followups SET {cols} WHERE id = ? AND business_id = ?",
+            (*sets.values(), int(followup_id), business_id))
+        return bool(cur.rowcount)
+
+
+def claim_followup(followup_id, business_id):
+    """
+    Захватить касание для отправки. True — оно наше и больше ничьё.
+
+    Это и есть защита от повторной отправки. Проверить статус, а потом
+    отправить — значит оставить щель между проверкой и отправкой, в которую
+    пролезет второй запуск планировщика. Здесь проверка и захват — один
+    UPDATE, и выиграть его может ровно один процесс.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE followups
+                  SET status = ?, tries = tries + 1, updated_at = ?
+                WHERE id = ? AND business_id = ? AND sent_at IS NULL
+                  AND status IN (?, ?)""",
+            (FU_SENDING, now(), int(followup_id), business_id,
+             FU_APPROVED, FU_SCHEDULED))
+        return bool(cur.rowcount)
+
+
+def mark_followup_sent(followup_id, business_id):
+    """Отметить отправленным. Только из состояния «отправляем» и только раз."""
+    stamp = now()
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE followups SET status = ?, sent_at = ?, updated_at = ?
+                WHERE id = ? AND business_id = ? AND status = ? AND sent_at IS NULL""",
+            (FU_SENT, stamp, stamp, int(followup_id), business_id, FU_SENDING))
+        return bool(cur.rowcount)
+
+
+def followup_attempts(business_id, lead_id):
+    """Сколько касаний по этой возможности уже потрачено."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM followups WHERE business_id = ? AND lead_id = ?"
+            " AND status IN (%s)" % ",".join("?" * len(FOLLOWUP_SPENT)),
+            (business_id, int(lead_id), *FOLLOWUP_SPENT)).fetchone()
+    return int(row["n"] or 0)
+
+
+def followups_sent_since(business_id, since):
+    """Сколько касаний ушло с этого момента — для общего лимита на бизнес."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM followups WHERE business_id = ?"
+            " AND status = ? AND sent_at >= ?",
+            (business_id, FU_SENT, since)).fetchone()
+    return int(row["n"] or 0)
+
+
+def followups_of_leads(business_id, lead_ids):
+    """
+    Касание, о котором стоит сказать в строке списка, — одним запросом на всю
+    страницу.
+
+    Живое побеждает: пока что-то может уйти, важно именно оно. Если живого нет,
+    показываем последнее случившееся — «отправлено, клиент ответил» это тоже
+    ответ на вопрос «что тут происходит».
+    """
+    ids = [int(i) for i in (lead_ids or []) if i]
+    if not ids:
+        return {}
+    marks = ",".join("?" * len(ids))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM followups
+                 WHERE business_id = ? AND lead_id IN ({marks})
+                 ORDER BY id ASC""",
+            (business_id, *ids)).fetchall()
+    out = {}
+    for r in rows:
+        lead_id = int(r["lead_id"])
+        old = out.get(lead_id)
+        if old and old["status"] in FOLLOWUP_LIVE and r["status"] not in FOLLOWUP_LIVE:
+            continue
+        out[lead_id] = _followup_row(r)
+    return out
+
+
+def followups_overview(business_id):
+    """Картина по касаниям — для сводки владельцу."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM followups WHERE business_id = ?"
+            " GROUP BY status", (business_id,)).fetchall()
+    out = {k: 0 for k in FOLLOWUP_STATUSES}
+    for r in rows:
+        out[r["status"]] = int(r["n"] or 0)
+    out["live"] = sum(out[k] for k in FOLLOWUP_LIVE)
+    return out
+
+
+def delete_followup(followup_id, business_id):
+    if not business_id:
+        raise ValueError("delete_followup требует business_id (защита арендаторов)")
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM followups WHERE id = ? AND business_id = ?",
+                           (int(followup_id), business_id))
+        return bool(cur.rowcount)
+
+
+def last_outbound(business_id, client_id):
+    """
+    Последнее сообщение, которое бизнес отправил этому человеку.
+
+    Нужно ради одного вопроса: мы уже назвали условия и ждём решения — или
+    просто поговорили? Границы лида для этого не годятся: они кончаются на
+    последней реплике КЛИЕНТА, и наш собственный ответ в них не попадает.
+    """
+    if not client_id:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT * FROM messages
+                WHERE business_id = ? AND client_id = ? AND role != 'user'
+                ORDER BY id DESC LIMIT 1""",
+            (business_id, int(client_id))).fetchone()
+    return dict(row) if row else None
+
+
+def outbound_hours(business_id, limit=500):
+    """
+    В какие часы этот бизнес на самом деле отвечает клиентам.
+
+    Часового пояса у нас нет, и выдумывать его нельзя. Зато есть факт: время
+    исходящих сообщений самого бизнеса. По нему видно рабочее окно, и оно
+    настоящее, а не предположенное за владельца.
+
+    Возвращает список часов (UTC) последних исходящих сообщений.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT created_at FROM messages
+                WHERE business_id = ? AND role != 'user' AND created_at IS NOT NULL
+                ORDER BY id DESC LIMIT ?""",
+            (business_id, int(limit))).fetchall()
+    hours = []
+    for r in rows:
+        raw = str(r["created_at"] or "")
+        if len(raw) >= 13 and raw[10] == " " and raw[11:13].isdigit():
+            hours.append(int(raw[11:13]))
+    return hours
 
 
 # ---------- ФИНАНСЫ (модуль AI-директор) ----------

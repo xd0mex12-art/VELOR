@@ -46,6 +46,7 @@ import connections
 import instagram
 import sales
 import leads
+import followup
 import qualify
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
@@ -987,7 +988,14 @@ def _leads_public(bid, rows):
     страницу: поодиночке это полсотни походов в базу ради двух дат.
     """
     gaps = database.last_exchanges(bid, [r.get("client_id") for r in rows])
-    return [leads.public(r, gap=gaps.get(r.get("client_id"))) for r in rows]
+    # Живое касание — тоже одним запросом на страницу и по той же причине.
+    fus = database.followups_of_leads(bid, [r.get("id") for r in rows])
+    out = []
+    for row in rows:
+        item = leads.public(row, gap=gaps.get(row.get("client_id")))
+        item["f"] = followup.public(fus.get(row.get("id")))
+        out.append(item)
+    return out
 
 
 @app.get("/api/leads")
@@ -1031,6 +1039,7 @@ def api_leads(business_id: int = 0, status: str = "", limit: int = 50,
         1 for i in open_items
         if (i.get("q") or {}).get("priority") in (qualify.URGENT, qualify.HIGH))
     stats["waiting"] = sum(1 for i in open_items if (i.get("q") or {}).get("unanswered"))
+    stats["followup"] = followup.overview(bid)
 
     out = {"items": page, "stats": stats,
            "total": database.count_leads(bid, status=status)}
@@ -1054,7 +1063,11 @@ def api_lead_card(lead_id: int, business_id: int = 0, x_auth: str = Header(defau
     out = {"lead": leads.public(lead),
            "messages": database.lead_messages(bid, lead_id),
            "history": database.memory_links(bid, "lead", lead_id),
-           "order": database.get_order(lead["order_id"], bid) if lead.get("order_id") else None}
+           "order": database.get_order(lead["order_id"], bid) if lead.get("order_id") else None,
+           # Касания — часть жизни возможности, а не отдельная сущность рядом:
+           # владелец смотрит на неё в одном месте и решает в одном месте.
+           "followups": [followup.public(f) for f in
+                         database.list_followups(bid, lead_id=lead_id, limit=20)]}
     out.update(_lead_dicts())
     return out
 
@@ -1135,6 +1148,141 @@ def api_lead_delete(lead_id: int, business_id: int = 0, x_auth: str = Header(def
     if not database.delete_lead(lead_id, bid):
         raise HTTPException(status_code=404, detail="Возможность не найдена")
     return {"ok": True}
+
+
+# ---------- КАСАНИЯ (follow-up) ----------
+#
+# Отдельных страниц у касаний нет и не нужно: касание — это шаг в жизни
+# возможности, и решается оно там же, где на возможность смотрят.
+
+
+class FollowupText(BaseModel):
+    text: str
+    business_id: int = 0
+
+
+def _followup_or_404(bid, followup_id):
+    row = database.get_followup(followup_id, bid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Касание не найдено")
+    return row
+
+
+@app.get("/api/followups")
+def api_followups(business_id: int = 0, status: str = "", limit: int = 50,
+                  x_auth: str = Header(default="")):
+    """
+    Очередь касаний: что готово, что запланировано, что остановлено и почему.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    kwargs = {}
+    if status == "live":
+        kwargs["live"] = True
+    elif status in database.FOLLOWUP_STATUSES:
+        kwargs["status"] = status
+    rows = database.list_followups(bid, limit=max(1, min(limit, 200)), **kwargs)
+    items = []
+    for row in rows:
+        item = followup.public(row)
+        lead = database.get_lead(row["lead_id"], bid)
+        item["lead_title"] = (lead or {}).get("title") or ""
+        item["client_name"] = (lead or {}).get("client_name") or ""
+        items.append(item)
+    return {"items": items, "stats": followup.overview(bid),
+            "reasons": [{"key": k, "title": followup.REASON_RU[k]}
+                        for k in followup.REASONS],
+            "max_attempts": followup.MAX_ATTEMPTS,
+            "hours": followup.work_hours(bid)}
+
+
+@app.post("/api/leads/{lead_id}/followup")
+def api_followup_prepare(lead_id: int, business_id: int = 0,
+                         x_auth: str = Header(default="")):
+    """
+    Подготовить касание прямо сейчас.
+
+    Ничего не отправляет. Если повода нет — так и отвечает: выдумывать причину
+    написать человеку только потому, что владелец нажал кнопку, нельзя.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    lead = database.get_lead(lead_id, bid)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Возможность не найдена")
+    row = followup.plan(bid, lead)
+    if not row:
+        return {"ok": True, "followup": None,
+                "why": "Повода написать сейчас нет — VELOR не придумывает его."}
+    return {"ok": True, "followup": followup.public(row)}
+
+
+@app.post("/api/followups/{followup_id}/edit")
+def api_followup_edit(followup_id: int, body: FollowupText,
+                      x_auth: str = Header(default="")):
+    """Владелец переписал текст своими словами."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    _followup_or_404(bid, followup_id)
+    try:
+        row = followup.edit(bid, followup_id, body.text)
+    except followup.FollowupError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "followup": followup.public(row)}
+
+
+@app.post("/api/followups/{followup_id}/approve")
+def api_followup_approve(followup_id: int, business_id: int = 0,
+                         x_auth: str = Header(default="")):
+    """«Можно писать» — но отправкой это ещё не становится."""
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    _followup_or_404(bid, followup_id)
+    try:
+        row = followup.approve(bid, followup_id)
+    except followup.FollowupError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "followup": followup.public(row)}
+
+
+@app.post("/api/followups/{followup_id}/send")
+def api_followup_send(followup_id: int, business_id: int = 0,
+                      x_auth: str = Header(default="")):
+    """
+    Отправить сейчас — рукой владельца.
+
+    Это единственная отправка, которая не спрашивает разрешения автономии:
+    разрешение и есть нажатие. Все остальные проверки — живая ли возможность,
+    не ответил ли клиент, пропустит ли канал — остаются на месте.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    _followup_or_404(bid, followup_id)
+    actor, actor_id = _actor(x_auth, bid)
+    try:
+        row = followup.send(bid, followup_id, auto=False, actor=actor,
+                            actor_id=actor_id)
+    except followup.FollowupError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    out = {"ok": row["status"] == database.FU_SENT,
+           "followup": followup.public(row)}
+    if not out["ok"]:
+        out["why"] = row.get("stop_reason") or row.get("error") or "не отправлено"
+    return out
+
+
+@app.post("/api/followups/{followup_id}/cancel")
+def api_followup_cancel(followup_id: int, business_id: int = 0,
+                        x_auth: str = Header(default="")):
+    """«Не писать». Отмена записывается как решение, а не как отсутствие его."""
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    _followup_or_404(bid, followup_id)
+    try:
+        row = followup.cancel(bid, followup_id)
+    except followup.FollowupError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "followup": followup.public(row)}
+
 
 
 # ---------- НАСТРОЙКИ БИЗНЕСА ----------
@@ -2793,6 +2941,23 @@ def _sync_round():
             logging.exception("Фоновая синхронизация: бизнес %s", bid)
 
 
+def _followup_round():
+    """
+    Один обход касаний по всем бизнесам.
+
+    Отдельного планировщика для этого не заводим: он уже есть — вот этот. Своя
+    очередь, свой воркер и свой ритм означали бы второй способ узнать, что
+    пора действовать, и первый же рассинхрон между ними стоил бы отправленного
+    дважды сообщения.
+    """
+    for biz in database.list_businesses_with_stats():
+        bid = biz["id"]
+        try:
+            followup.run(bid)
+        except Exception:
+            logging.exception("Обход касаний: бизнес %s", bid)
+
+
 def _sync_worker():
     import time as _time
     # Небольшая задержка на старте: пусть сервер сначала поднимется и ответит
@@ -2803,6 +2968,10 @@ def _sync_worker():
             _sync_round()
         except Exception:
             logging.exception("Фоновая синхронизация: обход не удался")
+        try:
+            _followup_round()
+        except Exception:
+            logging.exception("Обход касаний не удался")
         _time.sleep(max(5, SYNC_EVERY_MIN) * 60)
 
 

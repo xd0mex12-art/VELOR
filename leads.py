@@ -315,6 +315,16 @@ def _observe(business_id, lead_id, text, *, message_id=None, source="client"):
         return None
 
 
+def _heard(business_id, client_id, *, message_id=None, text=""):
+    """Клиент ответил — сказать об этом тому, кто планировал ему написать."""
+    try:
+        import followup
+        followup.on_client_message(business_id, client_id,
+                                   message_id=message_id, text=text)
+    except Exception:
+        log.exception("Запланированные касания не пересмотрены (biz %s)", business_id)
+
+
 def _react(business_id):
     """Воронка изменилась — пусть об этом узнают остальные модули."""
     try:
@@ -368,6 +378,13 @@ def from_message(business_id, client, text, *, source, channel=None,
         client_id = (client or {}).get("id")
         if not business_id or not client_id:
             return None
+
+        # Человек заговорил сам — значит, всё, что мы собирались написать ему
+        # по старому плану, больше не нужно. Это правило стоит ВЫШЕ проверки
+        # прав: заводить возможность канал может быть не вправе, а отменить
+        # лишнее сообщение можно всегда и в любом случае.
+        _heard(business_id, client_id, message_id=message_id, text=text)
+
         if not may_create(business_id, channel or source):
             return None
 
@@ -589,6 +606,14 @@ def set_status(business_id, lead_id, status, *, reason=None, order_id=None,
             business_id, "client",
             "Возможность закрыта: " + STATUS_RU.get(status, status),
             _short(lead.get("title"), 180), once_key="lead-close:%s" % lead_id)
+        # Возможность закрыта — писать по ней больше нечего. Отменяем сразу, а
+        # не при следующем обходе: очередь, обещающая сообщение купившему
+        # клиенту, врёт владельцу ровно до того момента, как оно уйдёт.
+        try:
+            import followup
+            followup.stop_all(business_id, lead_id, reason=status)
+        except Exception:
+            log.exception("Касания не отменены при закрытии (biz %s)", business_id)
     _react(business_id)
     return database.get_lead(int(lead_id), business_id)
 
@@ -623,6 +648,14 @@ def on_order(business_id, client_id, order_id, *, amount=None, channel=None):
             extra["meta"] = dict(lead.get("meta") or {}, value_src="order")
         set_status(business_id, lead["id"], WON, order_id=order_id,
                    actor="velor", source_kind=channel or "auto", extra=extra)
+        # Если этому человеку недавно уходило касание — цепочка «касание →
+        # ответ → заявка» сохраняется. Не «касание принесло деньги»: сохраняем
+        # порядок событий, а выводы будут, когда таких цепочек станет много.
+        try:
+            import followup
+            followup.on_order(business_id, client_id, order_id)
+        except Exception:
+            log.exception("Заявка не связалась с касанием (biz %s)", business_id)
         return lead["id"]
     except Exception:
         log.exception("Не удалось связать заявку с возможностью (biz %s)", business_id)

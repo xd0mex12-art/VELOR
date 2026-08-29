@@ -51,6 +51,44 @@ def is_owner(bid, tg_user_id):
     return bool(known) and str(tg_user_id or "").strip() == known
 
 
+def send_text(bid, tg_user_id, text):
+    """
+    Отправить сообщение в Telegram. Возвращает (ушло, ошибка).
+
+    Живёт здесь, а не в веб-обработчике, ровно по той же причине, по которой
+    здесь живёт приём: отправлять сообщения нужно и боту в режиме опроса, и
+    сервису с webhook, и планировщику касаний. Три копии одного HTTPS-вызова
+    разошлись бы в первый же день.
+
+    Отправленным считается только подтверждённое: молчание чужого API — это
+    «не знаем», а «не знаем» здесь считается неудачей.
+    """
+    text = (text or "").strip()
+    if not text:
+        return False, "пустое сообщение"
+    chat_id = str(tg_user_id or "").strip()
+    if not chat_id:
+        return False, "неизвестно, куда писать"
+    token = ((database.get_business(bid) or {}).get("tg_bot_token") or "").strip()
+    if not token:
+        return False, "Telegram-бот не подключён"
+    try:
+        import requests
+        r = requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
+                          json={"chat_id": chat_id, "text": text[:4000]}, timeout=15)
+        data = r.json()
+    except Exception as e:
+        log.exception("Telegram: сообщение не ушло (biz %s)", bid)
+        return False, str(e) or "Telegram не ответил"
+    if not (data or {}).get("ok"):
+        # Причину пересказывает сам Telegram, и переводить её мы не беремся:
+        # «Unauthorized» и «bot was blocked by the user» означают совершенно
+        # разное, а придуманный перевод стёр бы эту разницу.
+        return False, "Telegram: " + str((data or {}).get("description")
+                                         or "сообщение не принято")
+    return True, ""
+
+
 def greeting_text(bid):
     """Приветствие бизнеса для команды /start."""
     business = database.get_business(bid) or {}
