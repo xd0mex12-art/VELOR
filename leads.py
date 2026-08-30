@@ -685,11 +685,7 @@ def on_order(business_id, client_id, order_id, *, amount=None, channel=None):
         lead = open_for(business_id, client_id)
         if not lead:
             return None
-        extra = {}
-        if amount and not lead.get("value") and "value" not in set(lead.get("owner_fields") or []):
-            extra["value"] = amount
-            extra["currency"] = "RUB"
-            extra["meta"] = dict(lead.get("meta") or {}, value_src="order")
+        extra = _value_from_order(lead, amount)
         # Закрыть возможность сделкой — тоже полномочие. Владелец вправе вести
         # исход воронки своей рукой: заявка бывает не той, за которой человек
         # приходил, и тогда «выиграно» ставит он, а не мы.
@@ -719,6 +715,225 @@ def on_order(business_id, client_id, order_id, *, amount=None, channel=None):
     except Exception:
         log.exception("Не удалось связать заявку с возможностью (biz %s)", business_id)
         return None
+
+
+def _value_from_order(lead, amount):
+    """
+    Сумма заявки становится суммой возможности — если своей у неё нет.
+
+    Заявка — факт, а не оценка, поэтому она сильнее нашего расчёта по прайсу.
+    Но слабее того, что владелец поставил рукой: он мог знать про эту сделку
+    больше, чем сказано в заявке. Правило одно на оба входа — и когда заявку
+    оформил VELOR, и когда владелец нажал «купил».
+    """
+    if not amount or lead.get("value"):
+        return {}
+    if "value" in set(lead.get("owner_fields") or []):
+        return {}
+    return {"value": int(amount), "currency": "RUB",
+            "meta": dict(lead.get("meta") or {}, value_src="order")}
+
+
+def link_order(business_id, order_id, *, client_id=None, amount=None,
+               channel=None):
+    """
+    Заявка появилась — найти возможность, из которой она выросла. Одна дверь.
+
+    Заявки в VELOR заводятся из шести разных мест: продавец в переписке, бот,
+    единое окно, рука владельца в кабинете, разговор в Telegram. Три из них
+    знали про воронку, три — нет, и у половины бизнесов возможность оставалась
+    открытой навсегда: клиент уже купил, а VELOR продолжал считать, что он
+    ждёт ответа, и предлагал ему написать.
+
+    Поэтому «кто такой клиент этой заявки» решается ровно здесь и одинаково
+    для всех: явно переданный клиент → клиент самой заявки → человек с тем же
+    телефоном. Не нашли — значит, заявка пришла не через разговор, и это
+    нормально: закрывать по ней нечего.
+
+    Возвращает id закрытой возможности или None.
+    """
+    try:
+        order = database.get_order(int(order_id), business_id) or {}
+        cid = client_id or order.get("client_id")
+        if not cid and order.get("phone"):
+            # Как узнаётся человек, знает реестр знаний — второй ответ на тот
+            # же вопрос означал бы, что «Иван по телефону» в двух местах
+            # системы разные люди.
+            try:
+                import entities
+                cid = entities._match_client(business_id,
+                                             {"phone": order.get("phone")})
+            except Exception:
+                log.exception("Клиент заявки не опознан (biz %s)", business_id)
+        if not cid:
+            return None
+        if amount is None:
+            amount = order.get("amount") or None
+        return on_order(business_id, cid, order_id, amount=amount,
+                        channel=channel or order.get("source"))
+    except Exception:
+        log.exception("Заявка №%s не связалась с воронкой (biz %s)",
+                      order_id, business_id)
+        return None
+
+
+def win(business_id, lead_id, *, order_id=None, amount=None, actor="business",
+        actor_id=None):
+    """
+    Возможность выиграна — и за этим стоит настоящая заявка.
+
+    «Купил» без заявки — самая дорогая ложь в воронке: конверсия растёт,
+    оборот нет, и через месяц владелец не понимает, почему цифры не сходятся.
+    Поэтому заявка либо уже есть, либо заводится здесь же из того, что в
+    возможности записано. Второй сущности «продажа» при этом не появляется —
+    заявка та же самая, обычная.
+
+    Идемпотентно: у возможности, уже связанной с заявкой, вторая не заведётся.
+    """
+    lead = database.get_lead(int(lead_id), business_id)
+    if not lead:
+        raise LeadError("Возможность не найдена.")
+
+    if not order_id:
+        order_id = lead.get("order_id")
+    if order_id and not database.get_order(int(order_id), business_id):
+        order_id = None            # заявку удалили — ссылаться не на что
+
+    if not order_id:
+        client = database.get_client(lead.get("client_id"), business_id) or {}
+        value = amount if amount is not None else lead.get("value")
+        order_id = database.add_order(
+            business_id,
+            _short(lead.get("title") or lead.get("interest") or "Заявка", 200),
+            client_id=lead.get("client_id"),
+            phone=client.get("phone") or None,
+            amount=int(value) if value else 0,
+            source=lead.get("channel") or lead.get("source") or "lead")
+        database.add_memory_link(
+            business_id, "order", order_id, event="created",
+            source_kind="manual", actor=actor, actor_id=actor_id,
+            note="Заявка из возможности №%s" % lead_id)
+        _react(business_id)
+    elif amount is not None:
+        # Сумму назвали вместе с решением — она про заявку, а не про догадку.
+        database.update_order(int(order_id), business_id, amount=int(amount or 0))
+
+    # Сумму проставляем отдельным шагом, а не через extra: extra уходит в
+    # owner_fields, и «валюта» с «мета» навсегда стали бы правкой владельца,
+    # которую автоматика больше не трогает. Владелец назвал сумму — вот её и
+    # запоминаем как его слово, остальное пусть живёт как жило.
+    money = _value_from_order(lead, (database.get_order(int(order_id), business_id)
+                                     or {}).get("amount"))
+    if money:
+        database.update_lead(lead_id, business_id, **money)
+    lead = set_status(business_id, lead_id, WON, order_id=order_id,
+                      actor=actor, actor_id=actor_id)
+    try:
+        import followup
+        followup.on_order(business_id, lead.get("client_id"), order_id)
+    except Exception:
+        log.exception("Заявка не связалась с касанием (biz %s)", business_id)
+    return lead
+
+
+# ── сверка состояний ───────────────────────────────────────────────────────
+# Цепочка длинная, и звеньев в ней шесть. Каждое по отдельности проверено
+# тестами, но противоречие возникает МЕЖДУ ними: заявку удалили, а лид остался
+# выигранным; касание помечено отправленным, а сообщения в переписке нет.
+#
+# Здесь нет ни ИИ, ни эвристик — только вопросы, на которые база отвечает
+# однозначно. И здесь ничего не чинится: молча исправлять состояние, которого
+# мы не понимаем, — способ спрятать ошибку, а не устранить её.
+
+def _flaw(kind, entity, eid, what, where=""):
+    return {"kind": kind, "entity": entity, "id": int(eid), "what": what,
+            "where": where}
+
+
+def reconcile(business_id, *, limit=300):
+    """
+    Найти невозможные состояния. Возвращает список противоречий (обычно пустой).
+
+    Дешёвая детерминированная проверка: несколько выборок по своим же
+    таблицам. Никакого обхода графа и никакой модели — это сверка, а не анализ.
+    """
+    out = []
+    try:
+        import followup as fu_mod
+    except Exception:
+        fu_mod = None
+
+    # 1. Выиграно — значит, есть заявка.
+    for lead in database.list_leads(business_id, status=WON, limit=limit):
+        oid = lead.get("order_id")
+        if not oid:
+            out.append(_flaw("won_without_order", "lead", lead["id"],
+                             "Возможность выиграна, но заявки за ней нет.",
+                             "leads.html"))
+        elif not database.get_order(int(oid), business_id):
+            out.append(_flaw("won_order_missing", "lead", lead["id"],
+                             "Возможность ссылается на заявку №%s, которой нет." % oid,
+                             "leads.html"))
+
+    # 2. Проиграно — значит, названа причина.
+    for lead in database.list_leads(business_id, status=LOST, limit=limit):
+        if (lead.get("lost_reason") or "") not in LOST_REASONS:
+            out.append(_flaw("lost_without_reason", "lead", lead["id"],
+                             "Возможность закрыта без причины.", "leads.html"))
+
+    rows = database.list_followups(business_id, limit=limit)
+    for row in rows:
+        sent = row["status"] == database.FU_SENT
+        # 3. Отправлено — значит, сообщение есть в переписке.
+        if sent and row.get("client_id"):
+            after = [m for m in database.messages_after(
+                business_id, row["client_id"], row.get("sent_at"), role="assistant")]
+            if not after:
+                out.append(_flaw("sent_without_message", "followup", row["id"],
+                                 "Касание помечено отправленным, но исходящего "
+                                 "сообщения в переписке нет.", "leads.html"))
+        # 4. Отменённое и заблокированное не отправляется.
+        if row["status"] in (database.FU_CANCELLED, database.FU_BLOCKED) and row.get("sent_at"):
+            out.append(_flaw("cancelled_but_sent", "followup", row["id"],
+                             "Касание отменено, но у него стоит время отправки.",
+                             "leads.html"))
+        if not fu_mod:
+            continue
+        # 5. «Клиент ответил» — значит, ответ есть.
+        if row.get("outcome") in (fu_mod.REPLIED, fu_mod.REJECTED):
+            if not row.get("reply_message_id"):
+                out.append(_flaw("replied_without_message", "followup", row["id"],
+                                 "У касания записан ответ клиента, но самого "
+                                 "сообщения нет.", "leads.html"))
+        # 6. «Появилась заявка» — значит, заявка существует.
+        if row.get("outcome") == fu_mod.CONVERTED:
+            oid = row.get("order_id")
+            if not oid or not database.get_order(int(oid), business_id):
+                out.append(_flaw("converted_without_order", "followup", row["id"],
+                                 "У касания записана заявка, которой нет.",
+                                 "leads.html"))
+        # 7. Не отправленное не может иметь исхода отправленного.
+        if not sent and row.get("outcome") in (fu_mod.REPLIED, fu_mod.CONVERTED,
+                                               fu_mod.IGNORED):
+            out.append(_flaw("outcome_without_send", "followup", row["id"],
+                             "У неотправленного касания записан исход.",
+                             "leads.html"))
+
+    # 8. Запрещённое и устаревшее не выполняется.
+    for act in database.list_actions(
+            business_id,
+            status=(database.AC_BLOCKED, database.AC_STALE, database.AC_CANCELLED),
+            limit=limit):
+        if act.get("after") or (act.get("result") or "").startswith("Сообщение доставлено"):
+            out.append(_flaw("blocked_but_done", "action", act["id"],
+                             "Действие не было разрешено, но у него есть результат.",
+                             "autonomy.html"))
+
+    if out:
+        log.warning("Сверка нашла противоречия (biz %s): %s", business_id,
+                    "; ".join("%s №%s — %s" % (f["entity"], f["id"], f["what"])
+                              for f in out[:10]))
+    return out
 
 
 def public(lead, gap=None):

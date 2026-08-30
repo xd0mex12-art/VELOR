@@ -627,6 +627,20 @@ def _money(n):
 
 # ── что делать сейчас ──────────────────────────────────────────────────────
 
+def gap_for(lead, gap):
+    """
+    Относится ли молчание бизнеса к этой возможности.
+
+    Возможность, заведённая рукой владельца, не выросла из переписки — и
+    давнее «здравствуйте», на которое когда-то не ответили, не делает её
+    срочной. Правило живёт здесь одно на всех: и экран возможности, и обход
+    находок должны отвечать на «бизнес молчит?» одинаково.
+    """
+    if not lead.get("first_message_id"):
+        return {}
+    return gap or {}
+
+
 def priority_of(lead, *, intent, fit, value, gap=None, signals=None,
                 value_estimated=False):
     """
@@ -636,12 +650,21 @@ def priority_of(lead, *, intent, fit, value, gap=None, signals=None,
     ничего не сделаем сегодня». Поэтому сюда входит то, чего нет ни в
     намерении, ни в соответствии: сколько бизнес молчит, насколько близка
     названная дата и не остыл ли разговор.
+
+    Единственная дверь: этим же расчётом пользуется обход находок. Второй
+    ответ на вопрос «кто важнее» означал бы, что список возможностей и главная
+    страница спорят друг с другом на глазах у владельца.
     """
     why, risks = [], []
     if (lead.get("status") or "") not in database.LEAD_OPEN:
         return LOW, ["возможность закрыта"], risks
 
-    gap = gap or {}
+    # Рука владельца старше расчёта: он знает про клиента то, чего нет ни в
+    # одном сообщении.
+    if "priority" in set(lead.get("owner_fields") or []) and lead.get("priority"):
+        return lead["priority"], ["вы поставили это сами"], risks
+
+    gap = gap_for(lead, gap)
     waiting = _hours_since(gap.get("last_in_at")) if gap.get("unanswered") else None
     fresh_days = _days_since(lead.get("last_activity_at") or lead.get("created_at"))
     stale = fresh_days is not None and fresh_days > FRESH_DAYS
@@ -838,19 +861,11 @@ def view(lead, gap=None):
 
     if gap is None:
         gap = database.last_exchange(business_id, lead.get("client_id"))
-    # Возможность, заведённая рукой владельца, не выросла из переписки — и
-    # молчание бизнеса к ней не относится. Иначе давнее «здравствуйте», на
-    # которое когда-то не ответили, делало бы срочной любую будущую запись
-    # об этом человеке.
-    if not lead.get("first_message_id"):
-        gap = {}
+    gap = gap_for(lead, gap)
 
     priority, prio_why, prio_risks = priority_of(
         lead, intent=intent, fit=fit, value=value, gap=gap, signals=signals,
         value_estimated=bool(estimated))
-    if "priority" in owner and lead.get("priority"):
-        priority = lead["priority"]
-        prio_why = ["вы поставили это сами"]
 
     action, action_hint = next_action(lead, priority=priority, intent=intent,
                                       gap=gap, signals=signals)

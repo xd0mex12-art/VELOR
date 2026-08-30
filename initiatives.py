@@ -312,13 +312,22 @@ def _hot_leads(bid, now):
     gaps = database.last_exchanges(bid, [r.get("client_id") for r in rows])
     hot, worst, value = [], 0.0, 0
     for lead in rows:
-        if lead.get("priority") not in (HIGH, URGENT) and lead.get("intent") != HIGH:
-            continue
         gap = gaps.get(lead.get("client_id")) or {}
         if not gap.get("unanswered"):
             continue
         waited = _hours_since(gap.get("last_in_at"), now)
         if waited is None or waited < GAP_HOURS:
+            continue
+        # Приоритет НЕ читается из строки: он там всегда пуст и пуст намеренно —
+        # записанный, он врал бы уже через час, потому что зависит от того,
+        # сколько бизнес молчит прямо сейчас. Спрашиваем ровно ту же функцию,
+        # по которой приоритет считается на экране возможности.
+        level, _why, _risks = qualify.priority_of(
+            lead, intent=lead.get("intent") or qualify.LOW,
+            fit=lead.get("fit") or qualify.UNKNOWN,
+            value=lead.get("value"), gap=gap, signals=lead.get("signals"),
+            value_estimated=not lead.get("value"))
+        if level not in (HIGH, URGENT):
             continue
         hot.append(lead)
         worst = max(worst, waited)

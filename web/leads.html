@@ -164,6 +164,24 @@
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
   .chat .scroll{ max-height:260px; overflow-y:auto; display:flex;
     flex-direction:column; gap:var(--sp-2); }
+  /* «Что делал VELOR» — те же записи, что и в общем журнале, но только про
+     этого человека. Владелец не должен уходить в другой раздел, чтобы понять,
+     почему по возможности что-то произошло или не произошло. */
+  .did{ margin-top:var(--sp-4); }
+  .did .h{ font-size:var(--fs-caption); letter-spacing:.1em; text-transform:uppercase;
+    color:var(--ash); margin-bottom:var(--sp-3); }
+  .did .a{ display:flex; gap:10px; align-items:baseline; padding:8px 0;
+    border-bottom:1px solid var(--hairline); }
+  .did .a:last-child{ border-bottom:none; }
+  .did .a i{ font-style:normal; width:7px; height:7px; border-radius:50%;
+    background:var(--ash); flex:none; transform:translateY(-2px); }
+  .did .a.ok i{ background:var(--verdant); }
+  .did .a.no i{ background:var(--coral); }
+  .did .a.wait i{ background:var(--saffron); }
+  .did .a .t{ font-size:var(--fs-body); color:var(--bone); }
+  .did .a .d{ font-size:var(--fs-caption); color:var(--ash); line-height:1.45;
+    margin-top:2px; }
+
   .msg{ padding:10px 14px; border-radius:var(--r-md); background:var(--surface-2);
     font-size:var(--fs-body); font-weight:var(--fw-thin); }
   .msg.user{ background:var(--tint-iris); }
@@ -576,6 +594,24 @@ function cardHTML(d){
     ? '<div class="why"><b>Стало заявкой:</b> №' + d.order.id + ' — ' + esc(d.order.text || '') +
       (d.order.amount ? ' · ' + money(d.order.amount) : '') + '</div>' : '';
 
+  // Что делал VELOR по этой возможности — включая то, чего ему не дали
+  // сделать: сработавшая защита без объяснения выглядит как поломка.
+  const acts = d.actions || [];
+  const actsHTML = acts.length
+    ? '<div class="did"><div class="h">Что делал VELOR</div>' +
+      acts.map(a => {
+        const cls = a.status === 'succeeded' ? 'ok'
+                  : (a.status === 'blocked' || a.status === 'failed' ? 'no'
+                     : (a.waiting ? 'wait' : ''));
+        const tail = a.result || a.error || '';
+        return '<div class="a ' + cls + '"><i></i><span>' +
+          '<span class="t">' + esc(a.title) + ' — ' + esc(a.status_ru) + '</span>' +
+          (a.reason ? '<span class="d">' + esc(a.reason) + '</span>' : '') +
+          (tail ? '<span class="d">' + esc(tail) + '</span>' : '') +
+          '</span></div>';
+      }).join('') + '</div>'
+    : '';
+
   const msgs = d.messages || [];
   const chatHTML = msgs.length
     ? '<div class="chat"><div class="h">Разговор, из которого это выросло</div><div class="scroll">' +
@@ -620,7 +656,7 @@ function cardHTML(d){
       '<button class="v-btn ghost won" type="button">Купил</button>' +
       '<button class="v-btn ghost lost" type="button">Не сложилось</button>' +
     '</div>' +
-    ownerNote + whyHTML + orderHTML + guessHTML + chatHTML;
+    ownerNote + whyHTML + orderHTML + guessHTML + actsHTML + chatHTML;
 }
 
 async function loadCard(el){
@@ -685,7 +721,16 @@ function wireCard(el, box){
 
   wireFollowup(el, box, id);
 
-  box.querySelector('.won').addEventListener('click', () => close(id, 'won', null));
+  // «Купил» означает, что заявка существует. Сумму спрашиваем здесь же:
+  // возможность оценивал VELOR, а сколько человек заплатил — знает владелец.
+  box.querySelector('.won').addEventListener('click', () => {
+    const field = box.querySelector('[name="value"]');
+    const guess = field ? field.value.replace(/\s/g, '') : '';
+    const said = prompt('На какую сумму? Из неё складывается оборот. '
+                        + 'Можно оставить пусто.', guess || '');
+    if (said === null) return;              // передумал — ничего не меняем
+    close(id, 'won', null, said.replace(/\s/g, ''));
+  });
   box.querySelector('.lost').addEventListener('click', () => {
     const sel = box.querySelector('[name="lost_reason"]');
     if (sel && !sel.value){
@@ -753,10 +798,14 @@ function wireFollowup(el, box, id){
   }));
 }
 
-async function close(id, status, reason){
+async function close(id, status, reason, amount){
   try{
-    await post('/api/leads/' + id + '/status', {status: status, lost_reason: reason});
-    toast(status === 'won' ? 'Отмечено: купил' : 'Отмечено: не сложилось');
+    const d = await post('/api/leads/' + id + '/status',
+                         {status: status, lost_reason: reason,
+                          amount: amount || null});
+    toast(status === 'won'
+      ? (d.order_id ? 'Купил — заявка №' + d.order_id : 'Отмечено: купил')
+      : 'Отмечено: не сложилось');
     reload();
   }catch(e){ toast(e.message || 'Не получилось отметить'); }
 }

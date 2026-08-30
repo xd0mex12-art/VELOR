@@ -29,10 +29,13 @@ documents — там, где были. Реестр только знает, г�
 из описания полей, которое приезжает вместе с разбором.
 """
 import datetime
+import logging
 import math
 import re
 
 import database
+
+log = logging.getLogger("velor.entities")
 
 
 class EntityError(Exception):
@@ -478,7 +481,17 @@ def _label_client(row):
 def _make_order(bid, data):
     oid = database.add_order(bid, data["text"], phone=data.get("phone") or None,
                              date_wanted=_as_date(data.get("date_wanted"), "Дата") or None,
-                             amount=data.get("amount") or 0)
+                             amount=data.get("amount") or 0,
+                             client_id=_match_client(bid, data) or None)
+    # Заявка из присланного материала — такая же заявка. Если за ней стоит
+    # разговор, возможность закрывается сделкой; узнаётся человек тем же
+    # способом, что и везде, — по телефону, а без него по имени.
+    try:
+        import leads
+        leads.link_order(bid, oid, amount=data.get("amount") or None,
+                         channel="inbox")
+    except Exception:
+        logging.exception("Заявка из материала не связалась с воронкой (biz %s)", bid)
     tail = f" на {int(data['amount']):,} ₽".replace(",", " ") if data.get("amount") else ""
     return oid, "Заявка: " + data["text"][:60] + tail
 

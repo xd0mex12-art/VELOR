@@ -104,6 +104,23 @@
   .gaps .g::before{ content:""; position:absolute; left:0; top:7px; width:5px; height:5px;
     border-radius:50%; background:var(--hairline-2); }
 
+  /* ── «Продажи сегодня» ──
+     Одна полоса по ходу цепочки: пришло → в работе → готово написать →
+     ответили → заявки → выиграно. Не отчёт: это ответ на единственный вопрос,
+     с которым владелец открывает эту страницу утром. */
+  .flow{ display:grid; grid-template-columns:repeat(6,1fr); gap:var(--sp-3); }
+  .flow .s{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    padding:var(--sp-4) var(--sp-5); background:rgba(0,0,0,.28); }
+  .flow .s .n{ font-weight:400; font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .flow .s .k{ font-size:var(--fs-caption); color:var(--ash); line-height:1.4;
+    margin-top:4px; }
+  .flow .s.zero .n{ color:var(--ash); }
+  .flow .s.win{ border-color:rgba(47,212,178,.3); }
+  .flow-note{ margin-top:var(--sp-3); font-size:var(--fs-caption); color:var(--ash);
+    line-height:1.5; }
+  @media(max-width:900px){ .flow{ grid-template-columns:repeat(3,1fr); } }
+  @media(max-width:480px){ .flow{ grid-template-columns:repeat(2,1fr); } }
+
   /* ── «VELOR заметил»: находки ──
      Стоит между разбором и списком дел не по красоте, а по порядку вопросов:
      сначала «как дела», потом «что я заметил, пока вас не было», и только
@@ -232,7 +249,17 @@
     <div class="gaps" id="gaps"></div>
   </section>
 
-  <!-- 4. Что VELOR заметил сам -->
+  <!-- 4. Продажи сегодня: вся цепочка одной полосой -->
+  <section id="flowZone" aria-labelledby="flowTitle" hidden>
+    <div class="notice-head">
+      <h2 id="flowTitle">Продажи сегодня</h2>
+      <span class="sub" id="flowSub"></span>
+    </div>
+    <div class="flow" id="flow"></div>
+    <p class="flow-note" id="flowNote"></p>
+  </section>
+
+  <!-- 5. Что VELOR заметил сам -->
   <section id="notice" aria-labelledby="noticeTitle" hidden>
     <div class="notice-head">
       <h2 id="noticeTitle">VELOR заметил</h2>
@@ -475,6 +502,47 @@ function attnHTML(d){
   }).join('');
 }
 
+// ── «Продажи сегодня» ──
+// Порядок клеток — порядок самой цепочки, а не важности. Владелец читает её
+// слева направо и видит, на каком шаге всё остановилось.
+function flowHTML(s){
+  // Подпись склоняется по числу: «1 заявок» читается как ошибка системы и
+  // подрывает доверие ко всем остальным цифрам на экране.
+  const cells = [
+    ['new_leads',  ['новая возможность', 'новые возможности', 'новых возможностей'], ''],
+    ['open_leads', ['в работе', 'в работе', 'в работе'],                             ''],
+    ['drafts',     ['готово написать', 'готово написать', 'готово написать'],        ''],
+    ['replies',    ['клиент ответил', 'клиента ответили', 'клиентов ответили'],       ''],
+    ['orders',     ['заявка', 'заявки', 'заявок'],                                   ''],
+    ['won',        ['выиграна', 'выиграны', 'выиграно'],                             'win'],
+  ];
+  return cells.map(([k, forms, cls]) => {
+    const n = s[k] || 0;
+    return `<div class="s ${n ? cls : 'zero'}">
+       <div class="n num">${num(n)}</div>
+       <div class="k">${plural(n, forms[0], forms[1], forms[2])}</div>
+     </div>`;
+  }).join('');
+}
+
+function paintFlow(d){
+  const s = d.sales;
+  const box = document.getElementById('flowZone');
+  if (!s){ box.hidden = true; return; }
+  const any = Object.values(s).some(v => v);
+  if (!any){ box.hidden = true; return; }
+  box.hidden = false;
+  put('flow', flowHTML(s), true);
+  document.getElementById('flowSub').textContent = s.turnover
+    ? 'заявок на ' + num(s.turnover) + ' ₽'
+    : 'за сегодня';
+  // Выручка — только из заявок. Оценка стоимости возможностей сюда не
+  // попадает: смешать их значит однажды показать деньги, которых нет.
+  document.getElementById('flowNote').textContent = s.turnover
+    ? 'Сумма — по заявкам этого дня, а не по оценке возможностей.'
+    : 'Пока ни одной заявки с суммой за сегодня.';
+}
+
 // ── «VELOR заметил» ──
 // Карточка отвечает по порядку: что произошло → почему важно → сколько это
 // может стоить → на чём основано → что предлагаю. Догадка ИИ, если она есть,
@@ -664,6 +732,7 @@ async function load(){
   put('kpi', dir ? briefHTML(dir) : kpiHTML(d), true);
   put('slots', dir ? dirHTML(dir) : slotsHTML(d), true);
   paintBasis(dir);
+  paintFlow(d);
   put('attnPanel', attnHTML(d), false);
 
   // Лента — отдельным запросом: она нужна только нижнему блоку и не должна

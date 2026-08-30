@@ -114,8 +114,8 @@ async def ai_dialog(update: Update, context: ContextTypes.DEFAULT_TYPE):
             database.update_client(client["id"], bid, phone=order["phone"])
         try:
             import leads
-            leads.on_order(bid, client["id"], order_id,
-                           amount=order.get("amount"), channel="telegram")
+            leads.link_order(bid, order_id, client_id=client["id"],
+                             amount=order.get("amount"), channel="telegram")
         except Exception:
             logging.exception("Заявка не связалась с возможностью (biz %s)", bid)
         logging.info("[biz %s] Новый заказ №%s от %s", bid, order_id, user.full_name)
@@ -167,6 +167,13 @@ async def order_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone=context.user_data["phone"],
         date_wanted=context.user_data["date"],
     )
+    # Заявка, оформленная по шагам в боте, — тоже заявка: если человек до
+    # этого о чём-то спрашивал, его возможность закрывается сделкой.
+    try:
+        import leads
+        leads.link_order(bid, order_id, client_id=client["id"], channel="telegram")
+    except Exception:
+        logging.exception("Заявка не связалась с возможностью (biz %s)", bid)
     await update.message.reply_text(
         f"Готово! Ваша заявка №{order_id} принята.\n"
         f"Мы свяжемся с вами по номеру {context.user_data['phone']}.",

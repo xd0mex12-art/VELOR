@@ -813,9 +813,9 @@ def _apply(business_id, client, data, allowed, channel, out, said="") -> list[di
             # ощущению, что «вроде купил».
             try:
                 import leads
-                won = leads.on_order(business_id, client_id, oid,
-                                     amount=amount if isinstance(amount, (int, float)) else None,
-                                     channel=channel)
+                won = leads.link_order(business_id, oid, client_id=client_id,
+                                       amount=amount if isinstance(amount, (int, float)) else None,
+                                       channel=channel)
                 if won:
                     done.append({"action": CREATE_LEAD, "lead_id": won, "won": True})
             except Exception:

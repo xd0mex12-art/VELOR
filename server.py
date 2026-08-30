@@ -672,6 +672,10 @@ class OrderIn(BaseModel):
     address: str | None = None
     date_wanted: str | None = None
     amount: str | int | float | None = None   # сумма заказа — основа всего оборота
+    # Кому эта заявка. Без клиента она остаётся сама по себе, и возможность,
+    # из которой она выросла, висит открытой навсегда — VELOR продолжает
+    # считать, что человек ждёт ответа, хотя он уже купил.
+    client_id: int | None = None
     business_id: int = 0
 
 
@@ -734,9 +738,15 @@ def api_add_order(order: OrderIn, x_auth: str = Header(default="")):
         address=order.address,
         date_wanted=order.date_wanted,
         amount=order.amount,
+        client_id=order.client_id,
     )
     signals.react(bid, "order")   # заказ влияет на Директора, брифинг, риски
-    return {"ok": True, "order_id": order_id}
+    # Заявка, заведённая рукой владельца, — такая же заявка. Если за ней стоит
+    # разговор, возможность закрывается сделкой ровно так же, как если бы
+    # заявку оформил сам VELOR.
+    won = leads.link_order(bid, order_id, client_id=order.client_id,
+                           amount=order.amount, channel="manual")
+    return {"ok": True, "order_id": order_id, "lead_id": won}
 
 
 class AmountIn(BaseModel):
@@ -957,6 +967,9 @@ class LeadStatusIn(BaseModel):
     status: str
     lost_reason: str | None = None
     order_id: int | None = None
+    # Сумма сделки. Нужна только для «купил»: заявка, которая заводится вместе
+    # с решением, должна нести настоящие деньги, а не оценку возможности.
+    amount: str | int | float | None = None
     business_id: int = 0
 
 
@@ -1070,7 +1083,14 @@ def api_lead_card(lead_id: int, business_id: int = 0, x_auth: str = Header(defau
            # Касания — часть жизни возможности, а не отдельная сущность рядом:
            # владелец смотрит на неё в одном месте и решает в одном месте.
            "followups": [followup.public(f) for f in
-                         database.list_followups(bid, lead_id=lead_id, limit=20)]}
+                         database.list_followups(bid, lead_id=lead_id, limit=20)],
+           # Что VELOR делал по этой возможности и что ему не дали сделать.
+           # Отдельная страница журнала отвечает на вопрос «что было вообще»;
+           # здесь нужен ответ на «что было по этому человеку», и гонять за
+           # ним владельца в другой раздел незачем.
+           "actions": [actions.public(a) for a in
+                       database.list_actions(bid, target_type="lead",
+                                             target_id=lead_id, limit=20)]}
     out.update(_lead_dicts())
     return out
 
@@ -1136,11 +1156,21 @@ def api_lead_status(lead_id: int, body: LeadStatusIn, x_auth: str = Header(defau
         raise HTTPException(status_code=404, detail="Такой заявки у вас нет")
     actor, actor_id = _actor(x_auth, bid)
     try:
-        lead = leads.set_status(bid, lead_id, body.status, reason=body.lost_reason,
-                                order_id=body.order_id, actor=actor, actor_id=actor_id)
+        if body.status == leads.WON:
+            # «Купил» означает, что заявка существует. Если её ещё нет, она
+            # заводится здесь же — из того, что записано в возможности.
+            # Иначе конверсия росла бы, а оборот стоял на месте.
+            lead = leads.win(bid, lead_id, order_id=body.order_id,
+                             amount=body.amount, actor=actor, actor_id=actor_id)
+        else:
+            lead = leads.set_status(bid, lead_id, body.status,
+                                    reason=body.lost_reason,
+                                    order_id=body.order_id, actor=actor,
+                                    actor_id=actor_id)
     except leads.LeadError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "lead": leads.public(lead)}
+    return {"ok": True, "lead": leads.public(lead),
+            "order_id": lead.get("order_id")}
 
 
 @app.post("/api/leads/{lead_id}/delete")
@@ -1836,6 +1866,10 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
                     "active": database.active_clients(bid), "total": database.count_clients(bid)},
         "velor": _velor_says(bid, sig, totals, risks, opps, advice, business),
         "attention": _attention(bid, sig, totals, risks, business),
+        # Продажи одной строкой: что пришло, что готово, что вышло. Считается
+        # по тем же таблицам, что и воронка, — второго отчёта о продажах в
+        # системе нет.
+        "sales": database.sales_today(bid),
         # Только счётчик и самое важное: сами карточки главная просит отдельным
         # запросом — они не должны задерживать цифры наверху.
         "initiatives": initiatives.overview(bid),
@@ -3217,6 +3251,13 @@ def _followup_round():
             initiatives.settle(bid)
         except Exception:
             logging.exception("Обход находок: бизнес %s", bid)
+        try:
+            # Сверка звеньев цепочки. Ничего не чинит — только называет
+            # противоречия в журнал ошибок: молча исправлять состояние,
+            # которого мы не понимаем, значит спрятать ошибку, а не устранить.
+            leads.reconcile(bid)
+        except Exception:
+            logging.exception("Сверка состояний: бизнес %s", bid)
 
 
 def _sync_worker():

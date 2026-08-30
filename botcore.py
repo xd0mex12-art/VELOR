@@ -271,8 +271,8 @@ def reply_for(bid, client, text, channel=None, save_incoming=True):
         # остаётся там же, где была: лид только ссылается на неё.
         try:
             import leads
-            leads.on_order(bid, client["id"], order_id,
-                           amount=order.get("amount"), channel=channel)
+            leads.link_order(bid, order_id, client_id=client["id"],
+                             amount=order.get("amount"), channel=channel)
         except Exception:
             logging.exception("Заявка не связалась с возможностью (biz %s)", bid)
         logging.info("[biz %s] Новый заказ №%s от %s", bid, order_id, full_name)

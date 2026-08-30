@@ -4523,6 +4523,53 @@ def leads_period(business_id, days=14, offset=0):
             "lost_ids": [int(r["id"]) for r in lost_rows]}
 
 
+def sales_today(business_id):
+    """
+    Что произошло с продажами сегодня — одним запросом на каждую цифру.
+
+    Ни одной новой сущности: считаем по тем же таблицам, по которым живёт
+    воронка. Второй «отчёт о продажах» рядом с ними однажды разошёлся бы с
+    ними в цифрах, и владелец не знал бы, какой из двух верить.
+    """
+    with _connect() as conn:
+        one = lambda q, p=(): int(conn.execute(q, p).fetchone()[0] or 0)
+        new_leads = one(
+            "SELECT COUNT(*) FROM leads WHERE business_id = ? "
+            "AND date(created_at) = date('now')", (business_id,))
+        open_leads = one(
+            "SELECT COUNT(*) FROM leads WHERE business_id = ? AND status IN (%s)"
+            % ",".join("?" * len(LEAD_OPEN)), (business_id, *LEAD_OPEN))
+        won = one(
+            "SELECT COUNT(*) FROM leads WHERE business_id = ? AND status = 'won' "
+            "AND date(COALESCE(converted_at, created_at)) = date('now')",
+            (business_id,))
+        lost = one(
+            "SELECT COUNT(*) FROM leads WHERE business_id = ? AND status = 'lost' "
+            "AND date(COALESCE(lost_at, created_at)) = date('now')", (business_id,))
+        drafts = one(
+            "SELECT COUNT(*) FROM followups WHERE business_id = ? AND status = ?",
+            (business_id, FU_DRAFT))
+        sent = one(
+            "SELECT COUNT(*) FROM followups WHERE business_id = ? AND status = ? "
+            "AND date(sent_at) = date('now')", (business_id, FU_SENT))
+        replies = one(
+            "SELECT COUNT(*) FROM followups WHERE business_id = ? "
+            "AND outcome IN ('replied','converted') AND date(outcome_at) = date('now')",
+            (business_id,))
+        orders = one(
+            "SELECT COUNT(*) FROM orders WHERE business_id = ? "
+            "AND date(created_at) = date('now')", (business_id,))
+        # Выручка — только из заявок с проставленной суммой. Оценка стоимости
+        # возможности сюда не попадает и попасть не может: это разные вещи, и
+        # смешать их значит однажды показать владельцу деньги, которых нет.
+        turnover = one(
+            "SELECT COALESCE(SUM(amount),0) FROM orders WHERE business_id = ? "
+            "AND date(created_at) = date('now')", (business_id,))
+    return {"new_leads": new_leads, "open_leads": open_leads, "won": won,
+            "lost": lost, "drafts": drafts, "sent": sent, "replies": replies,
+            "orders": orders, "turnover": turnover}
+
+
 def lead_messages(business_id, lead_id, limit=100):
     """
     Переписка, из которой вырос лид. Не копия — выборка из messages по границам
@@ -4859,6 +4906,31 @@ def delete_followup(followup_id, business_id):
         cur = conn.execute("DELETE FROM followups WHERE id = ? AND business_id = ?",
                            (int(followup_id), business_id))
         return bool(cur.rowcount)
+
+
+def messages_after(business_id, client_id, when, *, role=None, limit=20):
+    """
+    Что было сказано после этой отметки времени.
+
+    Нужно ровно для сверки: касание помечено отправленным — значит, в переписке
+    должно быть наше сообщение, и оно должно быть НЕ раньше отправки. Без
+    привязки ко времени проверка «сообщение есть» проходила бы у любого
+    разговора, где мы когда-либо отвечали.
+    """
+    if not client_id or not when:
+        return []
+    where = "business_id = ? AND client_id = ? AND created_at >= ?"
+    args = [business_id, int(client_id), str(when)[:19]]
+    if role == "user":
+        where += " AND role = 'user'"
+    elif role:
+        where += " AND role != 'user'"
+    args.append(int(limit))
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM messages WHERE {where} ORDER BY id ASC LIMIT ?", args
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def last_outbound(business_id, client_id):
