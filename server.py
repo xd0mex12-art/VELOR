@@ -46,6 +46,7 @@ import connections
 import instagram
 import sales
 import leads
+import actions
 import followup
 import qualify
 from urllib.parse import quote as _urlquote
@@ -1040,6 +1041,7 @@ def api_leads(business_id: int = 0, status: str = "", limit: int = 50,
         if (i.get("q") or {}).get("priority") in (qualify.URGENT, qualify.HIGH))
     stats["waiting"] = sum(1 for i in open_items if (i.get("q") or {}).get("unanswered"))
     stats["followup"] = followup.overview(bid)
+    stats["actions"] = actions.overview(bid)
 
     out = {"items": page, "stats": stats,
            "total": database.count_leads(bid, status=status)}
@@ -1285,6 +1287,128 @@ def api_followup_cancel(followup_id: int, business_id: int = 0,
 
 
 
+# ---------- АВТОНОМНОСТЬ И ЖУРНАЛ ДЕЙСТВИЙ ----------
+#
+# Три вопроса владельца в одном месте: что VELOR может делать сам, что сейчас
+# ждёт моего решения и что он уже сделал. Отдельной системы под это не
+# заводится: настройка живёт в существующей `ai_policy`, а очередь решений —
+# это те же записи журнала, у которых состояние «ждёт».
+
+
+class AutonomyIn(BaseModel):
+    action: str | None = None
+    mode: str
+    business_id: int = 0
+
+
+class ActionText(BaseModel):
+    text: str | None = None
+    business_id: int = 0
+
+
+@app.get("/api/autonomy")
+def api_autonomy(business_id: int = 0, x_auth: str = Header(default="")):
+    """Что VELOR вправе делать сам — и почему у некоторых действий потолок."""
+    bid = _resolve_bid(x_auth, business_id)
+    return {**actions.settings(bid), "overview": actions.overview(bid)}
+
+
+@app.post("/api/autonomy")
+def api_autonomy_set(body: AutonomyIn, x_auth: str = Header(default="")):
+    """
+    Изменить полномочия: одно действие или все разом.
+
+    «Разрешить всё» не отменяет ограничений безопасности — оно поднимает каждое
+    действие настолько, насколько тому вообще позволено. Запись денег остаётся
+    на подтверждении, сколько бы раз кнопку ни нажали.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    who, who_id = _actor(x_auth, bid)
+    try:
+        if body.action:
+            actions.set_mode(bid, body.action, body.mode, actor=who, actor_id=who_id)
+        else:
+            actions.set_all(bid, body.mode, actor=who, actor_id=who_id)
+    except actions.ActionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **actions.settings(bid), "overview": actions.overview(bid)}
+
+
+@app.get("/api/actions")
+def api_actions(business_id: int = 0, kind: str = "all", limit: int = 80,
+                x_auth: str = Header(default="")):
+    """Журнал: что VELOR сделал, чего ему не дали и что не получилось."""
+    bid = _resolve_bid(x_auth, business_id)
+    return {"items": actions.feed(bid, kind=kind, limit=max(1, min(limit, 200))),
+            "pending": actions.pending(bid),
+            "overview": actions.overview(bid),
+            "filters": [{"key": k, "title": actions.FILTER_RU[k]}
+                        for k in actions.FILTERS]}
+
+
+@app.get("/api/actions/{action_id}")
+def api_action_one(action_id: int, business_id: int = 0,
+                   x_auth: str = Header(default="")):
+    """Одно действие целиком: на чём основано, что было и что стало."""
+    bid = _resolve_bid(x_auth, business_id)
+    row = database.get_action(action_id, bid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Действие не найдено")
+    return {"action": actions.public(row)}
+
+
+@app.post("/api/actions/{action_id}/approve")
+def api_action_approve(action_id: int, body: ActionText,
+                       x_auth: str = Header(default="")):
+    """
+    «Разрешить» — это разрешение на ЭТО действие, а не на все такие впредь.
+
+    Постоянное разрешение живёт на странице автономности. Смешивать одно с
+    другим нельзя: нажатие под конкретным сообщением не должно однажды
+    означать «пиши всем клиентам всегда».
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    who, who_id = _actor(x_auth, bid)
+    if not database.get_action(action_id, bid):
+        raise HTTPException(status_code=404, detail="Действие не найдено")
+    payload = {"message": body.text.strip()} if (body.text or "").strip() else None
+    try:
+        row = actions.approve(bid, action_id, actor=who, actor_id=who_id,
+                              payload=payload)
+    except actions.ActionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    said = actions.public(row)
+    return {"ok": row["status"] == database.AC_SUCCEEDED, "action": said,
+            "why": said.get("error") or said.get("result") or ""}
+
+
+@app.post("/api/actions/{action_id}/reject")
+def api_action_reject(action_id: int, body: ActionText,
+                      x_auth: str = Header(default="")):
+    """«Не надо». Отказ — тоже решение, и он тоже остаётся в журнале."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    who, who_id = _actor(x_auth, bid)
+    if not database.get_action(action_id, bid):
+        raise HTTPException(status_code=404, detail="Действие не найдено")
+    row = actions.reject(bid, action_id, actor=who, actor_id=who_id)
+    return {"ok": True, "action": actions.public(row)}
+
+
+@app.post("/api/actions/{action_id}/cancel")
+def api_action_cancel(action_id: int, body: ActionText,
+                      x_auth: str = Header(default="")):
+    """Снять предложение, не отказывая: повод исчез сам."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    if not database.get_action(action_id, bid):
+        raise HTTPException(status_code=404, detail="Действие не найдено")
+    row = actions.cancel(bid, action_id, reason="Снято.")
+    return {"ok": True, "action": actions.public(row)}
+
+
 # ---------- НАСТРОЙКИ БИЗНЕСА ----------
 
 @app.get("/api/business")
@@ -1481,6 +1605,19 @@ def _attention(bid, sig, totals, risks, business):
     туда, где её можно закрыть, и появляется только если действительно есть.
     """
     items = []
+
+    # Действия, которые VELOR подготовил и ждёт разрешения. Стоят первыми не
+    # ради важности: пока владелец не ответил, работа остановлена, и это
+    # единственная строка списка, где ждут не клиента и не деньги, а его.
+    try:
+        waiting = actions.overview(bid).get("waiting") or 0
+    except Exception:
+        waiting = 0
+    if waiting:
+        items.append({"title": "Требуют вашего решения: " + database._plural(
+            waiting, "действие", "действия", "действий"),
+            "note": "VELOR подготовил и ждёт — сам он этого не сделает.",
+            "href": "autonomy.html", "level": "urgent"})
 
     # _plural сам подставляет число, поэтому дописывать его отдельно нельзя.
     if sig["stale_orders"]:
@@ -2956,6 +3093,12 @@ def _followup_round():
             followup.run(bid)
         except Exception:
             logging.exception("Обход касаний: бизнес %s", bid)
+        try:
+            # Предложение, которое ждало решения неделю, выполнять поздно:
+            # обстоятельства, из-за которых оно появилось, давно другие.
+            actions.settle(bid)
+        except Exception:
+            logging.exception("Просроченные предложения: бизнес %s", bid)
 
 
 def _sync_worker():
@@ -3768,6 +3911,23 @@ def api_inbox_action(item_id: int, body: InboxAction, x_auth: str = Header(defau
                     "items": len(made) or None,
                     "edited": bool(changes)})
     database.mark_result_applied(res["id"], bid, applied)
+    # То же предложение видно и в списке решений. Это одна запись, показанная с
+    # двух сторон, — подтвердить её дважды нельзя, иначе расход попал бы в
+    # финансы двумя строками.
+    understanding.close_proposals(bid, item_id, body.action)
+    said_action = understanding.POLICY_ACTION.get(body.action)
+    if said_action:
+        # Сделанное рукой владельца попадает в тот же журнал, что сделанное
+        # VELOR. Разделить их на «настоящие действия» и «действия ИИ» значило
+        # бы получить две истории одного дела.
+        actions.record(bid, said_action, actor=actor, actor_id=actor_id,
+                       mode=actions.MANUAL, status=database.AC_SUCCEEDED,
+                       target_type=said_type or "inbox",
+                       target_id=said_id or item_id,
+                       reason="Вы подтвердили: " + (detail or "")[:200],
+                       based_on={"item_id": item_id, "inbox_action": body.action},
+                       before=proposed if changes else None, after=used,
+                       result=(detail or "")[:200])
     if body.action != "ask_user":
         database.set_inbox_status(item_id, bid, "PROCESSED")
     raw = database.get_inbox_item(item_id, bid)
@@ -3798,6 +3958,8 @@ def api_inbox_dismiss(item_id: int, body: InboxDismiss, x_auth: str = Header(def
         original=(res or {}).get("extracted_data") or {},
         actor=actor, actor_id=actor_id,
         note=(body.reason or "").strip()[:300] or "Отклонено владельцем")
+    understanding.close_proposals(bid, item_id,
+                                  reason="Вы отклонили материал во «Входящих».")
     database.set_inbox_status(item_id, bid, "PROCESSED")
     raw = database.get_inbox_item(item_id, bid)
     return {"ok": True,

@@ -190,6 +190,33 @@ def reply_for(bid, client, text, channel=None, save_incoming=True):
     except Exception:
         logging.exception("Возможность из разговора не завелась (biz %s)", bid)
 
+    # Владелец мог сказать: «разговоры веду я». Проверяем ПОСЛЕ записи входящего
+    # и создания возможности: сообщение клиента должно остаться в истории и
+    # попасть в воронку независимо от того, отвечает на него VELOR или человек.
+    try:
+        import actions
+        may_reply = actions.allowed_auto(bid, "reply_to_customer",
+                                         channel=channel or "telegram")
+    except Exception:
+        logging.exception("Полномочия на ответ не прочитались (biz %s)", bid)
+        may_reply = False
+    if not may_reply:
+        try:
+            import actions
+            actions.record(bid, "reply_to_customer", status=database.AC_BLOCKED,
+                           channel=channel or "telegram", target_type="client",
+                           target_id=client.get("id"),
+                           reason="Клиент написал — отвечает человек",
+                           error="Вы попросили, чтобы клиентам отвечали вы сами.")
+        except Exception:
+            logging.exception("Отказ не записался в журнал (biz %s)", bid)
+        database.log_event(bid, "reply", "Новое обращение: "
+                           + (client.get("name") or full_name or "клиент"),
+                           (text or "")[:200],
+                           once_key="Новое обращение: "
+                                    + (client.get("name") or full_name or "клиент"))
+        return "Спасибо! Мы получили ваше сообщение и скоро вам ответим."
+
     # Лимит тарифа исчерпан — вежливо принимаем без ИИ.
     if database.plan_status(business)["over"]:
         return ("Спасибо за сообщение! Мы обязательно ответим — "

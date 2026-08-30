@@ -380,6 +380,13 @@ def _migrate_columns(conn):
         # Наблюдения с происхождением: что услышали, в каком сообщении и когда.
         ("leads", "signals", "TEXT"),
         ("leads", "qualified_at", "TEXT"),
+        # ── автономность по действиям ───────────────────────────────────────
+        # Что VELOR вправе делать сам, что — только спросив, а что нельзя вовсе.
+        # Живёт в той же строке, что уровень и поимённые права, потому что это
+        # тот же вопрос: «насколько ты самостоятелен». Заводить рядом вторую
+        # таблицу ради трёх слов на действие значило бы завести вторую правду —
+        # и однажды они разошлись бы.
+        ("ai_policy", "modes", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -964,6 +971,48 @@ def init_db():
                )"""
         )
 
+        # Журнал действий VELOR. Одна запись = одно намерение что-то сделать:
+        # предложенное, выполненное, запрещённое или сорвавшееся.
+        #
+        # Заводится отдельно от timeline не для порядка ради порядка. timeline —
+        # лента событий компании, написанная для чтения: «Новая возможность»,
+        # «Сотрудник ответил». На вопрос «кто это сделал, по чьему разрешению,
+        # на основании чего и что было до» она не отвечает и отвечать не должна:
+        # это разные жанры. Здесь — второй жанр, и без него нельзя ни разобрать
+        # спор, ни показать очередь на подтверждение.
+        #
+        # Запрещённое хранится наравне с выполненным. Владелец должен видеть не
+        # только то, что VELOR сделал, но и то, чего ему не дали сделать: иначе
+        # сработавшая защита выглядит как поломка.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS actions (
+                   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id INTEGER NOT NULL,
+                   action      TEXT NOT NULL,      -- id из реестра actions.REGISTRY
+                   actor       TEXT DEFAULT 'velor',  -- velor | owner | system
+                   actor_id    INTEGER,
+                   mode        TEXT,               -- automatic | approved | manual
+                   status      TEXT DEFAULT 'proposed',
+                   channel     TEXT,               -- где происходит: telegram|instagram|…
+                   target_type TEXT,               -- lead | client | order | followup | …
+                   target_id   INTEGER,
+                   reason      TEXT,               -- человеческое «почему»
+                   based_on    TEXT,               -- JSON: id сообщений, лидов, записей
+                   payload     TEXT,               -- JSON: чем выполнять, если разрешат
+                   before      TEXT,               -- JSON: что было (только для изменений)
+                   after       TEXT,               -- JSON: что стало
+                   result      TEXT,               -- чем кончилось, словами
+                   error       TEXT,
+                   dedupe_key  TEXT,               -- один повод — одно предложение
+                   expires_at  TEXT,               -- после этого выполнять поздно
+                   created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                   updated_at  TEXT,
+                   decided_at  TEXT,               -- когда владелец сказал да/нет
+                   done_at     TEXT                -- когда выполнилось или сорвалось
+               )"""
+        )
+
+
         # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
         _migrate_columns(conn)
 
@@ -1017,6 +1066,11 @@ def init_db():
             ("idx_leads_biz_source",     "leads",           "business_id, source"),
             ("idx_followups_biz_status", "followups",       "business_id, status"),
             ("idx_followups_lead",       "followups",       "business_id, lead_id"),
+            # Журнал спрашивают двумя вопросами: «покажи ленту» и «что ждёт
+            # решения». Оба — по бизнесу, поэтому индексы такие же парные.
+            ("idx_actions_biz",          "actions",         "business_id, id"),
+            ("idx_actions_biz_status",   "actions",         "business_id, status"),
+            ("idx_actions_dedupe",       "actions",         "business_id, dedupe_key"),
         ]:
             conn.execute(f"CREATE INDEX IF NOT EXISTS {idx} ON {table} ({cols})")
 
@@ -2017,7 +2071,8 @@ def delete_business(business_id):
         # Без этого от удалённой компании оставался бы её журнал происхождения.
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections",
-                    "ig_threads", "ig_seen", "ai_policy", "leads", "followups"):
+                    "ig_threads", "ig_seen", "ai_policy", "leads", "followups",
+                    "actions"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -3736,10 +3791,19 @@ def ai_policy(business_id, channel):
         d["grants"] = _json.loads(d.get("grants") or "[]")
     except (ValueError, TypeError):
         d["grants"] = []
+    try:
+        modes = _json.loads(d.get("modes") or "{}")
+    except (ValueError, TypeError):
+        modes = {}
+    # Испорченная настройка читается как пустая, а пустая означает «как по
+    # умолчанию», то есть осторожно. Развалить JSON и получить больше свободы,
+    # чем владелец давал, здесь невозможно.
+    d["modes"] = modes if isinstance(modes, dict) else {}
     return d
 
 
-def save_ai_policy(business_id, channel, level=None, grants=None, actor=None):
+def save_ai_policy(business_id, channel, level=None, grants=None, actor=None,
+                   modes=None):
     """
     Записать уровень и/или разрешения.
 
@@ -3749,19 +3813,21 @@ def save_ai_policy(business_id, channel, level=None, grants=None, actor=None):
     cur = ai_policy(business_id, channel) or {}
     new_level = cur.get("level") if level is None else int(level)
     new_grants = cur.get("grants") or [] if grants is None else list(grants)
+    new_modes = cur.get("modes") or {} if modes is None else dict(modes)
     blob = _json.dumps(new_grants, ensure_ascii=False)
+    mblob = _json.dumps(new_modes, ensure_ascii=False)
     with _connect() as conn:
         if cur:
             conn.execute(
-                """UPDATE ai_policy SET level = ?, grants = ?, updated_by = ?,
+                """UPDATE ai_policy SET level = ?, grants = ?, modes = ?, updated_by = ?,
                        updated_at = datetime('now')
                    WHERE business_id = ? AND channel = ?""",
-                (new_level, blob, actor, business_id, channel))
+                (new_level, blob, mblob, actor, business_id, channel))
         else:
             conn.execute(
-                """INSERT INTO ai_policy (business_id, channel, level, grants, updated_by)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (business_id, channel, new_level, blob, actor))
+                """INSERT INTO ai_policy (business_id, channel, level, grants, modes, updated_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (business_id, channel, new_level, blob, mblob, actor))
 
 
 def ig_thread_reason(business_id, igsid, why=None, draft=None):
@@ -5726,3 +5792,235 @@ def upsert_external_finance(business_id, external_id, source, kind, amount,
             (business_id, kind, category, value, note, counterparty, key, source, op_date),
         )
         return cur.lastrowid, True
+
+
+# ---------- ЖУРНАЛ ДЕЙСТВИЙ ----------
+#
+# Здесь только хранение. Что VELOR вправе делать сам, что — спросив, и что
+# значит каждое действие, живёт в actions.py.
+
+AC_PROPOSED = "proposed"     # VELOR предложил, ждёт решения владельца
+AC_APPROVED = "approved"     # владелец разрешил именно это
+AC_RUNNING = "running"       # захвачено исполнителем; чужой процесс мимо не пройдёт
+AC_SUCCEEDED = "succeeded"   # выполнено и подтверждено
+AC_FAILED = "failed"         # пробовали, не вышло
+AC_BLOCKED = "blocked"       # не дали выполнить, и написано почему
+AC_CANCELLED = "cancelled"   # владелец отклонил или повод исчез
+AC_STALE = "stale"           # пока ждало решения, обстоятельства изменились
+
+ACTION_STATUSES = (AC_PROPOSED, AC_APPROVED, AC_RUNNING, AC_SUCCEEDED,
+                   AC_FAILED, AC_BLOCKED, AC_CANCELLED, AC_STALE)
+# Живое — то, что ещё может выполниться.
+ACTION_LIVE = (AC_PROPOSED, AC_APPROVED, AC_RUNNING)
+# Ждёт человека. Ровно это и есть очередь подтверждений — отдельного списка,
+# который мог бы с ней разойтись, не существует.
+ACTION_WAITING = (AC_PROPOSED,)
+
+ACTION_FIELDS = ("actor", "actor_id", "mode", "status", "channel", "target_type",
+                 "target_id", "reason", "based_on", "payload", "before", "after",
+                 "result", "error", "dedupe_key", "expires_at", "decided_at",
+                 "done_at")
+
+ACTION_JSON = ("based_on", "payload", "before", "after")
+
+
+def _action_row(row):
+    d = dict(row)
+    for key in ACTION_JSON:
+        raw = d.get(key)
+        try:
+            d[key] = _json.loads(raw) if raw else {}
+        except (ValueError, TypeError):
+            d[key] = {}
+    d["target_id"] = int(d["target_id"]) if d.get("target_id") else None
+    return d
+
+
+def add_action(business_id, action, *, actor="velor", actor_id=None, mode=None,
+               status=AC_PROPOSED, channel=None, target_type=None, target_id=None,
+               reason=None, based_on=None, payload=None, before=None, after=None,
+               result=None, error=None, dedupe_key=None, expires_at=None):
+    """Записать действие. Возвращает id."""
+    if not business_id:
+        raise ValueError("add_action требует business_id (защита арендаторов)")
+    if status not in ACTION_STATUSES:
+        status = AC_PROPOSED
+    stamp = now()
+    done = stamp if status in (AC_SUCCEEDED, AC_FAILED, AC_BLOCKED) else None
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO actions (business_id, action, actor, actor_id, mode,
+                                    status, channel, target_type, target_id,
+                                    reason, based_on, payload, before, after,
+                                    result, error, dedupe_key, expires_at,
+                                    updated_at, done_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (business_id, str(action), actor or "velor",
+             int(actor_id) if actor_id else None, mode or None, status,
+             channel or None, target_type or None,
+             int(target_id) if target_id else None,
+             (reason or "")[:400] or None,
+             _json.dumps(based_on or {}, ensure_ascii=False),
+             _json.dumps(payload or {}, ensure_ascii=False),
+             _json.dumps(before or {}, ensure_ascii=False),
+             _json.dumps(after or {}, ensure_ascii=False),
+             (result or "")[:400] or None, (error or "")[:400] or None,
+             (dedupe_key or "")[:200] or None, expires_at or None, stamp, done),
+        )
+        return cur.lastrowid
+
+
+def get_action(action_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM actions WHERE id = ? AND business_id = ?",
+            (int(action_id), business_id)).fetchone()
+    return _action_row(row) if row else None
+
+
+def list_actions(business_id, *, action=None, status=None, live=False,
+                 waiting=False, target_type=None, target_id=None,
+                 since=None, limit=100, offset=0):
+    """Действия бизнеса, новые сверху. status — строка или набор строк."""
+    where, args = ["business_id = ?"], [business_id]
+    if action:
+        if isinstance(action, (list, tuple, set)):
+            where.append("action IN (%s)" % ",".join("?" * len(action)))
+            args += list(action)
+        else:
+            where.append("action = ?")
+            args.append(action)
+    if waiting:
+        where.append("status IN (%s)" % ",".join("?" * len(ACTION_WAITING)))
+        args += list(ACTION_WAITING)
+    elif live:
+        where.append("status IN (%s)" % ",".join("?" * len(ACTION_LIVE)))
+        args += list(ACTION_LIVE)
+    elif isinstance(status, (list, tuple, set)):
+        vals = [v for v in status if v in ACTION_STATUSES]
+        if vals:
+            where.append("status IN (%s)" % ",".join("?" * len(vals)))
+            args += vals
+    elif status in ACTION_STATUSES:
+        where.append("status = ?")
+        args.append(status)
+    if target_type:
+        where.append("target_type = ?")
+        args.append(target_type)
+    if target_id:
+        where.append("target_id = ?")
+        args.append(int(target_id))
+    if since:
+        where.append("created_at >= ?")
+        args.append(since)
+    args += [int(limit), max(0, int(offset or 0))]
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM actions WHERE " + " AND ".join(where)
+            + " ORDER BY id DESC LIMIT ? OFFSET ?", args).fetchall()
+    return [_action_row(r) for r in rows]
+
+
+def update_action(action_id, business_id, **fields):
+    """Изменить запись действия — только в своём бизнесе."""
+    if not business_id:
+        raise ValueError("update_action требует business_id (защита арендаторов)")
+    sets = {}
+    for key, val in fields.items():
+        if key not in ACTION_FIELDS:
+            raise ValueError("Нельзя менять поле действия: %s" % key)
+        if key == "status" and val not in ACTION_STATUSES:
+            raise ValueError("Неизвестное состояние действия: %s" % val)
+        if key in ACTION_JSON and isinstance(val, (dict, list)):
+            sets[key] = _json.dumps(val, ensure_ascii=False)
+        else:
+            sets[key] = val
+    if not sets:
+        return
+    sets["updated_at"] = now()
+    cols = ", ".join(f"{k} = ?" for k in sets)
+    with _connect() as conn:
+        conn.execute(f"UPDATE actions SET {cols} WHERE id = ? AND business_id = ?",
+                     list(sets.values()) + [int(action_id), business_id])
+
+
+def claim_action(action_id, business_id):
+    """
+    Захватить действие для выполнения. True — захват наш.
+
+    Проверка и захват — одна операция. Разделить их значит оставить щель между
+    «оно ещё не выполнялось» и «теперь выполняю», а в эту щель однажды войдёт
+    второй планировщик, и одно и то же случится дважды.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            """UPDATE actions SET status = ?, updated_at = ?
+               WHERE id = ? AND business_id = ? AND status IN (?, ?)
+                 AND done_at IS NULL""",
+            (AC_RUNNING, now(), int(action_id), business_id,
+             AC_PROPOSED, AC_APPROVED))
+        return bool(cur.rowcount)
+
+
+def finish_action(action_id, business_id, status, *, result=None, error=None,
+                  after=None, target_id=None):
+    """Закрыть выполнение: получилось или нет. Один раз и только из running."""
+    if status not in ACTION_STATUSES:
+        raise ValueError("Неизвестное состояние действия: %s" % status)
+    sets = ["status = ?", "result = ?", "error = ?", "updated_at = ?", "done_at = ?"]
+    args = [status, (result or "")[:400] or None, (error or "")[:400] or None,
+            now(), now()]
+    if after is not None:
+        sets.append("after = ?")
+        args.append(_json.dumps(after, ensure_ascii=False))
+    if target_id:
+        sets.append("target_id = ?")
+        args.append(int(target_id))
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE actions SET " + ", ".join(sets)
+            + " WHERE id = ? AND business_id = ? AND status = ?",
+            args + [int(action_id), business_id, AC_RUNNING])
+        return bool(cur.rowcount)
+
+
+def find_live_action(business_id, dedupe_key):
+    """
+    Живое действие с тем же поводом. Одна причина — одно предложение.
+
+    Отдаём САМОЕ РАННЕЕ, а не последнее. Разница видна только в споре двух
+    одновременных обходов, но именно там она и решает: спор должен разрешаться
+    одинаково у обоих, а «кто записался первым» — единственный признак, который
+    оба видят одинаково.
+    """
+    key = (dedupe_key or "").strip()
+    if not key:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM actions WHERE business_id = ? AND dedupe_key = ?"
+            " AND status IN (%s) ORDER BY id ASC LIMIT 1" % ",".join("?" * len(ACTION_LIVE)),
+            [business_id, key[:200]] + list(ACTION_LIVE)).fetchone()
+    return _action_row(row) if row else None
+
+
+def count_actions(business_id, *, status=None, waiting=False, since=None):
+    """Сколько действий в таком состоянии. Для сводок и цифры на кнопке."""
+    where, args = ["business_id = ?"], [business_id]
+    if waiting:
+        where.append("status IN (%s)" % ",".join("?" * len(ACTION_WAITING)))
+        args += list(ACTION_WAITING)
+    elif isinstance(status, (list, tuple, set)):
+        where.append("status IN (%s)" % ",".join("?" * len(status)))
+        args += list(status)
+    elif status:
+        where.append("status = ?")
+        args.append(status)
+    if since:
+        where.append("created_at >= ?")
+        args.append(since)
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM actions WHERE " + " AND ".join(where),
+            args).fetchone()
+    return int(row["n"] if row else 0)

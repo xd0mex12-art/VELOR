@@ -118,6 +118,30 @@ ACTIONS = {
     "ask_user":        {"title": "Уточнить у владельца",    "safe": True,  "auto": False},
 }
 
+# Чем это действие является в общем реестре полномочий. Карта, а не второй
+# реестр: тринадцать действий приёма — это подробности того, КАК разбирается
+# материал, а владельцу важно другое — что VELOR при этом меняет в его деле.
+# «Добавить в прайс» и «Записать о компании» для него одно решение: пополнять
+# ли память бизнеса самому.
+#
+# ask_user в карту не входит и входить не должен: это не работа, а признание,
+# что решает человек. Предлагать владельцу «разрешить VELOR спросить вас» —
+# бессмыслица.
+POLICY_ACTION = {
+    "create_expense":  "record_finance",
+    "create_income":   "record_finance",
+    "create_client":   "create_client",
+    "create_order":    "create_order",
+    "add_price_list":  "save_knowledge",
+    "add_services":    "save_knowledge",
+    "add_rules":       "save_knowledge",
+    "add_employee":    "save_knowledge",
+    "add_supplier":    "save_knowledge",
+    "add_company":     "save_knowledge",
+    "save_document":   "save_knowledge",
+    "add_goal":        "add_goal",
+}
+
 # Какое действие какой вид записи создаёт. ask_user не создаёт ничего — это
 # признание, что решение за человеком, а не работа.
 ENTITY_BY_ACTION = {
@@ -1042,13 +1066,27 @@ def process(business_id, item_id, auto=None):
         "relations": relations,
     }
 
-    # Автоматически — только безопасное и только при высокой уверенности.
-    # Деньги не двигаются сами никогда: create_expense/create_income safe=False.
+    # Автоматически — только безопасное, только при высокой уверенности и
+    # только если владелец это разрешил. Три условия, и ни одно не заменяет
+    # остальные: уверенность отвечает за «понял ли», safe/auto — за «бывает ли
+    # такое автоматическим вообще», полномочия — за «разрешал ли ты мне».
+    # Деньги не двигаются сами никогда ни при каком сочетании.
     applied, pending_links = [], []
     may_auto = AUTO_APPLY if auto is None else bool(auto)
     if may_auto and result["level"] == "HIGH":
         for a in result["suggested_actions"]:
-            if a["safe"] and a.get("auto"):
+            verdict, why = _permitted(business_id, item_id, a, result)
+            if verdict == "approval":
+                # Разрешения нет, но и отказа нет: предложение уходит в общую
+                # очередь решений. Материал при этом остаётся во «Входящих»
+                # ровно там же, где был, — это одно и то же предложение,
+                # показанное с двух сторон, а не два разных.
+                _propose(business_id, item_id, a, result, why)
+                continue
+            if verdict == "deny":
+                _blocked(business_id, item_id, a, result, why)
+                continue
+            if verdict == "auto":
                 try:
                     text, entity, entity_id, clean, made = apply_action(
                         business_id, item_id, a["action"], result, auto=True)
@@ -1057,6 +1095,13 @@ def process(business_id, item_id, auto=None):
                     # не изменилось» без объяснения выглядит как поломка, хотя
                     # чаще всего это сработавшая защита.
                     result["notes"] = list(result.get("notes") or []) + [str(e)]
+                    if getattr(e, "kind", None) == "verified":
+                        # Это не тупик, а решение владельца: VELOR предлагает
+                        # изменить то, за что человек уже поручился, и сам
+                        # этого не делает никогда. Оговорки в разборе мало —
+                        # такое должно ждать в очереди, где на него ответят.
+                        _propose(business_id, item_id, a, result, str(e),
+                                 action_id="update_knowledge")
                     continue
                 said_type, said_id = named_result(entity, entity_id, made)
                 applied.append({"action": a["action"], "auto": True, "detail": text,
@@ -1085,6 +1130,7 @@ def process(business_id, item_id, auto=None):
                 if entity and entity_id and not made:
                     pending_links.append({"entity": entity, "entity_id": entity_id,
                                           "decision_id": decision_id, "note": text})
+                _done(business_id, item_id, a, text, said_type, said_id)
     result["applied"] = applied
 
     result_id = database.save_inbox_result(business_id, item_id, result)
@@ -1099,6 +1145,184 @@ def process(business_id, item_id, auto=None):
     status = "PROCESSED" if result["level"] == "HIGH" else "NEEDS_REVIEW"
     database.set_inbox_status(item_id, business_id, status)
     return result
+
+
+# ── полномочия и общий журнал ──────────────────────────────────────────────
+
+def _dedupe_key(item_id, action):
+    return "inbox:%s:%s" % (item_id, action)
+
+
+def _permitted(business_id, item_id, a, result):
+    """
+    Можно ли выполнить это прямо сейчас. («auto» | «approval» | «deny», почему).
+
+    Потолок вызывающего — то, что приём знал про своё действие и раньше: не
+    safe или не auto означает, что автоматическим оно не бывает, сколько бы
+    свободы ни дал владелец. Слой полномочий может это только подтвердить или
+    ужесточить, но не отменить.
+    """
+    action_id = POLICY_ACTION.get(a.get("action"))
+    if not action_id:
+        # ask_user и всё, чего нет в реестре: это не работа VELOR, а разметка
+        # разбора. Пропускаем молча, как и раньше.
+        return ("auto" if (a.get("safe") and a.get("auto")) else "skip"), ""
+    limit = "auto" if (a.get("safe") and a.get("auto")) else "approval"
+    try:
+        import actions
+        verdict = actions.can_execute(business_id, action_id,
+                                      channel=(result or {}).get("channel"),
+                                      limit=limit)
+        return verdict["decision"], verdict["why"]
+    except Exception:
+        log.exception("Полномочия на %s не прочитались (biz %s)",
+                      a.get("action"), business_id)
+        return "deny", "Полномочия прочитать не удалось."
+
+
+def _propose(business_id, item_id, a, result, why, action_id=None):
+    """Положить предложение в общую очередь решений владельца."""
+    try:
+        import actions
+        action_id = action_id or POLICY_ACTION.get(a.get("action"))
+        key = _dedupe_key(item_id, a.get("action"))
+        if not action_id or database.find_live_action(business_id, key):
+            return None
+        return database.add_action(
+            business_id, action_id, mode=actions.APPROVED_BY_OWNER,
+            status=database.AC_PROPOSED, target_type="inbox", target_id=item_id,
+            reason="%s — %s" % (a.get("title") or ACTIONS.get(a.get("action"), {}).get("title", ""),
+                                (result or {}).get("summary") or "разобран материал"),
+            based_on={"item_id": item_id, "inbox_action": a.get("action"),
+                      "confidence": (result or {}).get("confidence")},
+            payload={"inbox_action": a.get("action"), "item_id": item_id},
+            dedupe_key=key, error=why or None)
+    except Exception:
+        log.exception("Предложение не попало в очередь (biz %s)", business_id)
+        return None
+
+
+def _blocked(business_id, item_id, a, result, why):
+    """Не дали выполнить — это тоже запись. Молчание выглядит как поломка."""
+    try:
+        import actions
+        action_id = POLICY_ACTION.get(a.get("action"))
+        if not action_id:
+            return None
+        return actions.record(
+            business_id, action_id, status=database.AC_BLOCKED,
+            target_type="inbox", target_id=item_id,
+            reason=(a.get("title") or "") + " — из присланного материала",
+            based_on={"item_id": item_id, "inbox_action": a.get("action")},
+            error=why or "Действие не разрешено.")
+    except Exception:
+        log.exception("Отказ не записался в журнал (biz %s)", business_id)
+        return None
+
+
+def _done(business_id, item_id, a, text, entity_type, entity_id):
+    """Выполненное самим VELOR — в общий журнал наравне с остальным."""
+    try:
+        import actions
+        action_id = POLICY_ACTION.get(a.get("action"))
+        if not action_id:
+            return None
+        return actions.record(
+            business_id, action_id, status=database.AC_SUCCEEDED,
+            target_type=entity_type or "inbox", target_id=entity_id or item_id,
+            reason=(a.get("title") or "") + " — из присланного материала",
+            based_on={"item_id": item_id, "inbox_action": a.get("action")},
+            after={"title": (text or "")[:200]}, result=(text or "")[:200])
+    except Exception:
+        log.exception("Выполненное не записалось в журнал (biz %s)", business_id)
+        return None
+
+
+def close_proposals(business_id, item_id, action=None, *, reason="Решено во «Входящих»."):
+    """
+    Погасить предложения по материалу, когда решение приняли не здесь.
+
+    Одно и то же предложение видно и во «Входящих», и в списке решений. Это
+    одна запись, показанная с двух сторон, и подтвердить её дважды нельзя —
+    иначе расход попал бы в финансы двумя строками.
+    """
+    try:
+        import actions
+        killed = 0
+        for row in database.list_actions(business_id, waiting=True,
+                                         target_type="inbox", target_id=item_id,
+                                         limit=50):
+            said = (row.get("payload") or {}).get("inbox_action")
+            if action and said != action:
+                continue
+            actions.cancel(business_id, row["id"], reason=reason)
+            killed += 1
+        return killed
+    except Exception:
+        log.exception("Предложения по материалу не погасли (biz %s)", business_id)
+        return 0
+
+
+def _run_action(business_id, row):
+    """Выполнить действие приёма по подтверждению владельца из общей очереди."""
+    payload = row.get("payload") or {}
+    item_id = int(payload.get("item_id") or row.get("target_id") or 0)
+    said = payload.get("inbox_action")
+    if not item_id or not said:
+        return {"ok": False, "error": "Непонятно, что именно выполнять."}
+    try:
+        text, entity, entity_id, used, made = apply_action(
+            business_id, item_id, said, auto=False, data=payload.get("data"))
+    except ActionError as e:
+        return {"ok": False, "status": database.AC_BLOCKED, "error": str(e)}
+    said_type, said_id = named_result(entity, entity_id, made)
+    res = database.get_inbox_result(business_id, item_id) or {}
+    if res:
+        applied = list(res.get("applied") or [])
+        applied.append({"action": said, "auto": False, "detail": text,
+                        "entity_type": said_type, "entity_id": said_id,
+                        "items": len(made) or None})
+        database.mark_result_applied(res["id"], business_id, applied)
+        database.add_inbox_decision(
+            business_id, item_id, "confirmed", result_id=res.get("id"),
+            action=said, entity_type=said_type, entity_id=said_id,
+            original=used, corrected=used, actor="owner", note=text)
+    if said != "ask_user":
+        database.set_inbox_status(item_id, business_id, "PROCESSED")
+    return {"ok": True, "result": (text or "")[:200], "target_id": said_id,
+            "after": {"title": (text or "")[:200]}}
+
+
+def _check_action(business_id, row):
+    """Не выполнили ли это уже во «Входящих», пока предложение ждало."""
+    payload = row.get("payload") or {}
+    item_id = int(payload.get("item_id") or row.get("target_id") or 0)
+    said = payload.get("inbox_action")
+    res = database.get_inbox_result(business_id, item_id) if item_id else None
+    if not res:
+        return False, "Разбор материала не найден."
+    if said in {a.get("action") for a in (res.get("applied") or [])}:
+        return False, "Это действие уже выполнено во «Входящих»."
+    if said not in {a.get("action") for a in (res.get("suggested_actions") or [])}:
+        return False, "Такое действие для этого материала больше не предлагается."
+    return True, ""
+
+
+def _register():
+    """Объявить себя исполнителем. Ленивo — чтобы не заводить кольцо импортов."""
+    try:
+        import actions
+        # update_knowledge отдельной строкой: в приёме нет действия «перепиши
+        # подтверждённое» — есть отказ это делать. Выполняется оно тем же
+        # путём, что и обычное подтверждение, только рукой человека.
+        for action_id in set(POLICY_ACTION.values()) | {"update_knowledge"}:
+            actions.RUNNERS[action_id] = _run_action
+            actions.CHECKERS[action_id] = _check_action
+    except Exception:
+        log.exception("Приём не объявился исполнителем")
+
+
+_register()
 
 
 def _summary_by_rules(kind_type, extracted, text):
@@ -1219,6 +1443,17 @@ def diff(before, after):
 # ============================================================
 
 class ActionError(Exception):
+    """
+    Действие не выполнено, и человеку сказано почему.
+
+    kind отличает «не смогли» от «не имеем права трогать». Разница нужна не
+    для порядка: во втором случае у владельца есть что решить, и предложение
+    должно попасть к нему в очередь, а не остаться оговоркой в разборе.
+    """
+
+    def __init__(self, message, kind=None):
+        super().__init__(message)
+        self.kind = kind
     """Действие выполнить нельзя — с объяснением для человека."""
 
 
@@ -1364,7 +1599,8 @@ def apply_action(business_id, item_id, action, result=None, auto=False, data=Non
     if what == "blocked":
         raise ActionError(
             "Такая запись уже есть, и её подтверждал человек — "
-            "VELOR не переписывает её сам. Откройте запись и измените вручную.")
+            "VELOR не переписывает её сам. Откройте запись и измените вручную.",
+            kind="verified")
     if what == "updated":
         text = "Обновлено — " + text[0].lower() + text[1:] if text else "Обновлено"
     return text, entity, entity_id, clean, []

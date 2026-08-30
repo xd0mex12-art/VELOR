@@ -126,6 +126,10 @@ IGNORED_AFTER_DAYS = 7
 # Сорвавшуюся отправку повторяем, но считанное число раз: бесконечные попытки
 # в чужой недоступный API — это не надёжность, а долбёжка.
 MAX_TRIES = 3
+# Сколько предложение о касании ждёт владельца. Дольше недели — уже не то же
+# самое предложение: разрыв в разговоре, из-за которого оно появилось, к тому
+# времени вырос настолько, что повод надо считать заново.
+FOLLOWUP_TTL_DAYS = 7
 
 # Часы работы бизнеса считаем по его же исходящим. Меньше этого — не считаем
 # вовсе: по трём сообщениям рабочее окно не восстановить.
@@ -225,20 +229,100 @@ def may_autosend(business_id, channel):
     """
     Разрешено ли VELOR отправлять касание самому.
 
-    Право берём то же, что у продавца, и новой системы уровней не заводим.
-    «Писать клиенту первым» лежит там же, где скидки и возвраты: ни один
-    уровень автономии его не выдаёт, включает только владелец и поимённо.
+    Вопрос тот же, что был, но задаётся он теперь в одном месте на весь
+    продукт. Внутри — по-прежнему право «Писать клиенту первым», которое ни
+    один уровень автономии не выдаёт; сверху добавилось положение тумблера,
+    которое владелец выставил на странице автономности.
 
     Не прочиталось — считаем, что нельзя. Неотправленное сообщение владелец
     увидит в кабинете, отправленное по ошибке — уже нет.
     """
     try:
-        import sales
-        pol = sales.policy(business_id, channel or "telegram")
-        return sales.FOLLOW_UP in set(pol.get("allowed") or ())
+        import actions
+        return actions.allowed_auto(business_id, "send_followup",
+                                    channel=channel or "telegram")
     except Exception:
-        log.exception("Права канала не прочитались (biz %s)", business_id)
+        log.exception("Полномочия не прочитались (biz %s)", business_id)
         return False
+
+
+# ── след в общем журнале ───────────────────────────────────────────────────
+# У касаний своя очередь, свои состояния и свой экран, и переносить их в общий
+# исполнитель значило бы написать эту машинерию второй раз. Общему журналу
+# нужно другое: чтобы владелец видел предстоящую отправку в одном списке с
+# остальным, что ждёт его решения, и чтобы отправленное осталось в истории
+# наравне с остальным, что VELOR делал.
+
+ACTION_KEY = "send_followup:%s"
+
+
+def _propose_action(business_id, row):
+    """Показать готовящееся касание в общей очереди решений."""
+    if not row:
+        return None
+    state = {database.FU_DRAFT: database.AC_PROPOSED,
+             database.FU_APPROVED: database.AC_APPROVED,
+             database.FU_SCHEDULED: database.AC_APPROVED,
+             database.FU_BLOCKED: database.AC_BLOCKED}.get(row["status"])
+    if not state:
+        return None
+    try:
+        import actions
+        key = ACTION_KEY % row["id"]
+        if database.find_live_action(business_id, key):
+            return None
+        lead = database.get_lead(row["lead_id"], business_id) or {}
+        return database.add_action(
+            business_id, "send_followup",
+            mode=(actions.AUTOMATIC if state == database.AC_APPROVED
+                  else actions.APPROVED_BY_OWNER),
+            status=state, channel=row.get("channel"),
+            target_type="followup", target_id=row["id"],
+            reason=_action_reason(row, lead),
+            based_on=dict(row.get("based_on") or {}, lead_id=row["lead_id"],
+                          client_id=row.get("client_id")),
+            payload={"followup_id": row["id"], "message": row.get("message") or ""},
+            error=row.get("stop_reason") or None, dedupe_key=key,
+            # «Когда уместно написать» и «до каких пор предложение в силе» —
+            # разные даты, и путать их дорого: recommended_at часто уже в
+            # прошлом («ответить надо было час назад»), и предложение погасло
+            # бы, не успев попасться владельцу на глаза.
+            expires_at=_stamp((_parse(row.get("recommended_at")) or _now())
+                              + datetime.timedelta(days=FOLLOWUP_TTL_DAYS)))
+    except Exception:
+        log.exception("Касание не попало в журнал действий (biz %s)", business_id)
+        return None
+
+
+def _action_reason(row, lead):
+    """Человеческое «почему» — то же, что видит владелец в карточке."""
+    who = (lead.get("title") or "").strip()
+    why = REASON_RU.get(row.get("reason"), row.get("reason") or "")
+    trig = (row.get("trigger") or "").strip()
+    said = "Написать клиенту: " + (why or "повод из переписки")
+    if trig:
+        said += " — " + trig
+    if who:
+        said += " (%s)" % who[:80]
+    return said
+
+
+def _mark_action(business_id, followup_id, status, *, result=None, error=None):
+    """Чем кончилось касание — тем же кончилась и запись в журнале."""
+    try:
+        import actions
+        row = database.find_live_action(business_id, ACTION_KEY % followup_id)
+        if not row:
+            return
+        if status == database.AC_CANCELLED:
+            actions.cancel(business_id, row["id"], reason=result or "Повод исчез.")
+            return
+        if row["status"] != database.AC_RUNNING:
+            database.claim_action(row["id"], business_id)
+        database.finish_action(row["id"], business_id, status,
+                               result=result, error=error)
+    except Exception:
+        log.exception("Судьба касания не записалась в журнал (biz %s)", business_id)
 
 
 # ── тихие часы ─────────────────────────────────────────────────────────────
@@ -651,6 +735,20 @@ def plan(business_id, lead, *, gap=None, now=None):
     live = database.list_followups(business_id, lead_id=lead["id"], live=True, limit=5)
     decision = decide(business_id, lead, gap=gap, now=now)
 
+    # Готовить черновики — тоже полномочие, пусть и самое безобидное: владелец
+    # вправе сказать «не занимайся этим вовсе», и тогда очередь не должна
+    # наполняться предложениями, которых он не просил.
+    if decision and not decision.get("stop"):
+        try:
+            import actions
+            if not actions.allowed_auto(business_id, "prepare_followup",
+                                        channel=channel_of(lead)):
+                return None
+        except Exception:
+            log.exception("Полномочия на подготовку не прочитались (biz %s)",
+                          business_id)
+            return None
+
     if decision and decision.get("stop"):
         # Повод исчез — то, что уже лежало в очереди, отменяем и говорим почему.
         for row in live:
@@ -690,7 +788,9 @@ def plan(business_id, lead, *, gap=None, now=None):
                        "Готово касание: " + REASON_RU.get(decision["reason"], ""),
                        (lead.get("title") or "")[:180],
                        once_key="followup:%s" % fid)
-    return database.get_followup(fid, business_id)
+    made = database.get_followup(fid, business_id)
+    _propose_action(business_id, made)
+    return made
 
 
 def scan(business_id, *, limit=200):
@@ -877,6 +977,7 @@ def send(business_id, followup_id, *, auto=True, actor="owner", actor_id=None):
     ok, why = may_send(business_id, row, auto=auto)
     if not ok:
         _close(business_id, row, database.FU_BLOCKED, why)
+        _mark_action(business_id, followup_id, database.AC_BLOCKED, error=why)
         return database.get_followup(followup_id, business_id)
 
     # Ручная отправка идёт из черновика напрямую: владелец нажал «Отправить» —
@@ -901,6 +1002,8 @@ def send(business_id, followup_id, *, auto=True, actor="owner", actor_id=None):
                                  error=(error or "")[:300],
                                  outcome=FAILED_OUT if back == database.FU_FAILED else None)
         log.warning("Касание %s не ушло (biz %s): %s", followup_id, business_id, error)
+        if back == database.FU_FAILED:
+            _mark_action(business_id, followup_id, database.AC_FAILED, error=error)
         return database.get_followup(followup_id, business_id)
 
     database.mark_followup_sent(followup_id, business_id)
@@ -917,6 +1020,8 @@ def send(business_id, followup_id, *, auto=True, actor="owner", actor_id=None):
     database.log_event(business_id, "reply", "Отправлено касание клиенту",
                        (row.get("message") or "")[:200],
                        once_key="followup-sent:%s" % followup_id)
+    _mark_action(business_id, followup_id, database.AC_SUCCEEDED,
+                 result="Сообщение доставлено в " + (row.get("channel") or "канал"))
     try:
         import leads as leads_mod
         # Граница разговора двигается вместе с ним: отправленное касание —
@@ -930,6 +1035,9 @@ def send(business_id, followup_id, *, auto=True, actor="owner", actor_id=None):
 def _close(business_id, row, status, reason):
     database.update_followup(row["id"], business_id, status=status,
                              stop_reason=(reason or "")[:200])
+    if status == database.FU_CANCELLED:
+        _mark_action(business_id, row["id"], database.AC_CANCELLED,
+                     result=STOP_RU.get(reason or "", reason or "Повод исчез."))
 
 
 # ── решения владельца ──────────────────────────────────────────────────────
@@ -947,7 +1055,18 @@ def approve(business_id, followup_id):
         return database.get_followup(followup_id, business_id)
     database.update_followup(followup_id, business_id, status=database.FU_APPROVED,
                              stop_reason=None, error=None)
-    return database.get_followup(followup_id, business_id)
+    made = database.get_followup(followup_id, business_id)
+    # Владелец сказал «да» — предложение в очереди больше не ждёт его: оно
+    # ждёт подходящего времени. Если записи ещё не было (касание завели до
+    # того, как появился журнал), заводим её теперь.
+    got = database.find_live_action(business_id, ACTION_KEY % followup_id)
+    if got:
+        database.update_action(got["id"], business_id,
+                               status=database.AC_APPROVED,
+                               decided_at=database.now())
+    else:
+        _propose_action(business_id, made)
+    return made
 
 
 def edit(business_id, followup_id, text):
@@ -1159,6 +1278,73 @@ def public(row):
     d["model_rejected"] = list(based.get("model_rejected") or [])
     d["attempt_ru"] = "касание %s из %s" % (d.get("attempt") or 1, MAX_ATTEMPTS)
     return d
+
+
+# ── как это выполняется по кнопке из общего списка ─────────────────────────
+# Общий исполнитель не знает, что такое касание, и знать не должен. Он умеет
+# одно: спросить полномочия, захватить действие и записать результат. Работу
+# делает тот, кто ей владеет.
+
+def _run_action(business_id, row):
+    """Выполнить касание по подтверждению владельца из общей очереди."""
+    fid = int((row.get("payload") or {}).get("followup_id") or row.get("target_id") or 0)
+    if not fid:
+        return {"ok": False, "error": "Непонятно, какое сообщение отправлять."}
+    text = ((row.get("payload") or {}).get("message") or "").strip()
+    cur = database.get_followup(fid, business_id)
+    if not cur:
+        return {"ok": False, "status": database.AC_STALE,
+                "error": "Этого касания больше нет."}
+    # Владелец мог переписать текст прямо в очереди — тогда отправляем его
+    # слова, а не наши. Правка сохраняется в самом касании, чтобы в карточке
+    # возможности было видно ровно то, что ушло клиенту.
+    if text and text != (cur.get("message") or "").strip():
+        edit(business_id, fid, text)
+    after = send(business_id, fid, auto=False, actor="owner")
+    if after and after["status"] == database.FU_SENT:
+        return {"ok": True, "target_id": fid,
+                "result": "Сообщение доставлено в " + (after.get("channel") or "канал")}
+    if after and after["status"] == database.FU_BLOCKED:
+        return {"ok": False, "status": database.AC_BLOCKED,
+                "error": after.get("stop_reason") or "Сейчас отправлять нельзя."}
+    # Касание вернулось в очередь на новую попытку — значит, и предложение в
+    # журнале должно вернуться туда же. Иначе владелец увидел бы «не
+    # получилось» у сообщения, которое через полчаса всё-таки уйдёт.
+    retry = bool(after and after["status"] in database.FOLLOWUP_LIVE)
+    return {"ok": False, "retry": retry,
+            "error": (after or {}).get("error") or "Сообщение не ушло."}
+
+
+def _check_action(business_id, row):
+    """
+    Не устарело ли предложение. Проверяем ровно перед выполнением, а не при
+    показе: между «показали» и «нажали» проходит время, и именно в нём клиент
+    успевает ответить сам.
+    """
+    fid = int((row.get("payload") or {}).get("followup_id") or row.get("target_id") or 0)
+    cur = database.get_followup(fid, business_id) if fid else None
+    if not cur:
+        return False, "Этого касания больше нет."
+    if cur["status"] == database.FU_SENT:
+        return False, "Это сообщение уже отправлено."
+    if cur["status"] in (database.FU_CANCELLED, database.FU_FAILED):
+        return False, STOP_RU.get(cur.get("stop_reason") or "",
+                                  "Касание больше не в работе.")
+    ok, why = may_send(business_id, cur, auto=False)
+    return ok, why
+
+
+def _register():
+    """Объявить себя исполнителем. Ленивo — чтобы не заводить кольцо импортов."""
+    try:
+        import actions
+        actions.RUNNERS["send_followup"] = _run_action
+        actions.CHECKERS["send_followup"] = _check_action
+    except Exception:
+        log.exception("Касания не объявились исполнителем")
+
+
+_register()
 
 
 def overview(business_id):

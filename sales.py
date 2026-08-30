@@ -170,6 +170,17 @@ def policy(business_id: int, channel: str = "instagram") -> dict:
         level = DEFAULT_LEVEL
     grants = [g for g in (row.get("grants") or []) if g in PERMISSIONS]
     allowed = set(LEVELS[level]["grants"]) | set(grants)
+    # Страница автономности и эта страница отвечают на один и тот же вопрос, и
+    # отвечать по-разному они не имеют права. Действие, которое владелец там
+    # перевёл в «спрашивать» или «запрещено», перестаёт быть разрешённым и
+    # здесь — иначе один тумблер оказался бы декоративным, и владелец узнал бы
+    # об этом в тот день, когда VELOR сделает то, что он запрещал.
+    try:
+        import actions
+        allowed -= actions.muted(business_id)
+    except Exception:
+        log.exception("Автономность не прочиталась — права канала как есть (biz %s)",
+                      business_id)
     return {
         "channel": channel,
         "level": level,
@@ -222,6 +233,18 @@ def set_policy(business_id: int, channel: str, level=None, grants=None,
     for g in sorted(turned_off):
         database.log_event(business_id, "settings",
                            "Запрещено действие: " + PERMISSIONS[g]["title"], channel)
+    # Включённое здесь право должно ожить и на странице автономности. Без этого
+    # владелец разрешил бы «Писать клиенту первым» в директе, а приглушение с
+    # той страницы продолжало бы держать его выключенным — и настройка молча
+    # не работала бы.
+    if turned_on:
+        try:
+            import actions
+            actions.sync_from_permissions(business_id, turned_on)
+            after = policy(business_id, channel)
+        except Exception:
+            log.exception("Автономность не обновилась вслед за правами (biz %s)",
+                          business_id)
     return after
 
 
@@ -557,6 +580,41 @@ def _clean(v):
     return v
 
 
+# ── полномочия ─────────────────────────────────────────────────────────────
+
+def _may_reply(business_id, channel):
+    """Разрешено ли VELOR вести разговор самому. Не прочиталось — нельзя."""
+    try:
+        import actions
+        return actions.allowed_auto(business_id, "reply_to_customer",
+                                    channel=channel)
+    except Exception:
+        log.exception("Полномочия на ответ не прочитались (biz %s)", business_id)
+        return False
+
+
+def _blocked(business_id, action_id, channel, client_id, reason, why):
+    """Не дали сделать — тоже запись. Молчание неотличимо от поломки."""
+    try:
+        import actions
+        import database as db
+        actions.record(business_id, action_id, status=db.AC_BLOCKED,
+                       channel=channel, target_type="client", target_id=client_id,
+                       reason=reason, error=why)
+    except Exception:
+        log.exception("Отказ не записался в журнал (biz %s)", business_id)
+
+
+def _note(business_id, action_id, **kw):
+    """След в общем журнале. Молчаливый: журнал не ломает продажу."""
+    try:
+        import actions
+        return actions.record(business_id, action_id, **kw)
+    except Exception:
+        log.exception("Действие %s не записалось (biz %s)", action_id, business_id)
+        return None
+
+
 # ── главный вход ───────────────────────────────────────────────────────────
 
 def answer(business_id: int, client: dict, text: str, channel: str = "instagram",
@@ -576,6 +634,18 @@ def answer(business_id: int, client: dict, text: str, channel: str = "instagram"
 
     out = {"reply": None, "handoff": False, "reason": None, "draft": None,
            "actions": [], "policy": pol, "unproven": []}
+
+    # Владелец мог сказать: «разговоры веду я». Тогда VELOR замолкает совсем —
+    # не отвечает уклончиво, а честно передаёт человеку. У ответа клиенту нет
+    # положения «спросить разрешение»: живой разговор нельзя поставить на паузу
+    # до вечера, и притворяться, что можно, — хуже, чем молчать.
+    if not _may_reply(business_id, channel):
+        out.update(handoff=True, reply=HOLD_REPLY,
+                   reason="Вы попросили, чтобы клиентам отвечали вы сами.")
+        _blocked(business_id, "reply_to_customer", channel, client_id,
+                 "Клиент написал — VELOR не отвечает по вашей настройке.",
+                 out["reason"])
+        return out
 
     # Клиент прямо зовёт человека — тут не о чем размышлять.
     if wants_human(text):
@@ -684,12 +754,18 @@ def _apply(business_id, client, data, allowed, channel, out, said="") -> list[di
             if line not in note:
                 fields["notes"] = (note + "\n" + line).strip()[:2000]
         if fields:
+            was = {k: client.get(k) for k in fields}
             database.update_client(client_id, business_id, **fields)
             database.add_memory_link(
                 business_id, "client", client_id, event="edited", source_kind="ai",
                 actor="velor", changes=json.dumps(fields, ensure_ascii=False),
                 note=f"AI-продавец записал контакт из канала «{channel}»")
             done.append({"action": COLLECT_CUSTOMER, "fields": sorted(fields)})
+            _note(business_id, "update_client", channel=channel,
+                  target_type="client", target_id=client_id,
+                  reason="Клиент назвал это сам в переписке",
+                  before=was, after=dict(fields),
+                  result="Записано: " + ", ".join(sorted(fields)))
     elif (name or phone):
         done.append({"action": COLLECT_CUSTOMER, "skipped": "нет разрешения"})
 
@@ -745,6 +821,13 @@ def _apply(business_id, client, data, allowed, channel, out, said="") -> list[di
             except Exception:
                 log.exception("Заявка не связалась с возможностью (biz %s)", business_id)
             done.append({"action": CREATE_ORDER, "order_id": oid})
+            _note(business_id, "create_order", channel=channel,
+                  target_type="order", target_id=oid,
+                  reason="Клиент договорился обо всём в переписке",
+                  based_on={"client_id": client_id},
+                  after={"text": order_text[:200],
+                         "amount": amount if isinstance(amount, (int, float)) else 0},
+                  result="Заявка №%s" % oid)
         else:
             # Клиент готов, а права оформить заявку нет. Это не «ничего не
             # произошло» — это момент, когда нужен человек, и как можно быстрее.
@@ -758,4 +841,11 @@ def _apply(business_id, client, data, allowed, channel, out, said="") -> list[di
                                  "оформлять их у VELOR нет.")
             database.log_event(business_id, "order", "Клиент готов оформить заявку",
                                order_text[:200], level="important")
+            # Готовность клиента, упёршаяся в отсутствие права, — самая дорогая
+            # из заблокированных вещей: человек хотел купить прямо сейчас.
+            # Владелец должен увидеть её там же, где всё остальное, что ждёт
+            # его решения, а не только в ленте событий.
+            _blocked(business_id, "create_order", channel, client_id,
+                     "Клиент готов оформить заявку: " + order_text[:160],
+                     "Оформлять заявки VELOR не разрешено.")
     return done

@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Автономность</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:var(--fw-thin); font-size:var(--fs-base); line-height:var(--lh); overflow-x:hidden; }
+  a{ color:inherit; text-decoration:none; }
+  button, select{ font-family:inherit; cursor:pointer; }
+  .num{ font-variant-numeric:tabular-nums; }
+  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
+
+  /* ── быстрые режимы ─────────────────────────────────────────────────── */
+  .quick{ display:flex; gap:var(--sp-2); flex-wrap:wrap; margin:var(--sp-6) 0 var(--sp-8); }
+  .quick .note{ flex-basis:100%; color:var(--ash); font-size:var(--fs-sm); margin-top:var(--sp-1); }
+
+  /* ── группы действий ────────────────────────────────────────────────── */
+  .grp{ margin-bottom:var(--sp-8); }
+  .grp .cap{ font-size:var(--fs-caption); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--lilac); font-weight:var(--fw-med); margin-bottom:var(--sp-4); }
+
+  .act{ display:flex; align-items:flex-start; gap:var(--sp-4); padding:var(--sp-5) var(--sp-6);
+    border:1px solid var(--hairline); border-radius:var(--r-lg); background:var(--surface);
+    margin-bottom:var(--sp-2); }
+  .act .txt{ flex:1; min-width:0; }
+  .act .t{ font-weight:var(--fw-med); font-size:var(--fs-body); }
+  .act .d{ color:var(--silver); font-size:var(--fs-sm); margin-top:var(--sp-1); }
+  .act .cap2{ display:block; margin-top:var(--sp-2); font-size:var(--fs-caption);
+    color:var(--ash); }
+  .act .cap2.top{ color:var(--saffron); }
+  .act select{ flex:none; min-width:190px; min-height:44px; padding:10px var(--sp-4);
+    border-radius:var(--r-sm); border:1px solid var(--hairline-2); background:var(--surface-2);
+    color:var(--bone); font-size:var(--fs-sm); font-weight:var(--fw-reg); }
+  .act select:focus{ outline:none; border-color:var(--iris); box-shadow:0 0 0 3px var(--ring); }
+  .act select option{ background:var(--sheet); }
+  .act[data-mode="deny"]{ opacity:.72; }
+  .act[data-mode="auto"]{ border-color:rgba(128,82,255,.28); }
+
+  /* ── очередь решений ───────────────────────────────────────────────── */
+  .queue{ border:1px solid rgba(255,184,41,.3); background:rgba(255,184,41,.05);
+    border-radius:var(--r-xl); padding:var(--sp-6); margin-bottom:var(--sp-8); }
+  .queue .hd{ display:flex; align-items:baseline; gap:var(--sp-3); margin-bottom:var(--sp-4); }
+  .queue .hd .t{ font-size:var(--fs-h3); font-weight:var(--fw-reg); letter-spacing:-.02em; }
+  .queue .hd .n{ font-size:var(--fs-sm); color:var(--saffron); }
+  .q{ border-top:1px solid var(--hairline); padding:var(--sp-4) 0; }
+  .q:first-of-type{ border-top:none; padding-top:0; }
+  .q .t{ font-weight:var(--fw-med); font-size:var(--fs-body); }
+  .q .why{ color:var(--silver); font-size:var(--fs-sm); margin-top:var(--sp-1); }
+  .q .why.err{ color:var(--ink-coral); }
+  .q textarea{ width:100%; margin-top:var(--sp-3); min-height:88px; resize:vertical;
+    padding:var(--sp-3) var(--sp-4); border-radius:var(--r-sm); border:1px solid var(--hairline);
+    background:var(--surface-2); color:var(--bone); font-family:inherit;
+    font-size:var(--fs-body); font-weight:var(--fw-thin); line-height:var(--lh); }
+  .q textarea:focus{ outline:none; border-color:var(--iris); box-shadow:0 0 0 3px var(--ring); }
+  .q .btns{ display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-top:var(--sp-3); }
+
+  /* ── журнал ─────────────────────────────────────────────────────────── */
+  .segs{ display:flex; gap:var(--sp-1); flex-wrap:wrap; margin-bottom:var(--sp-5); }
+  .segs button{ padding:8px var(--sp-4); border-radius:var(--r-pill); border:1px solid var(--hairline);
+    background:none; color:var(--ash); font-size:var(--fs-sm); transition:color var(--dur),
+    background var(--dur), border-color var(--dur); }
+  .segs button:hover{ color:var(--bone); background:var(--surface-2); }
+  .segs button.on{ color:var(--bone); background:var(--tint-iris); border-color:transparent; }
+
+  .day{ font-size:var(--fs-caption); letter-spacing:.16em; text-transform:uppercase;
+    color:var(--ash); font-weight:var(--fw-med); margin:var(--sp-6) 0 var(--sp-3); }
+  .ev{ display:flex; gap:var(--sp-4); padding:var(--sp-4) 0; border-top:1px solid var(--hairline); }
+  .ev .when{ flex:none; width:52px; color:var(--ash); font-size:var(--fs-sm); padding-top:2px; }
+  .ev .dot{ flex:none; width:7px; height:7px; border-radius:var(--r-pill); margin-top:9px;
+    background:var(--ash); }
+  .ev.ok   .dot{ background:var(--verdant); }
+  .ev.wait .dot{ background:var(--saffron); }
+  .ev.stop .dot{ background:var(--coral); }
+  .ev.bad  .dot{ background:var(--coral); }
+  .ev .body{ flex:1; min-width:0; }
+  .ev .who{ font-size:var(--fs-caption); letter-spacing:.12em; text-transform:uppercase;
+    color:var(--lilac); font-weight:var(--fw-med); }
+  .ev .t{ font-weight:var(--fw-reg); font-size:var(--fs-body); margin-top:2px; }
+  .ev .d{ color:var(--silver); font-size:var(--fs-sm); margin-top:var(--sp-1); }
+  .ev .d b{ font-weight:var(--fw-med); color:var(--bone); }
+  .ev .err{ color:var(--ink-coral); }
+  .ev .diff{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--silver); }
+  .ev .diff code{ font-family:inherit; color:var(--bone); }
+
+  .sum{ display:flex; gap:var(--sp-5); flex-wrap:wrap; color:var(--ash);
+    font-size:var(--fs-sm); margin-bottom:var(--sp-5); }
+  .sum b{ color:var(--bone); font-weight:var(--fw-reg); }
+
+  @media(max-width:620px){
+    .act{ flex-direction:column; padding:var(--sp-4); }
+    .act select{ width:100%; min-width:0; }
+    .queue{ padding:var(--sp-4); }
+    .ev .when{ width:44px; }
+  }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body class="narrow">
+<canvas id="ambientCanvas"></canvas>
+
+<main>
+  <span class="label">Core · Автономность</span>
+  <h1>Что VELOR делает сам.</h1>
+  <p class="sub">Вы решаете, сколько свободы ему дать. Рядом — всё, что он уже сделал:
+    когда, зачем, на основании чего и чем это кончилось.</p>
+
+  <div id="failZone"></div>
+
+  <div class="quick" id="quick"></div>
+
+  <div id="queue"></div>
+
+  <section id="dials"><div class="v-empty">Загружаю…</div></section>
+
+  <section style="margin-top:var(--sp-16)">
+    <span class="label">Журнал</span>
+    <h1 style="font-size:var(--fs-h2)">Что он делал.</h1>
+    <p class="sub">Здесь и выполненное, и то, чего ему не дали сделать. Заблокированное —
+      не поломка, а сработавшая настройка, и видно это только отсюда.</p>
+    <div class="sum" id="sum"></div>
+    <div class="segs" id="segs"></div>
+    <div id="feed"><div class="v-empty">Загружаю…</div></div>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="core-live.js?v=10"></script>
+<script>
+let toastT;
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
+}
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+let SET = null, FEED = null, kind = 'all';
+
+// Время — коротко и по-человечески: «сегодня 17:42» читается, «2026-08-29T17:42:11» нет.
+function when(raw){
+  if (!raw) return '';
+  const d = new Date(String(raw).replace(' ', 'T'));
+  if (isNaN(d)) return '';
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function dayOf(raw){
+  if (!raw) return '';
+  const d = new Date(String(raw).replace(' ', 'T'));
+  if (isNaN(d)) return '';
+  const today = new Date(), y = new Date(Date.now() - 864e5);
+  const same = (a, b) => a.toDateString() === b.toDateString();
+  if (same(d, today)) return 'Сегодня';
+  if (same(d, y)) return 'Вчера';
+  return d.toLocaleDateString('ru-RU', { day:'numeric', month:'long' });
+}
+
+/* ── быстрые режимы ─────────────────────────────────────────────────────── */
+function paintQuick(){
+  document.getElementById('quick').innerHTML = `
+    <button class="v-btn ghost" type="button" data-all="auto">Разрешить всё</button>
+    <button class="v-btn ghost" type="button" data-all="approval">Спрашивать перед действиями</button>
+    <button class="v-btn ghost" type="button" data-all="deny">Запретить всё</button>
+    <span class="note">«Разрешить всё» не отменяет ограничений безопасности: запись денег и
+      правка подтверждённых вами данных остаются на подтверждении в любом случае.</span>`;
+  document.querySelectorAll('[data-all]').forEach(b => b.addEventListener('click', async () => {
+    const mode = b.dataset.all;
+    if (b.dataset.sure !== '1' && mode === 'auto'){
+      b.dataset.sure = '1'; b.textContent = 'Точно разрешить всё?';
+      return;
+    }
+    await save({ mode }, b, 'Меняю…');
+  }));
+}
+
+/* ── тумблеры ───────────────────────────────────────────────────────────── */
+function actHTML(a){
+  return `<div class="act" data-mode="${esc(a.mode)}">
+    <div class="txt">
+      <div class="t">${esc(a.title)}</div>
+      <div class="d">${esc(a.means)}</div>
+      ${a.capped ? '<span class="cap2 top">Автоматическим это не станет — даже по кнопке «Разрешить всё».</span>'
+                 : `<span class="cap2">${esc(a.risk_ru)}</span>`}
+      ${a.held_note ? `<span class="cap2 top">${esc(a.held_note)} — поднимите уровень доверия каналу.</span>` : ''}
+    </div>
+    <select data-act="${esc(a.action)}" aria-label="${esc(a.title)}">
+      ${a.choices.map(c => `<option value="${esc(c.mode)}"${c.mode === a.mode ? ' selected' : ''}>${esc(c.title)}</option>`).join('')}
+    </select>
+  </div>`;
+}
+
+function paintDials(){
+  const box = document.getElementById('dials');
+  const by = {};
+  SET.actions.forEach(a => { (by[a.group] = by[a.group] || []).push(a); });
+  box.innerHTML = SET.groups.filter(g => (by[g.key] || []).length).map(g => `
+    <div class="grp">
+      <div class="cap">${esc(g.title)}</div>
+      ${by[g.key].map(actHTML).join('')}
+    </div>`).join('');
+  box.querySelectorAll('select[data-act]').forEach(s => s.addEventListener('change', async () => {
+    await save({ action: s.dataset.act, mode: s.value }, s, null);
+  }));
+}
+
+async function save(body, el, label){
+  const was = label ? el.textContent : null;
+  el.disabled = true;
+  if (label) el.textContent = label;
+  try{
+    const r = await fetch('/api/autonomy', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не получилось изменить'); }
+    else { SET = d; toast('Сохранено'); paintQuick(); paintDials(); loadFeed(); return; }
+  }catch{ toast('Нет связи с сервером'); }
+  el.disabled = false;
+  if (label) el.textContent = was;
+}
+
+/* ── очередь решений ────────────────────────────────────────────────────── */
+function qHTML(a){
+  return `<div class="q" data-id="${a.id}">
+    <div class="t">${esc(a.title)}</div>
+    <div class="why">${esc(a.reason)}</div>
+    ${a.error ? `<div class="why err">Прошлая попытка: ${esc(a.error)}</div>` : ''}
+    ${a.editable ? `<textarea aria-label="Текст сообщения">${esc(a.message)}</textarea>` : ''}
+    <div class="btns">
+      <button class="v-btn sm" type="button" data-do="approve">Разрешить</button>
+      <button class="v-btn sm ghost" type="button" data-do="reject">Отклонить</button>
+    </div>
+  </div>`;
+}
+
+function paintQueue(){
+  const box = document.getElementById('queue');
+  const list = (FEED && FEED.pending) || [];
+  if (!list.length){ box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="queue">
+    <div class="hd"><span class="t">Требуют вашего решения</span>
+      <span class="n num">${list.length}</span></div>
+    ${list.map(qHTML).join('')}
+  </div>`;
+  box.querySelectorAll('[data-do]').forEach(b => b.addEventListener('click', async () => {
+    const row = b.closest('.q'), id = row.dataset.id;
+    const area = row.querySelector('textarea');
+    const was = b.textContent;
+    row.querySelectorAll('button').forEach(x => x.disabled = true);
+    b.textContent = b.dataset.do === 'approve' ? 'Выполняю…' : 'Отклоняю…';
+    try{
+      const r = await fetch('/api/actions/' + id + '/' + b.dataset.do, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(area ? { text: area.value } : {}) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) toast(d.detail || 'Не получилось');
+      else if (b.dataset.do === 'reject') toast('Отклонено');
+      // Отказ выполнить — не ошибка связи, а результат: показываем причину
+      // словами, а не молчим и не делаем вид, что всё прошло.
+      else toast(d.ok ? 'Готово' : (d.why || 'Не выполнено'));
+    }catch{ toast('Нет связи с сервером'); }
+    b.textContent = was;
+    await loadFeed();
+  }));
+}
+
+/* ── журнал ─────────────────────────────────────────────────────────────── */
+const TONE = { succeeded:'ok', proposed:'wait', approved:'wait', running:'wait',
+               blocked:'stop', stale:'stop', cancelled:'stop', failed:'bad' };
+
+function diffHTML(a){
+  const keys = Object.keys(a.after || {}).filter(k => (a.before || {})[k] !== undefined);
+  if (!keys.length) return '';
+  return `<div class="diff">${keys.map(k =>
+    `<code>${esc(k)}</code>: ${esc(a.before[k])} → <code>${esc(a.after[k])}</code>`).join(' · ')}</div>`;
+}
+
+function evHTML(a){
+  const tone = TONE[a.status] || '';
+  const line = [];
+  if (a.reason) line.push('Причина: ' + esc(a.reason));
+  // Результат добавляем, только если он говорит что-то новое: повторить в
+  // соседней строке ту же фразу — значит заставить перечитывать одно дважды.
+  if (a.result && a.status === 'succeeded' && !(a.reason || '').includes(a.result))
+    line.push('<b>' + esc(a.result) + '</b>');
+  // Пока действие ждёт решения, способ выполнения ещё не выбран: написать
+  // «с вашего разрешения» до того, как разрешение дано, — прямая неправда.
+  const how = a.waiting ? '' : a.mode_ru;
+  return `<div class="ev ${tone}">
+    <div class="when num">${when(a.created_at)}</div>
+    <div class="dot"></div>
+    <div class="body">
+      <div class="who">${esc(a.actor_ru)}${how ? ' · ' + esc(how) : ''}</div>
+      <div class="t">${esc(a.title)} — ${esc(a.status_ru)}</div>
+      ${line.length ? `<div class="d">${line.join('. ')}</div>` : ''}
+      ${a.error ? `<div class="d err">${esc(a.error)}</div>` : ''}
+      ${diffHTML(a)}
+    </div>
+  </div>`;
+}
+
+function paintFeed(){
+  const box = document.getElementById('feed');
+  const list = (FEED && FEED.items) || [];
+  if (!list.length){
+    box.innerHTML = `<div class="v-empty"><strong>Пока пусто</strong>
+      Здесь появится всё, что VELOR сделает, предложит или чего ему не дадут сделать.</div>`;
+    return;
+  }
+  let out = '', day = null;
+  list.forEach(a => {
+    const d = dayOf(a.created_at);
+    if (d !== day){ day = d; out += `<div class="day">${esc(d)}</div>`; }
+    out += evHTML(a);
+  });
+  box.innerHTML = out;
+}
+
+function paintSum(){
+  const o = (FEED && FEED.overview) || {};
+  document.getElementById('sum').innerHTML =
+    `<span>ждут решения: <b class="num">${o.waiting || 0}</b></span>
+     <span>за сутки сделано: <b class="num">${o.done || 0}</b></span>
+     <span>заблокировано: <b class="num">${o.blocked || 0}</b></span>
+     <span>не получилось: <b class="num">${o.failed || 0}</b></span>`;
+}
+
+function paintSegs(){
+  document.getElementById('segs').innerHTML = (SET.filters || []).map(f =>
+    `<button type="button" data-kind="${esc(f.key)}"${f.key === kind ? ' class="on"' : ''}>${esc(f.title)}</button>`).join('');
+  document.querySelectorAll('[data-kind]').forEach(b => b.addEventListener('click', () => {
+    kind = b.dataset.kind; paintSegs(); loadFeed();
+  }));
+}
+
+/* ── загрузка ───────────────────────────────────────────────────────────── */
+function paintFail(msg){
+  document.getElementById('failZone').innerHTML = `
+    <div class="v-fail"><div><div class="t">Не загрузилось</div>
+      <div class="d">${esc(msg)}</div></div>
+      <button class="v-btn ghost" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => {
+    document.getElementById('failZone').innerHTML = ''; load();
+  });
+}
+
+async function loadFeed(){
+  try{
+    const r = await fetch('/api/actions?kind=' + encodeURIComponent(kind));
+    if (!r.ok) throw new Error('http');
+    FEED = await r.json();
+  }catch{ paintFail('Журнал действий не загрузился.'); return; }
+  paintQueue(); paintFeed(); paintSum();
+}
+
+async function load(){
+  try{
+    const r = await fetch('/api/autonomy');
+    if (!r.ok) throw new Error('http');
+    SET = await r.json();
+  }catch{
+    paintFail('Настройки автономности не загрузились.');
+    document.getElementById('dials').innerHTML = '';
+    return;
+  }
+  paintQuick(); paintDials(); paintSegs(); await loadFeed();
+}
+
+load();
+</script>
+</body>
+</html>

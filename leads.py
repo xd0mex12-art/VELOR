@@ -300,12 +300,25 @@ def create(business_id, *, title=None, interest=None, client_id=None,
     _observe(business_id, lead_id, " ".join(x for x in (title, interest) if x),
              message_id=message_id,
              source="owner" if (source or "") == "manual" else "client")
+    # Кто завёл запись, видно и здесь: рука владельца и слух VELOR попадают в
+    # журнал одинаково подробно, но с разными действующими лицами.
+    _note(business_id, "create_lead",
+          actor=("velor" if actor == "velor" else "owner"),
+          actor_id=actor_id,
+          mode=("automatic" if actor == "velor" else "manual"),
+          channel=channel or source, target_type="lead", target_id=lead_id,
+          reason=(note or "Создана возможность") + ": " + _short(title, 120),
+          based_on={"message_id": message_id, "client_id": client_id,
+                    "source": source},
+          result="Возможность №%s" % lead_id)
     _react(business_id)
     return lead_id
 
 
 def _observe(business_id, lead_id, text, *, message_id=None, source="client"):
     """Пересчитать оценку. Оценка не обязана существовать, чтобы лид жил."""
+    if not _may(business_id, "qualify_lead"):
+        return None
     try:
         import qualify
         return qualify.observe(business_id, lead_id, text,
@@ -346,21 +359,41 @@ def may_create(business_id, channel):
     """
     Разрешено ли VELOR заводить возможности в этом канале.
 
-    Права берём те же, что у продавца (ai_policy), а не заводим вторые: в
-    настройках канала уже написано «заводить лида — можно/нельзя», и уровень
-    «только отвечает» обещает владельцу, что ничего не создаётся. Обойти это
-    записью в свою же воронку значило бы соврать в собственных настройках.
+    Вопрос задаётся там же, где все остальные вопросы про полномочия. Внутри
+    по-прежнему право продавца «Заводить лида»: уровень «только отвечает»
+    обещает владельцу, что ничего не создаётся, и обойти это записью в свою же
+    воронку значило бы соврать в собственных настройках.
 
     Не прочиталось — считаем, что нельзя: несостоявшаяся запись видна в
     переписке, а самовольная — нет.
     """
     try:
-        import sales
-        pol = sales.policy(business_id, channel or "telegram")
-        return sales.CREATE_LEAD in set(pol.get("allowed") or ())
+        import actions
+        return actions.allowed_auto(business_id, "create_lead",
+                                    channel=channel or "telegram")
     except Exception:
-        log.exception("Права канала не прочитались (biz %s)", business_id)
+        log.exception("Полномочия не прочитались (biz %s)", business_id)
         return False
+
+
+def _may(business_id, action_id, channel=None):
+    """Короткий вопрос «можно ли». Не прочиталось — нельзя."""
+    try:
+        import actions
+        return actions.allowed_auto(business_id, action_id, channel=channel)
+    except Exception:
+        log.exception("Полномочия (%s) не прочитались (biz %s)", action_id, business_id)
+        return False
+
+
+def _note(business_id, action_id, **kw):
+    """След в общем журнале действий. Молчаливый: журнал не ломает работу."""
+    try:
+        import actions
+        return actions.record(business_id, action_id, **kw)
+    except Exception:
+        log.exception("Действие %s не записалось (biz %s)", action_id, business_id)
+        return None
 
 
 def from_message(business_id, client, text, *, source, channel=None,
@@ -429,6 +462,8 @@ def _enrich(business_id, lead, text, interest=None):
     Поле, которое правил владелец, не трогаем никогда — ради этого owner_fields
     и существует.
     """
+    if not _may(business_id, "update_lead", channel=lead.get("channel")):
+        return
     owner = set(lead.get("owner_fields") or [])
     fields = {}
     if interest and "interest" not in owner and not (lead.get("interest") or "").strip():
@@ -440,9 +475,15 @@ def _enrich(business_id, lead, text, interest=None):
             fields["currency"] = currency
             fields["meta"] = dict(lead.get("meta") or {}, value_src="client")
     if fields:
+        before = {k: lead.get(k) for k in fields if k != "meta"}
         database.update_lead(lead["id"], business_id, **fields)
         _link(business_id, lead["id"], "edited", source_kind="ai", actor="velor",
               changes=fields, note="Клиент назвал это сам")
+        _note(business_id, "update_lead", channel=lead.get("channel"),
+              target_type="lead", target_id=lead["id"],
+              reason="Клиент назвал это сам — дописано в возможность",
+              before=before, after={k: v for k, v in fields.items() if k != "meta"},
+              result=", ".join(sorted(k for k in fields if k != "meta")))
 
 
 def apply_ai(business_id, lead_id, data, stated=()):
@@ -460,6 +501,9 @@ def apply_ai(business_id, lead_id, data, stated=()):
     lead = database.get_lead(int(lead_id), business_id)
     if not lead:
         raise LeadError("Возможность не найдена.")
+    if not _may(business_id, "update_lead", channel=lead.get("channel")):
+        return {"written": [], "guessed": [], "blocked": [],
+                "skipped": "Вы запретили VELOR дополнять возможности."}
     owner = set(lead.get("owner_fields") or [])
     stated = set(stated or ())
     fields, guessed, blocked = {}, {}, []
@@ -646,8 +690,23 @@ def on_order(business_id, client_id, order_id, *, amount=None, channel=None):
             extra["value"] = amount
             extra["currency"] = "RUB"
             extra["meta"] = dict(lead.get("meta") or {}, value_src="order")
+        # Закрыть возможность сделкой — тоже полномочие. Владелец вправе вести
+        # исход воронки своей рукой: заявка бывает не той, за которой человек
+        # приходил, и тогда «выиграно» ставит он, а не мы.
+        if not _may(business_id, "mark_lead_won", channel=channel):
+            _note(business_id, "mark_lead_won", status="blocked",
+                  channel=channel, target_type="lead", target_id=lead["id"],
+                  reason="Появилась заявка №%s по этой возможности" % order_id,
+                  error="Вы запретили VELOR закрывать возможности сделкой.")
+            return None
         set_status(business_id, lead["id"], WON, order_id=order_id,
                    actor="velor", source_kind=channel or "auto", extra=extra)
+        _note(business_id, "mark_lead_won", channel=channel, target_type="lead",
+              target_id=lead["id"],
+              reason="Появилась заявка №%s по этой возможности" % order_id,
+              based_on={"order_id": order_id, "client_id": client_id},
+              before={"status": lead.get("status")}, after={"status": WON},
+              result="Возможность закрыта сделкой")
         # Если этому человеку недавно уходило касание — цепочка «касание →
         # ответ → заявка» сохраняется. Не «касание принесло деньги»: сохраняем
         # порядок событий, а выводы будут, когда таких цепочек станет много.
