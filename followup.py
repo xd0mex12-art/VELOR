@@ -1334,12 +1334,65 @@ def _check_action(business_id, row):
     return ok, why
 
 
+def _run_prepare(business_id, row):
+    """
+    Подготовить черновик касания по одной возможности.
+
+    Раньше черновики появлялись только сплошным обходом: «посмотри все живые
+    возможности и реши, где назрело». Находке нужен другой вход — по одному
+    конкретному разговору, который она и назвала. Логика та же самая, plan()
+    один на оба входа: второй способ решать, что писать клиенту, означал бы
+    два разных ответа на один вопрос.
+    """
+    lead_id = int(row.get("target_id") or 0)
+    # Ту же проверку, что стоит перед подтверждением, делаем и здесь. Не для
+    # порядка: разрешённое действие выполняется сразу, без остановки у
+    # владельца, — и если не спросить об актуальности тут, второй обход
+    # подготовит второй черновик по тому же разговору.
+    ok, why = _check_prepare(business_id, row)
+    if not ok:
+        return {"ok": False, "status": database.AC_STALE, "error": why}
+    lead = database.get_lead(lead_id, business_id)
+    gap = database.last_exchange(business_id, lead.get("client_id"))
+    got = plan(business_id, lead, gap=gap)
+    if not got:
+        return {"ok": False, "status": database.AC_STALE,
+                "error": "Повода писать сейчас нет."}
+    if got["status"] == database.FU_BLOCKED:
+        return {"ok": False, "status": database.AC_BLOCKED,
+                "error": got.get("stop_reason") or "Сейчас писать нельзя."}
+    return {"ok": True, "target_id": lead_id,
+            "after": {"followup_id": got["id"]},
+            "result": "Черновик готов: " + _short_text(got.get("message"))}
+
+
+def _check_prepare(business_id, row):
+    """Не готово ли уже. Дважды один и тот же черновик никому не нужен."""
+    lead_id = int(row.get("target_id") or 0)
+    lead = database.get_lead(lead_id, business_id) if lead_id else None
+    if not lead:
+        return False, "Этой возможности больше нет."
+    if lead["status"] not in database.LEAD_OPEN:
+        return False, "Возможность уже закрыта."
+    live = database.list_followups(business_id, lead_id=lead_id, live=True, limit=1)
+    if live:
+        return False, "Черновик по этой возможности уже готов."
+    return True, ""
+
+
+def _short_text(s, n=80):
+    s = " ".join(str(s or "").split())
+    return s if len(s) <= n else s[:n - 1].rstrip() + "…"
+
+
 def _register():
     """Объявить себя исполнителем. Ленивo — чтобы не заводить кольцо импортов."""
     try:
         import actions
         actions.RUNNERS["send_followup"] = _run_action
         actions.CHECKERS["send_followup"] = _check_action
+        actions.RUNNERS["prepare_followup"] = _run_prepare
+        actions.CHECKERS["prepare_followup"] = _check_prepare
     except Exception:
         log.exception("Касания не объявились исполнителем")
 

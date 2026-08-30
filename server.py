@@ -47,6 +47,7 @@ import instagram
 import sales
 import leads
 import actions
+import initiatives
 import followup
 import qualify
 from urllib.parse import quote as _urlquote
@@ -1409,6 +1410,104 @@ def api_action_cancel(action_id: int, body: ActionText,
     return {"ok": True, "action": actions.public(row)}
 
 
+# ---------- НАХОДКИ VELOR ----------
+#
+# Отдельной «панели наблюдения» здесь нет намеренно. Находка — не отчёт о
+# проделанной работе, а повод что-то сделать; поэтому она живёт там же, где
+# владелец решает: на главной, рядом с тем, что уже требует внимания.
+
+
+class InitiativeIn(BaseModel):
+    business_id: int = 0
+
+
+@app.get("/api/initiatives")
+def api_initiatives(business_id: int = 0, all: bool = False, limit: int = 30,
+                    x_auth: str = Header(default="")):
+    """
+    Что VELOR заметил. Открытые — сверху и по цене вопроса, а не по времени.
+
+    Показ отмечается здесь же: находка, которую владелец увидел, перестаёт
+    быть новостью. «Увидел» при этом не значит «разобрался» — она остаётся
+    живой, пока не исчезнет сам сигнал.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    items = initiatives.feed(bid, only_open=not all, limit=max(1, min(limit, 100)))
+    for row in items:
+        if row["fresh"]:
+            try:
+                initiatives.seen(bid, row["id"])
+            except Exception:
+                logging.exception("Отметка о показе не сохранилась (biz %s)", bid)
+    return {"items": items, "overview": initiatives.overview(bid),
+            "types": [{"key": k, "title": m["title"], "group": m["group"]}
+                      for k, m in initiatives.TYPES.items()]}
+
+
+@app.get("/api/initiatives/{initiative_id}")
+def api_initiative_one(initiative_id: int, business_id: int = 0,
+                       x_auth: str = Header(default="")):
+    """Одна находка целиком: на чём основана, что предлагается, чем кончилось."""
+    bid = _resolve_bid(x_auth, business_id)
+    row = database.get_initiative(initiative_id, bid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Находка не найдена")
+    return {"initiative": initiatives.public(row)}
+
+
+@app.post("/api/initiatives/scan")
+def api_initiatives_scan(body: InitiativeIn, x_auth: str = Header(default="")):
+    """Посмотреть прямо сейчас, не дожидаясь обхода."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    got = initiatives.scan(bid)
+    return {"ok": True, "scan": got, "items": initiatives.feed(bid, limit=30),
+            "overview": initiatives.overview(bid)}
+
+
+@app.post("/api/initiatives/{initiative_id}/ack")
+def api_initiative_ack(initiative_id: int, body: InitiativeIn,
+                       x_auth: str = Header(default="")):
+    """«Понял». Не «решил»: сигнал остаётся, пока не исчезнет сам."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    try:
+        row = initiatives.acknowledge(bid, initiative_id)
+    except initiatives.InitiativeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "initiative": initiatives.public(row)}
+
+
+@app.post("/api/initiatives/{initiative_id}/dismiss")
+def api_initiative_dismiss(initiative_id: int, body: InitiativeIn,
+                           x_auth: str = Header(default="")):
+    """«Не интересно». Замолкаем — но не навсегда, если картина изменится."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    try:
+        row = initiatives.dismiss(bid, initiative_id)
+    except initiatives.InitiativeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "initiative": initiatives.public(row)}
+
+
+@app.post("/api/initiatives/{initiative_id}/act")
+def api_initiative_act(initiative_id: int, body: InitiativeIn,
+                       x_auth: str = Header(default="")):
+    """
+    Сделать то, что находка предлагает.
+
+    Находка не даёт прав. Каждое действие идёт обычным путём — реестр,
+    полномочия, исполнитель, журнал, — и то, что предложил его VELOR, ничего
+    в этом пути не меняет.
+    """
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    try:
+        got = initiatives.act(bid, initiative_id)
+    except initiatives.InitiativeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **got, "actions_overview": actions.overview(bid)}
+
+
 # ---------- НАСТРОЙКИ БИЗНЕСА ----------
 
 @app.get("/api/business")
@@ -1619,6 +1718,14 @@ def _attention(bid, sig, totals, risks, business):
             "note": "VELOR подготовил и ждёт — сам он этого не сделает.",
             "href": "autonomy.html", "level": "urgent"})
 
+    # То, что VELOR заметил сам. Стоит сразу за очередью решений и прежде
+    # заявок: заявку владелец видит и без подсказки, а «шесть горячих клиентов
+    # ждут пятый час» — ровно то, на что у него не хватает глаз.
+    try:
+        items += initiatives.attention(bid)
+    except Exception:
+        logging.exception("Находки не попали в список внимания (biz %s)", bid)
+
     # _plural сам подставляет число, поэтому дописывать его отдельно нельзя.
     if sig["stale_orders"]:
         items.append({"title": database._plural(sig["stale_orders"], "заявка ждёт", "заявки ждут",
@@ -1729,6 +1836,9 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
                     "active": database.active_clients(bid), "total": database.count_clients(bid)},
         "velor": _velor_says(bid, sig, totals, risks, opps, advice, business),
         "attention": _attention(bid, sig, totals, risks, business),
+        # Только счётчик и самое важное: сами карточки главная просит отдельным
+        # запросом — они не должны задерживать цифры наверху.
+        "initiatives": initiatives.overview(bid),
         "today": datetime.date.today().isoformat(),
         "forecast": signals.forecast(bid),   # прогноз на конец месяца (обновляется с расходами)
         "advice": advice,
@@ -3099,6 +3209,14 @@ def _followup_round():
             actions.settle(bid)
         except Exception:
             logging.exception("Просроченные предложения: бизнес %s", bid)
+        try:
+            # Тот же обход смотрит и на состояние бизнеса. Второй планировщик
+            # означал бы второй ответ на вопрос «что сейчас происходит», и
+            # первое же расхождение владелец увидел бы как две разные правды.
+            initiatives.scan(bid)
+            initiatives.settle(bid)
+        except Exception:
+            logging.exception("Обход находок: бизнес %s", bid)
 
 
 def _sync_worker():

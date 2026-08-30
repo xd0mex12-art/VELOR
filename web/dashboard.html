@@ -104,6 +104,53 @@
   .gaps .g::before{ content:""; position:absolute; left:0; top:7px; width:5px; height:5px;
     border-radius:50%; background:var(--hairline-2); }
 
+  /* ── «VELOR заметил»: находки ──
+     Стоит между разбором и списком дел не по красоте, а по порядку вопросов:
+     сначала «как дела», потом «что я заметил, пока вас не было», и только
+     потом «за что взяться». Карточка отвечает всегда одинаково: что
+     произошло, почему это важно, на чём основано, что предлагаю. */
+  .notice-head{ display:flex; align-items:baseline; gap:var(--sp-3);
+    margin-bottom:var(--sp-4); flex-wrap:wrap; }
+  .notice-head h2{ font-weight:500; font-size:var(--fs-h3); letter-spacing:-.02em; }
+  .notice-head .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:200; }
+  .notes{ display:grid; gap:var(--sp-3); }
+  .note{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    padding:var(--sp-5); background:rgba(0,0,0,.28); }
+  .note.urgent{ border-color:rgba(255,107,107,.32); background:rgba(255,107,107,.05); }
+  .note.high{ border-color:rgba(255,184,41,.28); }
+  .note.watch{ background:transparent; }
+  .note .chip{ display:inline-flex; align-items:center; font-weight:600;
+    font-size:9.5px; letter-spacing:.15em; text-transform:uppercase;
+    padding:4px 10px; border-radius:var(--r-md); margin-bottom:var(--sp-3);
+    background:rgba(255,255,255,.07); color:var(--silver); }
+  .note.urgent .chip{ background:rgba(255,107,107,.16); color:var(--ink-coral); }
+  .note.high .chip{ background:rgba(255,184,41,.16); color:var(--ink-saffron); }
+  .note.watch .chip{ background:rgba(47,212,178,.14); color:var(--ink-verdant); }
+  .note .t{ font-weight:400; font-size:var(--fs-lead); letter-spacing:-.02em;
+    line-height:1.3; }
+  .note .d{ color:var(--silver); font-weight:200; font-size:var(--fs-body);
+    line-height:1.5; margin-top:var(--sp-2); }
+  .note .why{ color:var(--ash); font-weight:200; font-size:var(--fs-body);
+    line-height:1.5; margin-top:var(--sp-2); }
+  .note .val{ margin-top:var(--sp-3); font-size:var(--fs-body); color:var(--bone); }
+  .note .val i{ font-style:normal; color:var(--ash); font-size:var(--fs-caption);
+    display:block; margin-top:2px; line-height:1.45; }
+  /* Догадка подписана и выглядит иначе, чем посчитанное. Одинаковый вид
+     означал бы, что предположение читается как вывод. */
+  .note .guess{ margin-top:var(--sp-3); padding-left:12px;
+    border-left:2px solid rgba(128,82,255,.4); color:var(--silver);
+    font-size:var(--fs-body); font-weight:200; line-height:1.5; }
+  .note .guess i{ font-style:normal; color:var(--ash);
+    font-size:var(--fs-caption); display:block; margin-top:2px; }
+  .note details{ margin-top:var(--sp-3); }
+  .note summary{ cursor:pointer; color:var(--lilac); font-size:var(--fs-sm);
+    min-height:44px; display:flex; align-items:center; }
+  .note details .src{ color:var(--ash); font-size:var(--fs-caption);
+    line-height:1.5; padding-bottom:var(--sp-2); }
+  .note .acts{ display:flex; flex-wrap:wrap; gap:var(--sp-2); margin-top:var(--sp-4); }
+  .note .acts .v-btn{ min-height:44px; }
+  .note .done{ margin-top:var(--sp-3); color:var(--ash); font-size:var(--fs-sm); }
+
   /* ── два списка внизу: дела и события ── */
   .cols{ display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4); }
   .more{ display:inline-flex; align-items:center; min-height:44px; margin-top:var(--sp-2);
@@ -185,7 +232,16 @@
     <div class="gaps" id="gaps"></div>
   </section>
 
-  <!-- 4. За что взяться и что изменилось -->
+  <!-- 4. Что VELOR заметил сам -->
+  <section id="notice" aria-labelledby="noticeTitle" hidden>
+    <div class="notice-head">
+      <h2 id="noticeTitle">VELOR заметил</h2>
+      <span class="sub" id="noticeSub"></span>
+    </div>
+    <div class="notes" id="notes"></div>
+  </section>
+
+  <!-- 5. За что взяться и что изменилось -->
   <section class="cols">
     <div class="v-panel" id="attnPanel"><div class="v-sk panel"></div></div>
     <div class="v-panel" id="actsPanel"><div class="v-sk panel"></div></div>
@@ -419,6 +475,90 @@ function attnHTML(d){
   }).join('');
 }
 
+// ── «VELOR заметил» ──
+// Карточка отвечает по порядку: что произошло → почему важно → сколько это
+// может стоить → на чём основано → что предлагаю. Догадка ИИ, если она есть,
+// стоит отдельно и подписана догадкой: смешать её с посчитанным значило бы
+// выдать предположение за вывод.
+function noteHTML(n){
+  const cls = n.level === 'watch' ? 'watch'
+            : (n.priority === 'urgent' ? 'urgent' : (n.priority === 'high' ? 'high' : ''));
+  const val = n.impact_ru
+    ? `<div class="val">${esc(n.impact_label)} ≈ <b class="num">${esc(n.impact_ru)}</b>
+         <i>${esc(n.impact_note)}</i></div>` : '';
+  const guess = n.hypothesis
+    ? `<div class="guess">${esc(n.hypothesis)}<i>${esc(n.hypothesis_note)}</i></div>` : '';
+  const src = n.evidence_ru
+    ? `<details><summary>На чём основано</summary>
+         <div class="src">${esc(n.evidence_ru)}<br>${esc(n.confidence_ru)}.</div>
+       </details>` : '';
+  // «Не интересно» — тоже ответ, и он должен быть рядом с остальными.
+  // Спрятать его значило бы заставлять владельца терпеть то, что ему не нужно.
+  const acts = [
+    n.href ? `<a class="v-btn ghost" href="${esc(n.href)}">Посмотреть</a>` : '',
+    n.can_act ? `<button class="v-btn" type="button" data-act="act"
+        data-id="${n.id}">${esc(n.action_note || 'Сделать')}</button>` : '',
+    `<button class="v-btn ghost" type="button" data-act="ack" data-id="${n.id}">Понятно</button>`,
+    `<button class="v-btn ghost" type="button" data-act="dismiss" data-id="${n.id}">Не интересно</button>`,
+  ].filter(Boolean).join('');
+  return `<article class="note ${cls}">
+      <span class="chip">${esc(n.tag)}</span>
+      <div class="t">${esc(n.title)}</div>
+      <div class="d">${esc(n.summary)}</div>
+      <div class="why">${esc(n.why)}</div>
+      ${val}${guess}${src}
+      ${n.outcome ? `<div class="done">${esc(n.outcome)}</div>` : ''}
+      <div class="acts">${acts}</div>
+    </article>`;
+}
+
+async function paintNotice(){
+  let d;
+  try{ d = await (await fetch('/api/initiatives?limit=6')).json(); }
+  catch{ return; }                       // находки не критичны для главной
+  const box = document.getElementById('notice');
+  const items = d.items || [];
+  if (!items.length){ box.hidden = true; _last['notes'] = undefined; return; }
+  box.hidden = false;
+  const act = (d.overview || {}).act || 0;
+  document.getElementById('noticeSub').textContent = act
+    ? num(act) + ' ' + plural(act, 'находка ждёт вашего решения',
+                              'находки ждут вашего решения',
+                              'находок ждут вашего решения')
+    : 'ничего срочного — просто наблюдения';
+  put('notes', items.map(noteHTML).join(''), true);
+}
+
+document.getElementById('notes').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const what = btn.dataset.act, id = btn.dataset.id;
+  btn.disabled = true;
+  try{
+    const r = await fetch(`/api/initiatives/${id}/${what}`, {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || 'Не получилось');
+    if (what === 'act'){
+      const dec = j.decisions || {};
+      const bits = [];
+      if (dec.done)     bits.push(`сделано: ${dec.done}`);
+      if (dec.approval) bits.push(`ждут вашего разрешения: ${dec.approval}`);
+      if (dec.already)  bits.push(`уже было в работе: ${dec.already}`);
+      if (dec.deny)     bits.push(`не разрешено: ${dec.deny}`);
+      if (dec.failed)   bits.push(`не получилось: ${dec.failed}`);
+      if (dec.skipped)  bits.push(`повод уже неактуален: ${dec.skipped}`);
+      toast(bits.length ? bits.join(', ') : 'Действия созданы');
+    } else {
+      toast(what === 'dismiss' ? 'Больше не покажу — пока картина не изменится'
+                               : 'Хорошо, отметил');
+    }
+  }catch(err){ toast(String(err.message || err)); }
+  btn.disabled = false;
+  paintNotice();
+  load();
+});
+
 // ── «Последние изменения» ──
 function actsHTML(events, d){
   const list = (events.length ? events : (d.activity || [])).slice(0, 5);
@@ -533,6 +673,11 @@ async function load(){
     const t = await (await fetch('/api/timeline?limit=40')).json();
     events = t.events || [];
   }catch{ /* лента не критична: покажем то, что пришло в /api/home */ }
+
+  // Находки — отдельным запросом по той же причине, что и лента: они нужны
+  // одному блоку и не должны задерживать цифры наверху. Заодно этот запрос и
+  // отмечает их показанными — а показ засчитывается только настоящий.
+  paintNotice();
 
   const AI_KINDS = new Set(['reply','risk','opportunity','idea','board','content','memory','plan']);
   const aiEvents = events.filter(e => AI_KINDS.has(e.kind));

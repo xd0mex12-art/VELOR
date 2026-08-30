@@ -149,7 +149,7 @@ REGISTRY = {
         "means": "Замечает, что разговор оборвался, и пишет черновик касания. "
                  "Черновик никуда не уходит без отдельного разрешения ниже.",
         "group": "sales", "risk": LOW, "default": AUTO, "ceiling": AUTO,
-        "choices": (AUTO, DENY), "permission": None, "runner": None},
+        "choices": (AUTO, DENY), "permission": None, "runner": "followup"},
     "send_followup": {
         "title": "Писать клиенту первым",
         "means": "Отправляет подготовленное касание сам — не чаще трёх раз на "

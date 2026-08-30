@@ -1012,6 +1012,56 @@ def init_db():
                )"""
         )
 
+        # Находки VELOR. Одна запись = один замеченный сигнал: проблема, риск
+        # или возможность, которую владелец сам бы заметил не сразу.
+        #
+        # Почему не в `opportunities`. Та таблица уже занята другим смыслом:
+        # там лежат идеи роста, которые придумал AI-директор по общей картине
+        # бизнеса. Здесь — обнаруженный факт с доказательствами и сроком
+        # годности. Сложить их в одну значило бы получить список, в котором
+        # «попробуйте продавать подписку» стоит рядом с «шесть клиентов ждут
+        # ответа пятый час», и владелец перестал бы читать оба.
+        #
+        # Почему не в `actions`. Обнаружение — не действие. VELOR ничего не
+        # сделал, когда заметил; он сделает, только если владелец согласится.
+        # Смешать одно с другим — значит однажды показать в журнале действий
+        # «VELOR обнаружил» рядом с «VELOR отправил» и потерять разницу между
+        # наблюдением и поступком.
+        #
+        # fingerprint — отпечаток повода, а не набора доказательств. Он нарочно
+        # грубый: одним лидом больше — та же проблема, и заводить вторую запись
+        # значило бы каждый час сообщать владельцу одно и то же.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS initiatives (
+                   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id INTEGER NOT NULL,
+                   type        TEXT NOT NULL,      -- id из initiatives.TYPES
+                   level       TEXT DEFAULT 'act', -- watch | act
+                   priority    TEXT DEFAULT 'medium',  -- шкала qualify: low..urgent
+                   confidence  TEXT,               -- solid | likely
+                   title       TEXT NOT NULL,      -- что произошло, одной строкой
+                   summary     TEXT,               -- подробнее, теми же цифрами
+                   why         TEXT,               -- почему это важно бизнесу
+                   hypothesis  TEXT,               -- догадка ИИ; НЕ факт
+                   evidence    TEXT,               -- JSON: id записей, окно, числа
+                   impact      INTEGER,            -- оценка суммы; NULL — неизвестна
+                   impact_note TEXT,               -- как её читать
+                   action      TEXT,               -- что предлагаем сделать (actions.REGISTRY)
+                   action_note TEXT,               -- то же словами владельца
+                   href        TEXT,               -- где посмотреть своими глазами
+                   status      TEXT DEFAULT 'new',
+                   outcome     TEXT,               -- чем кончилось, когда закрылась
+                   fingerprint TEXT,               -- один повод — одна запись
+                   actions_ids TEXT,               -- JSON: какие действия из неё выросли
+                   created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+                   updated_at  TEXT,
+                   last_seen_at TEXT,              -- когда сигнал подтверждался в последний раз
+                   decided_at  TEXT,               -- когда владелец ответил
+                   closed_at   TEXT,
+                   expires_at  TEXT
+               )"""
+        )
+
 
         # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
         _migrate_columns(conn)
@@ -1069,6 +1119,11 @@ def init_db():
             # Журнал спрашивают двумя вопросами: «покажи ленту» и «что ждёт
             # решения». Оба — по бизнесу, поэтому индексы такие же парные.
             ("idx_actions_biz",          "actions",         "business_id, id"),
+            # Находки спрашиваются тремя вопросами: покажи все, покажи живые и
+            # «есть ли уже такая». Третий идёт на КАЖДОМ обходе, до записи.
+            ("idx_init_biz",             "initiatives",     "business_id"),
+            ("idx_init_biz_status",      "initiatives",     "business_id, status"),
+            ("idx_init_fp",              "initiatives",     "business_id, fingerprint"),
             ("idx_actions_biz_status",   "actions",         "business_id, status"),
             ("idx_actions_dedupe",       "actions",         "business_id, dedupe_key"),
         ]:
@@ -2072,7 +2127,7 @@ def delete_business(business_id):
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections",
                     "ig_threads", "ig_seen", "ai_policy", "leads", "followups",
-                    "actions"):
+                    "actions", "initiatives"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -4424,6 +4479,50 @@ def leads_overview(business_id):
     return out
 
 
+def leads_period(business_id, days=14, offset=0):
+    """
+    Воронка за окно: сколько появилось, сколько выиграно, сколько потеряно.
+
+    Считаем по датам СОБЫТИЙ, а не создания: возможность, заведённая месяц
+    назад и проигранная вчера, — это потеря вчерашнего периода, а не
+    прошлого. Иначе сравнение двух недель показывало бы движение там, где
+    его нет.
+
+    Возвращает и id потерянных: инициативе нужны не только числа, но и
+    возможность показать владельцу, о каких именно возможностях речь.
+    """
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        created = conn.execute(
+            """SELECT COUNT(*) AS n FROM leads WHERE business_id = ?
+                 AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)""",
+            (business_id, frm, to)).fetchone()["n"] or 0
+        won = conn.execute(
+            """SELECT COUNT(*) AS n FROM leads WHERE business_id = ? AND status = 'won'
+                 AND date(COALESCE(converted_at, created_at)) >= date('now', ?)
+                 AND date(COALESCE(converted_at, created_at)) < date('now', ?)""",
+            (business_id, frm, to)).fetchone()["n"] or 0
+        lost_rows = conn.execute(
+            """SELECT id, lost_reason FROM leads WHERE business_id = ? AND status = 'lost'
+                 AND date(COALESCE(lost_at, created_at)) >= date('now', ?)
+                 AND date(COALESCE(lost_at, created_at)) < date('now', ?)
+                ORDER BY id DESC""",
+            (business_id, frm, to)).fetchall()
+    reasons = {}
+    for r in lost_rows:
+        key = r["lost_reason"] or "other"
+        reasons[key] = reasons.get(key, 0) + 1
+    lost = len(lost_rows)
+    closed = won + lost
+    return {"created": int(created), "won": int(won), "lost": lost,
+            "closed": closed,
+            # Конверсия — от ЗАКРЫТЫХ. Делить на все значило бы занижать её
+            # ровно на те возможности, по которым разговор ещё идёт.
+            "conversion": round(won * 100 / closed) if closed else None,
+            "lost_reasons": reasons,
+            "lost_ids": [int(r["id"]) for r in lost_rows]}
+
+
 def lead_messages(business_id, lead_id, limit=100):
     """
     Переписка, из которой вырос лид. Не копия — выборка из messages по границам
@@ -6022,5 +6121,189 @@ def count_actions(business_id, *, status=None, waiting=False, since=None):
     with _connect() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS n FROM actions WHERE " + " AND ".join(where),
+            args).fetchone()
+    return int(row["n"] if row else 0)
+
+
+# ---------- НАХОДКИ VELOR ----------
+#
+# Здесь только хранение. Что считается находкой, как она обнаруживается и что
+# по ней предлагается сделать, живёт в initiatives.py.
+
+IN_NEW = "new"                   # обнаружено, владелец ещё не видел
+IN_SEEN = "seen"                 # показано на экране
+IN_ACKNOWLEDGED = "acknowledged" # владелец сказал «понял»
+IN_ACTED = "acted"               # из находки выросло действие
+IN_DISMISSED = "dismissed"       # «не интересно»
+IN_RESOLVED = "resolved"         # проблема исчезла сама или после действия
+IN_EXPIRED = "expired"           # повод устарел, никто не ответил
+
+INITIATIVE_STATUSES = (IN_NEW, IN_SEEN, IN_ACKNOWLEDGED, IN_ACTED,
+                       IN_DISMISSED, IN_RESOLVED, IN_EXPIRED)
+
+# Живое — то, что ещё висит перед владельцем или ждёт результата. Прочитанное
+# и подтверждённое остаются живыми намеренно: «я это видел» не означает «этого
+# больше нет», и повторно сообщать о той же проблеме всё равно нельзя.
+INITIATIVE_LIVE = (IN_NEW, IN_SEEN, IN_ACKNOWLEDGED, IN_ACTED)
+# Ждёт глаз владельца — ровно это и есть счётчик на главной.
+INITIATIVE_UNSEEN = (IN_NEW,)
+# Закрытые: повод больше не действует.
+INITIATIVE_CLOSED = (IN_DISMISSED, IN_RESOLVED, IN_EXPIRED)
+
+INITIATIVE_FIELDS = ("level", "priority", "confidence", "title", "summary",
+                     "why", "hypothesis", "evidence", "impact", "impact_note",
+                     "action", "action_note", "href", "status", "outcome",
+                     "fingerprint", "actions_ids", "last_seen_at", "decided_at",
+                     "closed_at", "expires_at")
+
+INITIATIVE_JSON = {"evidence": dict, "actions_ids": list}
+
+
+def _initiative_row(row):
+    d = dict(row)
+    for key, empty in INITIATIVE_JSON.items():
+        raw = d.get(key)
+        try:
+            d[key] = _json.loads(raw) if raw else empty()
+        except (ValueError, TypeError):
+            d[key] = empty()
+    d["impact"] = int(d["impact"]) if d.get("impact") is not None else None
+    return d
+
+
+def add_initiative(business_id, kind, *, title, level="act", priority="medium",
+                   confidence=None, summary=None, why=None, hypothesis=None,
+                   evidence=None, impact=None, impact_note=None, action=None,
+                   action_note=None, href=None, status=IN_NEW, fingerprint=None,
+                   expires_at=None):
+    """Записать находку. Возвращает id."""
+    if not business_id:
+        raise ValueError("add_initiative требует business_id (защита арендаторов)")
+    if status not in INITIATIVE_STATUSES:
+        status = IN_NEW
+    stamp = now()
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO initiatives (business_id, type, level, priority,
+                                        confidence, title, summary, why,
+                                        hypothesis, evidence, impact, impact_note,
+                                        action, action_note, href, status,
+                                        fingerprint, actions_ids, updated_at,
+                                        last_seen_at, expires_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (business_id, str(kind), level, priority, confidence or None,
+             str(title)[:200], (summary or "")[:600] or None,
+             (why or "")[:600] or None, (hypothesis or "")[:600] or None,
+             _json.dumps(evidence or {}, ensure_ascii=False),
+             int(impact) if impact is not None else None,
+             (impact_note or "")[:200] or None, action or None,
+             (action_note or "")[:200] or None, href or None, status,
+             (fingerprint or "")[:200] or None, _json.dumps([]),
+             stamp, stamp, expires_at or None),
+        )
+        return cur.lastrowid
+
+
+def get_initiative(initiative_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM initiatives WHERE id = ? AND business_id = ?",
+            (int(initiative_id), business_id)).fetchone()
+    return _initiative_row(row) if row else None
+
+
+def list_initiatives(business_id, *, kind=None, status=None, live=False,
+                     level=None, limit=50, offset=0):
+    """Находки бизнеса, новые сверху. status — строка или набор строк."""
+    where, args = ["business_id = ?"], [business_id]
+    if kind:
+        where.append("type = ?")
+        args.append(kind)
+    if live:
+        where.append("status IN (%s)" % ",".join("?" * len(INITIATIVE_LIVE)))
+        args += list(INITIATIVE_LIVE)
+    elif isinstance(status, (list, tuple, set)):
+        vals = [v for v in status if v in INITIATIVE_STATUSES]
+        if vals:
+            where.append("status IN (%s)" % ",".join("?" * len(vals)))
+            args += vals
+    elif status in INITIATIVE_STATUSES:
+        where.append("status = ?")
+        args.append(status)
+    if level:
+        where.append("level = ?")
+        args.append(level)
+    args += [int(limit), max(0, int(offset or 0))]
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM initiatives WHERE " + " AND ".join(where)
+            + " ORDER BY id DESC LIMIT ? OFFSET ?", args).fetchall()
+    return [_initiative_row(r) for r in rows]
+
+
+def update_initiative(initiative_id, business_id, **fields):
+    """Изменить находку — только в своём бизнесе."""
+    if not business_id:
+        raise ValueError("update_initiative требует business_id (защита арендаторов)")
+    sets = {}
+    for key, val in fields.items():
+        if key not in INITIATIVE_FIELDS:
+            raise ValueError("Нельзя менять поле находки: %s" % key)
+        if key == "status" and val not in INITIATIVE_STATUSES:
+            raise ValueError("Неизвестное состояние находки: %s" % val)
+        if key in INITIATIVE_JSON and isinstance(val, (dict, list)):
+            sets[key] = _json.dumps(val, ensure_ascii=False)
+        else:
+            sets[key] = val
+    if not sets:
+        return None
+    sets["updated_at"] = now()
+    cols = ", ".join(f"{k} = ?" for k in sets)
+    with _connect() as conn:
+        conn.execute(
+            f"UPDATE initiatives SET {cols} WHERE id = ? AND business_id = ?",
+            list(sets.values()) + [int(initiative_id), business_id])
+    return get_initiative(initiative_id, business_id)
+
+
+def find_initiative(business_id, fingerprint, *, statuses=None):
+    """
+    Есть ли уже находка с таким отпечатком. Самая свежая — ответ на два разных
+    вопроса сразу: «не показываем ли мы это прямо сейчас» и «не отмахнулся ли
+    владелец от этого недавно».
+    """
+    key = (fingerprint or "").strip()
+    if not key:
+        return None
+    vals = [s for s in (statuses or INITIATIVE_STATUSES)
+            if s in INITIATIVE_STATUSES]
+    if not vals:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM initiatives WHERE business_id = ? AND fingerprint = ?"
+            " AND status IN (%s) ORDER BY id DESC LIMIT 1" % ",".join("?" * len(vals)),
+            [business_id, key[:200]] + list(vals)).fetchone()
+    return _initiative_row(row) if row else None
+
+
+def count_initiatives(business_id, *, status=None, live=False, level=None):
+    """Сколько находок в таком состоянии. Для счётчика на главной."""
+    where, args = ["business_id = ?"], [business_id]
+    if live:
+        where.append("status IN (%s)" % ",".join("?" * len(INITIATIVE_LIVE)))
+        args += list(INITIATIVE_LIVE)
+    elif isinstance(status, (list, tuple, set)):
+        where.append("status IN (%s)" % ",".join("?" * len(status)))
+        args += list(status)
+    elif status:
+        where.append("status = ?")
+        args.append(status)
+    if level:
+        where.append("level = ?")
+        args.append(level)
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM initiatives WHERE " + " AND ".join(where),
             args).fetchone()
     return int(row["n"] if row else 0)
