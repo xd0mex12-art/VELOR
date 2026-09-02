@@ -362,78 +362,74 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 
 /* ============================================================
    VELOR CORE — знак присутствия
-   Почему это принадлежит VELOR: ядро — это уменьшенная поверхность продукта.
-   Тот же угол, та же волосяная рамка, та же подложка карточки — а внутри три
-   нити записи и метка внимания на них. Знак говорит ровно одно: «VELOR здесь и
-   вот что он сейчас делает». Не «смотрите, у нас ИИ».
-   Стоит 40 строк CSS и один инлайновый SVG: ни библиотеки, ни канваса, ни
-   запроса. Прежнее трёхмерное ядро стоило 656 КБ и сообщало меньше.
-   Состояние различается ФОРМОЙ — длиной нитей, разрывом, местом метки. Цвет
-   идёт вторым слоем, а слово рядом — третьим: ни один сигнал не одинок.
+   Почему это принадлежит VELOR: это и есть знак VELOR. Не выдуманный глиф в
+   рамке — рамка вокруг содержимого читается как «иконка», а не как присутствие;
+   первая версия так и выглядела. Здесь тот же треугольник, что в логотипе
+   (M12 2.5 L22.5 21 L1.5 21 Z), только наполненный тем, чем сотрудник сейчас
+   занят: уровень поднимается, полоса проходит насквозь, на сбое знак
+   перерезан.
+   Стоит один инлайновый SVG из трёх фигур и ~50 строк CSS: ни библиотеки, ни
+   канваса, ни запроса. Прежнее трёхмерное ядро стоило 656 КБ и сообщало меньше.
+   Состояние различается ФОРМОЙ — высотой уровня, полосой, разрывом. Цвет идёт
+   вторым слоем, слово рядом — третьим: ни один сигнал не одинок.
    ============================================================ */
 .v-core{ --core-accent:var(--iris); flex:none; display:inline-block; line-height:0;
   width:var(--core-size,40px); height:var(--core-size,40px); }
 .v-core svg{ display:block; width:100%; height:100%; }
-.vc-f{ fill:var(--surface); stroke:var(--hairline-2); stroke-width:1; }
-.vc-l{ fill:var(--silver); opacity:.55; transform-box:fill-box; transform-origin:left center;
-  transition:transform var(--dur-slow) var(--ease), opacity var(--dur); }
-.vc-lx{ fill:var(--silver); opacity:0; transition:opacity var(--dur); }
-.vc-d{ fill:var(--core-accent); transform-box:fill-box; transform-origin:center;
-  transition:transform var(--dur) var(--ease), fill var(--dur); }
+/* Тёмный силуэт знака виден всегда: VELOR на месте, даже когда ничего не делает */
+.vc-dim{ fill:var(--iris); opacity:.20; }
+/* Наполнение. clip-path режет тот же треугольник по горизонтали, поэтому форма
+   знака не искажается ни в одном состоянии — меняется только то, сколько его
+   занято работой. */
+.vc-lit{ fill:var(--core-accent); clip-path:inset(62% 0 0 0);
+  transition:clip-path var(--dur-slow) var(--ease), fill var(--dur); }
+/* Разрез. Виден только на сбое: знак буквально перерезан, и это видно раньше,
+   чем прочитан цвет. */
+.vc-cut{ fill:var(--void); opacity:0; transition:opacity var(--dur); }
 
-/* СВЯЗЬ — покой. Одно очень медленное дыхание метки, больше ничего не движется. */
-.v-core[data-core="connected"] .vc-d{ animation:vc-breath 5.6s var(--ease) infinite; }
-@keyframes vc-breath{ 0%,100%{ opacity:.5; } 50%{ opacity:1; } }
+/* СВЯЗЬ — покой. Уровень стоит низко и очень медленно дышит. */
+.v-core[data-core="connected"] .vc-lit{ animation:vc-breath 5.4s var(--ease) infinite; }
+@keyframes vc-breath{ 0%,100%{ clip-path:inset(66% 0 0 0); } 50%{ clip-path:inset(55% 0 0 0); } }
 
-/* ДУМАЕТ — перестраивается внутренняя структура. Не крутящийся спиннер:
-   меняются длины нитей, как будто мысль ищет свою форму. Статические значения
-   ниже — это же состояние без движения, для prefers-reduced-motion. */
-.v-core[data-core="thinking"] .vc-l1{ transform:scaleX(.55); animation:vc-t1 2.4s var(--ease) infinite; }
-.v-core[data-core="thinking"] .vc-l2{ transform:scaleX(1.35); animation:vc-t2 2.4s var(--ease) infinite; }
-.v-core[data-core="thinking"] .vc-l3{ transform:scaleX(.8); animation:vc-t3 2.4s var(--ease) infinite; }
-@keyframes vc-t1{ 0%,100%{ transform:scaleX(1); } 45%{ transform:scaleX(.5); } }
-@keyframes vc-t2{ 0%,100%{ transform:scaleX(1); } 45%{ transform:scaleX(1.5); } }
-@keyframes vc-t3{ 0%,100%{ transform:scaleX(1); } 60%{ transform:scaleX(.7); } }
+/* ДУМАЕТ — уровень ищет своё место. Не спиннер: движение вверх-вниз, а не по
+   кругу. Статическое значение — это же состояние без движения, для
+   prefers-reduced-motion. */
+.v-core[data-core="thinking"] .vc-lit{ clip-path:inset(44% 0 0 0);
+  animation:vc-think 2.4s var(--ease) infinite; }
+@keyframes vc-think{ 0%,100%{ clip-path:inset(64% 0 0 0); } 45%{ clip-path:inset(24% 0 0 0); } }
 
-/* РАЗБИРАЕТ — сквозь ядро проходит информация: метка идёт сверху вниз,
-   нить под ней на миг становится ярче. */
+/* РАЗБИРАЕТ — сквозь знак снизу вверх проходит светлая полоса: информация
+   идёт через сотрудника. */
 .v-core[data-core="processing"]{ --core-accent:var(--lilac); }
-.v-core[data-core="processing"] .vc-d{ transform:translateY(4px); animation:vc-scan 1.8s var(--ease) infinite; }
-.v-core[data-core="processing"] .vc-l{ animation:vc-lit 1.8s linear infinite; }
-.v-core[data-core="processing"] .vc-l2{ animation-delay:.3s; }
-.v-core[data-core="processing"] .vc-l3{ animation-delay:.6s; }
-@keyframes vc-scan{ 0%,100%{ transform:translateY(-4px); } 50%{ transform:translateY(4px); } }
-@keyframes vc-lit{ 0%,100%{ opacity:.3; } 22%{ opacity:.95; } }
+.v-core[data-core="processing"] .vc-lit{ clip-path:inset(34% 0 42% 0);
+  animation:vc-scan 1.8s var(--ease) infinite; }
+@keyframes vc-scan{ 0%{ clip-path:inset(72% 0 4% 0); } 82%,100%{ clip-path:inset(8% 0 68% 0); } }
 
-/* ПИШЕТ — тихая ритмичная работа: нижняя нить дорастает и начинается заново. */
+/* ПИШЕТ — тихая ритмичная работа: уровень дорастает и начинается заново. */
 .v-core[data-core="writing"]{ --core-accent:var(--lilac); }
-.v-core[data-core="writing"] .vc-l3{ transform:scaleX(.5); animation:vc-write 1.5s var(--ease) infinite; }
-@keyframes vc-write{ 0%{ transform:scaleX(.12); } 78%,100%{ transform:scaleX(1); } }
+.v-core[data-core="writing"] .vc-lit{ clip-path:inset(74% 0 0 0);
+  animation:vc-write 1.5s var(--ease) infinite; }
+@keyframes vc-write{ 0%{ clip-path:inset(84% 0 0 0); } 78%,100%{ clip-path:inset(42% 0 0 0); } }
 
-/* НАШЁЛ — один короткий импульс метки и средняя нить во всю ширину.
-   Не вспышка, не свечение, не салют: одно движение, потом возврат в покой. */
+/* НАШЁЛ — знак наполняется целиком одним движением и возвращается в покой.
+   Не вспышка, не свечение, не салют: одно движение. */
 .v-core[data-core="found"]{ --core-accent:var(--saffron); }
-.v-core[data-core="found"] .vc-l2{ transform:scaleX(1.5); }
-.v-core[data-core="found"] .vc-d{ transform:scale(1.6); animation:vc-found .7s var(--ease); }
-@keyframes vc-found{ 0%{ transform:scale(1); } 35%{ transform:scale(2.1); } 100%{ transform:scale(1.6); } }
+.v-core[data-core="found"] .vc-lit{ clip-path:inset(0 0 0 0); animation:vc-found .7s var(--ease); }
+@keyframes vc-found{ 0%{ clip-path:inset(60% 0 0 0); } 100%{ clip-path:inset(0 0 0 0); } }
 
-/* ВНИМАНИЕ — структура выравнивается: три нити становятся одной длины, метка
-   крупнее. Замерший, собранный вид — «здесь нужно решение». Движения нет. */
+/* ВНИМАНИЕ — уровень замер ровно на половине. Собранный вид без движения:
+   «здесь нужно решение». */
 .v-core[data-core="warning"]{ --core-accent:var(--saffron); }
-.v-core[data-core="warning"] .vc-l1{ transform:scaleX(.72); }
-.v-core[data-core="warning"] .vc-l2{ transform:scaleX(1.07); }
-.v-core[data-core="warning"] .vc-l3{ transform:scaleX(.83); }
-.v-core[data-core="warning"] .vc-d{ transform:scale(1.35); }
+.v-core[data-core="warning"] .vc-lit{ clip-path:inset(50% 0 0 0); }
 
-/* СБОЙ — верхняя нить разорвана, метка сошла со строки. Сдержанно: коралловый
+/* СБОЙ — знак перерезан, работы в нём почти не осталось. Сдержанно: коралловый
    знак, ноль движения. Тревожить мигающим красным — не работа интерфейса. */
 .v-core[data-core="error"]{ --core-accent:var(--coral); }
-.v-core[data-core="error"] .vc-l1{ transform:scaleX(.5); }
-.v-core[data-core="error"] .vc-lx{ opacity:.5; }
-.v-core[data-core="error"] .vc-d{ transform:translateY(4.4px); }
+.v-core[data-core="error"] .vc-lit{ clip-path:inset(78% 0 0 0); }
+.v-core[data-core="error"] .vc-cut{ opacity:1; }
 
 /* Уменьшить движение — не значит «потерять состояние»: анимации выключаются,
-   а форма (длины нитей, разрыв, место метки) остаётся и продолжает говорить. */
+   а форма (высота уровня, полоса, разрыв) остаётся и продолжает говорить. */
 @media(prefers-reduced-motion: reduce){
   .v-core *{ animation:none !important; }
 }

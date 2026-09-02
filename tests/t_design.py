@@ -162,11 +162,29 @@ flatc = CSS.replace(" ", "").replace(chr(10), "")
 STATES = ["connected", "thinking", "processing", "writing", "found", "warning", "error"]
 for st in STATES:
     check(f"состояние «{st}» описано в системе", '[data-core="%s"]' % st in flatc)
-for st, form in (("thinking", "scaleX"), ("processing", "translateY"), ("writing", "scaleX"),
-                 ("found", "scale("), ("warning", "scaleX"), ("error", "scaleX")):
-    rule = flatc.split('[data-core="%s"]' % st, 1)[1][:400]
-    check(f"«{st}» отличается формой, а не только цветом", form in rule)
-check("покой — это дыхание, а не мигание", "@keyframesvc-breath" in flatc)
+# Уровень наполнения у каждого состояния свой, и ни одно не повторяет другое:
+# именно он, а не цвет, отвечает на вопрос «чем он сейчас занят». Значения
+# статические — то есть состояние читается и при выключенном движении.
+forms = {}
+for st in STATES:
+    m = re.search(r'\[data-core="%s"\]\.vc-lit\{([^}]*)\}' % st, flatc)
+    forms[st] = m.group(1) if m else ""
+check("покой задан дыханием знака, а не миганием",
+      "vc-breath" in forms["connected"] and "@keyframesvc-breath" in flatc)
+statics = {}
+for st in ("thinking", "processing", "writing", "found", "warning", "error"):
+    m = re.search(r"clip-path:inset\(([^)]*)\)", forms[st])
+    check(f"«{st}» отличается формой, а не только цветом", bool(m), forms[st][:60])
+    if m:
+        statics[st] = m.group(1)
+check("ни одно состояние не повторяет форму другого",
+      len(set(statics.values())) == len(statics), statics)
+check("«разбирает» — полоса насквозь, а не просто уровень",
+      statics.get("processing", "").count("%") >= 2, statics.get("processing"))
+check("сбой перерезает знак, и это видно без цвета",
+      '[data-core="error"].vc-cut{opacity:1;}' in flatc)
+check("знак — это треугольник VELOR, а не выдуманный глиф",
+      "M12 2.5 L22.5 21 L1.5 21 Z" in STATE)
 
 # prefers-reduced-motion: движение выключается, состояние остаётся. Форма
 # задана статикой, анимация только добавляется сверху — значит, «без движения»
