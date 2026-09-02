@@ -46,7 +46,10 @@
   .kind:last-child{ border-bottom:none; }
   .kind:hover .t, .kind:focus-visible .t{ color:var(--lilac); }
   .kind .t{ flex:1; min-width:0; font-size:var(--fs-body); font-weight:var(--fw-thin); }
-  .kind .c{ font-size:var(--fs-base); font-weight:var(--fw-reg); }
+  /* Число записей — не украшение: оно отвечает, знает VELOR об этом
+     что-нибудь или нет. Поэтому непустое набрано цветом бренда, а ноль
+     остаётся серым, как и «пока пусто» под ним. */
+  .kind .c{ font-size:var(--fs-base); font-weight:var(--fw-reg); color:var(--lilac); }
   .kind .c.zero{ color:var(--ash); }
   .kind .src{ font-size:var(--fs-caption); color:var(--ash); flex-basis:100%; }
   .kind .src b{ color:var(--ink-verdant); font-weight:var(--fw-reg); }

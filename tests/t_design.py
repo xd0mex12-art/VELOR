@@ -127,19 +127,37 @@ check("градиент остался только там, где он рабо
 
 
 print("\n== УКРАШЕНИЕ УБРАНО ==")
-for dead in ("core-live.js", "arina-core.js"):
-    check(f"{dead} удалён вместе со своей декорацией", not (WEB / dead).exists())
+check("arina-core.js удалён: на него не ссылалась ни одна страница",
+      not (WEB / "arina-core.js").exists())
 users = [n for n in ALL if "ambientCanvas" in io.open(WEB / n, encoding="utf-8").read()]
 check("поля летающих частиц нет ни на одной странице", not users, users)
-cores = [n for n in ALL if "coreCanvas" in io.open(WEB / n, encoding="utf-8").read()]
-check("светящегося трёхмерного «ядра» нет ни на одной странице", not cores, cores)
-three = [n for n in ALL if "three.min.js" in io.open(WEB / n, encoding="utf-8").read()]
-check("three.js (654 КБ) не грузится в кабинете", three == ["index.html"], three)
+check("частицы удалены из кода ядра, а не просто отключены",
+      "ambientCanvas" not in io.open(WEB / "core-live.js", encoding="utf-8").read())
 
-# Сигнал «сотрудник на связи / думает / сбой» никуда не делся — он просто стал
-# читаемым словом вместо светящейся сферы.
+# Живое ядро — названное исключение (VELOR_DESIGN_SYSTEM.md §18a): решение
+# владельца продукта, ограниченное двумя экранами и обязательным дублем словом.
+CORE_PAGES = ["dashboard.html", "home.html"]
+cores = sorted(n for n in ALL if "coreCanvas" in io.open(WEB / n, encoding="utf-8").read())
+check("ядро живёт ровно на «Обзоре» и «Спросить»", cores == CORE_PAGES, cores)
+three = sorted(n for n in ALL if "three.min.js" in io.open(WEB / n, encoding="utf-8").read())
+check("three.js грузится только там, где он нужен",
+      three == sorted(CORE_PAGES + ["index.html"]), three)
+for n in CORE_PAGES:
+    src = io.open(WEB / n, encoding="utf-8").read()
+    # Свечение и скорость пульсации — не текст: по ним нельзя отличить
+    # «думает» от «сбоя связи». Слово обязано стоять рядом.
+    check(f"{n}: у ядра есть словесный дубль состояния", "data-velor-state" in src)
+    check(f"{n}: ядро подключено раньше слова",
+          src.index(chr(60) + 'script src="core-live')
+          < src.index(chr(60) + 'script src="velor-state'))
+check("исключение записано в документе", "18a" in
+      io.open(ROOT / "VELOR_DESIGN_SYSTEM.md", encoding="utf-8").read())
+
+# Сигнал «сотрудник на связи / думает / сбой» читается словом на всех экранах.
 STATE = io.open(WEB / "velor-state.js", encoding="utf-8").read()
 check("состояние сотрудника осталось как компонент", ".v-pulse" in CSS)
+check("слово и ядро — одна точка управления, а не две",
+      "core.setState(name)" in STATE and "core.insight()" in STATE)
 for w in ("на связи", "думает", "пишет ответ", "разбирает", "сбой"):
     check(f"состояние «{w}» названо словом", w in STATE)
 check("старый публичный вызов VELOR_CORE сохранён",
@@ -225,11 +243,40 @@ check("шкала кеглей объявлена целиком",
                              "--fs-base", "--fs-lead", "--fs-h3", "--fs-h2",
                              "--fs-h1", "--fs-display")))
 check("нейтрали сведены, а не чистые",
-      "--void:#08080b" in CSS.replace(" ", "") and "--bone:#f4f4f7" in CSS.replace(" ", ""))
+      "--void:#08080b" in CSS.replace(" ", "") and "--bone:#f7f7fa" in CSS.replace(" ", ""))
 check("акцент бренда не тронут", "--iris:#8052ff" in CSS.replace(" ", ""))
 check("смысловые имена цвета есть",
       all(t in CSS for t in ("--ok:", "--warn:", "--bad:", "--info:")))
 
+
+print("\n== ЦВЕТ РАБОТАЕТ СМЫСЛОМ ==")
+# Экран без цвета читается как «ничего не происходит» — но цвет ради цвета
+# запрещён тем же документом. Поэтому проверяем не наличие красок, а то, что
+# язык состояния описан в системе и применён по данным, а не на глаз.
+flat = CSS.replace(" ", "")
+for cls in (".v-kpi.v.ok", ".v-kpi.v.bad", ".v-kpi.v.info", ".v-kpi.v.zero"):
+    check("цифра умеет говорить состоянием: " + cls, cls in flat)
+for t in ("--tint-ok:", "--tint-warn:", "--tint-bad:", "--tint-iris:"):
+    check("подложка состояния " + t.strip(":") + " объявлена", t in flat)
+check("бейдж состояния окрашен подложкой, а не только точкой",
+      ".v-badge.good{color:var(--ink-verdant);background:var(--tint-ok);}" in flat)
+DASH_SRC = io.open(WEB / "dashboard.html", encoding="utf-8").read()
+check("главная красит числа по ключу метрики, а не наугад",
+      "function kpiTone" in DASH_SRC)
+for key in ("revenue", "expenses", "profit", "margin", "clients_new", "orders_new"):
+    check("метрика " + key + " получила свой цвет", ("'" + key + "'") in DASH_SRC)
+
+# Контраст поверхностей. Карточку должно быть видно на фоне страницы, а линия
+# обязана делить: при .022 и .08 экран читался как сплошное чёрное поле.
+def _alpha(token):
+    m = re.search(re.escape(token) + r"rgba\(255,255,255,\.(\d+)\)", flat)
+    return int((m.group(1) + "000")[:3]) if m else -1
+
+check("карточка различима на фоне", _alpha("--surface:") >= 40, _alpha("--surface:"))
+check("линия действительно делит", _alpha("--hairline:") >= 100, _alpha("--hairline:"))
+check("лестница поверхностей осталась лестницей",
+      _alpha("--surface:") < _alpha("--surface-2:") < _alpha("--surface-3:"),
+      (_alpha("--surface:"), _alpha("--surface-2:"), _alpha("--surface-3:")))
 
 print("\n== ДОКУМЕНТ ==")
 DOC = ROOT / "VELOR_DESIGN_SYSTEM.md"

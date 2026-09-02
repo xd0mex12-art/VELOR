@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VELOR AI — Обзор бизнеса</title>
 <link href="vendor/inter.css" rel="stylesheet">
+<script src="vendor/three.min.js"></script>
 <style>
   /* Главная = утренний брифинг владельца: за 30 секунд видно состояние дел
      и что делать. Порядок блоков — это порядок вопросов в голове:
@@ -51,14 +52,20 @@
   .says{ border:1px solid var(--hairline); border-left:2px solid var(--iris);
     border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-6); }
   .says-head{ display:flex; align-items:center; gap:var(--sp-4); margin-bottom:var(--sp-5); }
+  /* Живое ядро. Оно здесь не как украшение и не как «мозг ИИ»: это единственное
+     место на экране, где видно, что сотрудник сейчас делает — покой, разбор,
+     находка. Слово о том же состоянии стоит в шапке страницы, потому что цвет
+     и пульсация не должны быть единственным носителем смысла. */
+  .core-square{ position:relative; width:76px; height:76px; flex:none; }
+  #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important; }
   .says-head h2{ font-weight:500; font-size:var(--fs-h3); letter-spacing:-.02em; }
   .says-head .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:200; margin-top:3px; }
 
   .slots{ display:grid; grid-template-columns:repeat(2,1fr); gap:var(--sp-3); }
   .slot{ border:1px solid var(--hairline); border-radius:var(--r-lg); padding:var(--sp-5);
-    background:rgba(0,0,0,.28); display:flex; flex-direction:column; min-height:126px;
+    background:var(--surface-up); display:flex; flex-direction:column; min-height:126px;
     transition:border-color .25s, background .25s; }
-  a.slot:hover{ border-color:rgba(128,82,255,.4); background:rgba(0,0,0,.16); }
+  a.slot:hover{ border-color:rgba(128,82,255,.45); background:var(--tint-iris); }
   .slot .tag{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start;
     font-weight:600; font-size:var(--fs-micro); letter-spacing:.15em; text-transform:uppercase;
     padding:4px 10px; border-radius:var(--r-md); margin-bottom:var(--sp-3); }
@@ -111,12 +118,13 @@
      с которым владелец открывает эту страницу утром. */
   .flow{ display:grid; grid-template-columns:repeat(6,1fr); gap:var(--sp-3); }
   .flow .s{ border:1px solid var(--hairline); border-radius:var(--r-lg);
-    padding:var(--sp-4) var(--sp-5); background:rgba(0,0,0,.28); }
+    padding:var(--sp-4) var(--sp-5); background:var(--surface-up); }
   .flow .s .n{ font-weight:400; font-size:var(--fs-h3); letter-spacing:-.02em; }
   .flow .s .k{ font-size:var(--fs-caption); color:var(--ash); line-height:1.4;
     margin-top:4px; }
   .flow .s.zero .n{ color:var(--ash); }
-  .flow .s.win{ border-color:rgba(47,212,178,.3); }
+  .flow .s.win{ border-color:rgba(47,212,178,.4); background:var(--tint-ok); }
+  .flow .s.win .n{ color:var(--ink-verdant); }
   .flow-note{ margin-top:var(--sp-3); font-size:var(--fs-caption); color:var(--ash);
     line-height:1.5; }
   @media(max-width:900px){ .flow{ grid-template-columns:repeat(3,1fr); } }
@@ -133,7 +141,7 @@
   .notice-head .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:200; }
   .notes{ display:grid; gap:var(--sp-3); }
   .note{ border:1px solid var(--hairline); border-radius:var(--r-lg);
-    padding:var(--sp-5); background:rgba(0,0,0,.28); }
+    padding:var(--sp-5); background:var(--surface-up); }
   .note.urgent{ border-color:rgba(255,107,107,.32); background:rgba(255,107,107,.05); }
   .note.high{ border-color:rgba(255,184,41,.28); }
   .note.watch{ background:transparent; }
@@ -273,6 +281,7 @@
   <!-- 3. Что об этом думает VELOR -->
   <section class="says v-in" aria-labelledby="saysTitle">
     <div class="says-head">
+      <div class="core-square"><canvas id="coreCanvas" aria-hidden="true"></canvas></div>
       <div>
         <h2 id="saysTitle">Что происходит с бизнесом</h2>
         <p class="sub" id="saysSub">Смотрю на ваши цифры…</p>
@@ -322,6 +331,9 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
+<!-- Ядро идёт первым: оно занимает window.VELOR_CORE, а velor-state.js
+     подхватывает его и добавляет к свечению читаемое слово. -->
+<script src="core-live.js?v=12"></script>
 <script src="velor-state.js"></script>
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -419,10 +431,29 @@ function deltaHTML(m){
   return `<span class="s ${good ? 'up' : 'down'}">${m.delta > 0 ? '+' : ''}${m.delta}% к прошлому периоду</span>`;
 }
 
+// Цвет числа. Язык тот же, что на «Финансах», и он не выдуман здесь: пришло —
+// зелёное, ушло — коралловое, минус — коралловый, счётчики движения —
+// сиреневые, ноль — серый. Ключ метрики приходит с сервера, гадать не нужно.
+// Смысл в том, чтобы знак читался раньше цифры: «−14 500 ₽» и «14 500 ₽»
+// не должны выглядеть одинаково.
+function kpiTone(m){
+  if (!m.enough) return ' void';
+  const v = m.value;
+  switch (m.key){
+    case 'revenue':  return v ? ' ok' : ' zero';
+    case 'expenses': return v ? ' bad' : ' zero';
+    case 'profit':
+    case 'margin':   return v === 0 ? ' zero' : (v > 0 ? ' ok' : ' bad');
+    case 'clients_new':
+    case 'orders_new': return v ? ' info' : ' zero';
+    default: return '';
+  }
+}
+
 function briefHTML(dir){
   return dir.metrics.map(m => {
     const body = `<span class="k">${esc(m.label)}</span>
-       <span class="v num${m.enough ? '' : ' void'}">${esc(m.display)}</span>
+       <span class="v num${kpiTone(m)}">${esc(m.display)}</span>
        ${deltaHTML(m)}
        <span class="src">${esc(m.source)}</span>`;
     return m.href ? `<a class="v-kpi-card" href="${esc(m.href)}">${body}</a>`
@@ -479,19 +510,19 @@ function kpiHTML(d){
   return [
     `<a class="v-kpi-card" href="finance.html">
        <span class="k">Доход · 30 дней</span>
-       <span class="v num">${money(m.income)}</span>
+       <span class="v num ${m.income ? 'ok' : 'zero'}">${money(m.income)}</span>
        ${chg(m.income_change, m.income)}</a>`,
     `<a class="v-kpi-card" href="finance.html">
        <span class="k">Прибыль · 30 дней</span>
-       <span class="v num">${money(m.profit)}</span>
+       <span class="v num ${!m.profit ? 'zero' : (m.profit > 0 ? 'ok' : 'bad')}">${money(m.profit)}</span>
        ${chg(m.profit_change, m.income || m.profit)}</a>`,
     `<a class="v-kpi-card" href="orders.html">
        <span class="k">Новые заявки</span>
-       <span class="v num">${num(o.new)}</span>
+       <span class="v num ${o.new ? 'info' : 'zero'}">${num(o.new)}</span>
        ${ordersSub}</a>`,
     `<a class="v-kpi-card" href="clients.html">
        <span class="k">Активные клиенты · 30 дней</span>
-       <span class="v num">${num(cl.active)}</span>
+       <span class="v num ${cl.active ? 'info' : 'zero'}">${num(cl.active)}</span>
        ${clientsSub}</a>`,
   ].join('');
 }

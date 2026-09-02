@@ -27,8 +27,8 @@
      текст на абсолютно чёрном режет глаз на длинной сессии. Поэтому фон — почти
      чёрный с холодным подмесом, текст — почти белый, а серые уведены в тот же
      холод, что и ирис: тогда весь кабинет читается как одна палитра. */
-  --void:#08080b; --bone:#f4f4f7; --ash:#8f8fa0; --silver:#b6b6c4;
-  --iris:#8052ff; --lilac:#a99cff; --saffron:#ffb829; --verdant:#2fd4b2;
+  --void:#08080b; --bone:#f7f7fa; --ash:#9b9bb0; --silver:#c6c6d4;
+  --iris:#8052ff; --lilac:#b3a6ff; --saffron:#ffb829; --verdant:#2fd4b2;
   --coral:#ff6b6b; --magenta:#ff4fd8;
 
   /* Смысловые имена поверх фирменных. Страница says «получилось» и «риск»,
@@ -37,18 +37,27 @@
   /* Светлые «чернила» бренда: текст поверх цветной подложки. Раньше эти
      оттенки жили хексом внутри страниц, из-за чего один и тот же тег
      «риск» отличался по цвету на разных вкладках. */
-  --ink-iris:#c1b3ff; --ink-coral:#ff9b9b; --ink-verdant:#7fe6d0;
-  --ink-saffron:#ffd48a;                        /* «важно» поверх янтарной подложки */
-  --lilac-2:#c9bfff;                            /* акцент в заголовке */
-  --sheet:#0a0a0a;                              /* фон модального листа */
+  --ink-iris:#cfc4ff; --ink-coral:#ffaeae; --ink-verdant:#8ff0dc;
+  --ink-saffron:#ffdc9e;                        /* «важно» поверх янтарной подложки */
+  --lilac-2:#d4ccff;                            /* акцент в заголовке */
+  --sheet:#101014;                              /* фон модального листа */
 
-  /* поверхности и линии — одна лестница прозрачностей на весь кабинет */
-  --surface:rgba(255,255,255,.022);             /* фон карточки */
-  --surface-2:rgba(255,255,255,.05);            /* фон поля / вторичной кнопки */
-  --surface-3:rgba(255,255,255,.09);            /* ховер */
-  --tint-iris:rgba(128,82,255,.10);             /* лёгкая ирисовая подложка */
-  --hairline:rgba(255,255,255,.08);             /* тонкая линия / рамка */
-  --hairline-2:rgba(255,255,255,.14);           /* заметная рамка */
+  /* Поверхности и линии — одна лестница прозрачностей на весь кабинет.
+     Была слишком осторожной: карточка на .022 и линия на .08 почти сливались
+     с фоном, и экран читался как сплошное чёрное поле без структуры. Смысл
+     поверхности в том, чтобы её было видно; смысл линии — в том, чтобы она
+     делила. Каждая ступень поднята примерно вдвое, расстояния между ними
+     сохранены — лестница осталась лестницей, просто стала различимой. */
+  --surface:rgba(255,255,255,.045);             /* фон карточки */
+  --surface-2:rgba(255,255,255,.078);           /* фон поля / вторичной кнопки */
+  --surface-3:rgba(255,255,255,.125);           /* ховер */
+  --surface-up:rgba(255,255,255,.10);           /* поверхность на поверхности */
+  --tint-iris:rgba(128,82,255,.15);             /* лёгкая ирисовая подложка */
+  --tint-ok:rgba(47,212,178,.14);
+  --tint-warn:rgba(255,184,41,.15);
+  --tint-bad:rgba(255,107,107,.15);
+  --hairline:rgba(255,255,255,.11);             /* тонкая линия / рамка */
+  --hairline-2:rgba(255,255,255,.20);           /* заметная рамка */
   --ring:rgba(128,82,255,.55);                  /* фокус */
 
   /* — радиусы (единая шкала) — */
@@ -298,8 +307,14 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
   font-size:var(--fs-body); padding:5px 12px; border-radius:var(--r-pill);
   background:var(--surface-2); color:var(--silver); }
 .v-state .v-badge i{ width:8px; height:8px; border-radius:50%; background:currentColor; flex:none; }
-.v-badge.good{ color:var(--verdant); } .v-badge.warn{ color:var(--saffron); }
-.v-badge.bad{ color:var(--coral); } .v-badge.calm{ color:var(--lilac); }
+/* Бейдж состояния — первое, что читают на экране. Раньше он был серым пятном
+   с цветной точкой; теперь подложка тоже говорит, а точка и слово остаются.
+   Цвет здесь не украшение: «в минусе» и «база живая» должны различаться до
+   того, как человек прочтёт текст. */
+.v-badge.good{ color:var(--ink-verdant); background:var(--tint-ok); }
+.v-badge.warn{ color:var(--ink-saffron); background:var(--tint-warn); }
+.v-badge.bad{  color:var(--ink-coral);   background:var(--tint-bad); }
+.v-badge.calm{ color:var(--ink-iris);    background:var(--tint-iris); }
 
 /* — кнопки: ровно две роли, чтобы главное действие читалось с первого взгляда — */
 .v-btn{ display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2);
@@ -350,7 +365,17 @@ a.v-kpi-card:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,25
 .v-kpi .v{ font-weight:var(--fw-reg); font-size:clamp(26px,2.7vw,34px); letter-spacing:-.03em;
   line-height:1.05; margin-top:auto; font-variant-numeric:tabular-nums; }
 .v-kpi .s{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-2); }
-.v-kpi .s.up{ color:var(--verdant); } .v-kpi .s.down{ color:var(--coral); }
+.v-kpi .s.up{ color:var(--ink-verdant); } .v-kpi .s.down{ color:var(--ink-coral); }
+/* Цвет самой цифры. Язык не новый — он уже был на «Финансах»: пришло зелёное,
+   ушло коралловое, минус коралловый. Здесь он вынесен в систему, чтобы деньги
+   выглядели одинаково на всех экранах, а не только там, где о них страница.
+   Цвет тут работает смыслом: владелец видит знак раньше, чем читает число. */
+.v-kpi .v.ok, .v-kpi .v.income{ color:var(--ink-verdant); }
+.v-kpi .v.bad, .v-kpi .v.expense, .v-kpi .v.minus{ color:var(--ink-coral); }
+.v-kpi .v.warn{ color:var(--ink-saffron); }
+.v-kpi .v.info{ color:var(--lilac); }
+/* Ноль — не достижение и не провал: он серый, как и «нет данных». */
+.v-kpi .v.zero{ color:var(--ash); }
 @media(max-width:1000px){ .v-kpi, .v-kpi.three{ grid-template-columns:repeat(2,1fr); } }
 @media(max-width:560px){
   .v-kpi, .v-kpi.three{ grid-template-columns:1fr; }
@@ -414,7 +439,10 @@ a.v-row:hover .t{ color:var(--bone); }
   font-weight:var(--fw-med); font-size:var(--fs-sm); cursor:pointer;
   transition:background var(--dur), color var(--dur), border-color var(--dur); }
 .v-seg:hover{ color:var(--bone); background:var(--surface-3); }
-.v-seg[aria-pressed="true"]{ background:rgba(128,82,255,.20); border-color:transparent; color:var(--bone); }
+/* Выбранный срез должен читаться через комнату: рамка цветом бренда плюс
+   подложка, а не одна подложка на четверть тона светлее соседей. */
+.v-seg[aria-pressed="true"]{ background:rgba(128,82,255,.26); border-color:rgba(128,82,255,.5);
+  color:var(--bone); }
 /* На телефоне мелкие цели промахиваются: доводим до пальца, а не до курсора. */
 @media(max-width:760px){
   .v-seg{ min-height:44px; }
