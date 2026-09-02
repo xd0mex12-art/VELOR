@@ -162,29 +162,51 @@ flatc = CSS.replace(" ", "").replace(chr(10), "")
 STATES = ["connected", "thinking", "processing", "writing", "found", "warning", "error"]
 for st in STATES:
     check(f"состояние «{st}» описано в системе", '[data-core="%s"]' % st in flatc)
-# Уровень наполнения у каждого состояния свой, и ни одно не повторяет другое:
-# именно он, а не цвет, отвечает на вопрос «чем он сейчас занят». Значения
-# статические — то есть состояние читается и при выключенном движении.
-forms = {}
+# Знак живёт непрерывно, и это осознанный допуск к §15. Значит, сторожить надо
+# три вещи: движение действительно есть; оно остаётся в объявленном бюджете
+# амплитуды; и оно останавливается ровно там, где остановка означает событие.
+sig = {}
 for st in STATES:
-    m = re.search(r'\[data-core="%s"\]\.vc-lit\{([^}]*)\}' % st, flatc)
-    forms[st] = m.group(1) if m else ""
-check("покой задан дыханием знака, а не миганием",
-      "vc-breath" in forms["connected"] and "@keyframesvc-breath" in flatc)
+    parts = re.findall(r'\[data-core="%s"\][^{]*\{([^}]*)\}' % st, flatc)
+    sig[st] = ";".join(parts)
+
+for st in ("connected", "thinking", "processing", "writing"):
+    check(f"в состоянии «{st}» знак не замирает", "animation:vc-" in sig[st])
+for st in ("warning", "error"):
+    # В знаке, который дышит всегда, остановка и есть сигнал.
+    check(f"в состоянии «{st}» движение остановлено намеренно", "animation:none" in sig[st])
+
+# Форма. Каждое состояние обязано выглядеть иначе даже без движения — иначе при
+# prefers-reduced-motion семь состояний схлопнутся в одно.
 statics = {}
-for st in ("thinking", "processing", "writing", "found", "warning", "error"):
-    m = re.search(r"clip-path:inset\(([^)]*)\)", forms[st])
-    check(f"«{st}» отличается формой, а не только цветом", bool(m), forms[st][:60])
-    if m:
-        statics[st] = m.group(1)
+for st in STATES:
+    statics[st] = ";".join(sorted(re.findall(r"transform:[^;}]+", sig[st])))
+distinct = [st for st in STATES if st != "connected"]
 check("ни одно состояние не повторяет форму другого",
-      len(set(statics.values())) == len(statics), statics)
-check("«разбирает» — полоса насквозь, а не просто уровень",
-      statics.get("processing", "").count("%") >= 2, statics.get("processing"))
-check("сбой перерезает знак, и это видно без цвета",
-      '[data-core="error"].vc-cut{opacity:1;}' in flatc)
-check("знак — это треугольник VELOR, а не выдуманный глиф",
-      "M12 2.5 L22.5 21 L1.5 21 Z" in STATE)
+      len({statics[st] for st in distinct}) == len(distinct),
+      {st: statics[st][:40] for st in distinct})
+for st in ("thinking", "processing", "writing", "found", "warning", "error"):
+    check(f"«{st}» отличается формой, а не только цветом", bool(statics[st]))
+
+# Бюджет амплитуды покоя: ±1.5 из 24 единиц. Если однажды кто-то решит «сделать
+# поживее», тест скажет об этом раньше, чем это увидит владелец.
+drift = re.search(r"@keyframesvc-drift\{([^}]*)\}", flatc)
+check("покой описан дрейфом, а не миганием", bool(drift))
+amp = max(abs(float(x)) for x in re.findall(r"translateX\((-?[\d.]+)px\)", drift.group(1))) if drift else 99
+check("амплитуда покоя остаётся в бюджете (<= 1.5 из 24)", amp <= 1.5, amp)
+
+# Периоды дрейфа не кратны друг другу — иначе силуэт зациклится и движение
+# начнёт читаться как анимация, а не как жизнь.
+periods = re.findall(r"animation:vc-drift([\d.]+)s", sig["connected"])
+check("у каждой полосы свой период", len(set(periods)) == 5, periods)
+
+check("сбой перерезает строй, и это видно без цвета",
+      '[data-core="error"].vc-gap{opacity:1;}' in flatc)
+
+# Абстрактность — требование владельца: знак не изображает предмет. Ни рамки
+# (читается как иконка), ни треугольника логотипа (читается как логотип).
+check("знак не изображает предмет", "M12 2.5" not in STATE and "<circle" not in STATE)
+check("рамки вокруг знака нет", "rx=\"6.5\"" not in STATE)
 
 # prefers-reduced-motion: движение выключается, состояние остаётся. Форма
 # задана статикой, анимация только добавляется сверху — значит, «без движения»
