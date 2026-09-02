@@ -105,7 +105,16 @@
     '  color:var(--ash); white-space:nowrap; transition:color .25s, background .25s; background:none; border:none;',
     '  font-family:inherit; cursor:pointer; }',
     '.vn-lk:hover{ color:var(--bone); background:rgba(255,255,255,.06); }',
-    '.vn-lk.on{ color:var(--bone); background:rgba(128,82,255,.28); }',
+    // Текущий раздел раньше был сиреневой таблеткой — самый обычный приём,
+    // какой стоит в любом дашборде. Теперь его отмечает зарубка VELOR: та же
+    // ирисовая чёрточка 5x2, что стоит перед меткой раздела на страницах и
+    // внутри знака присутствия. Отдельно её не замечают — она и не должна
+    // бросаться в глаза; но она повторяется на каждом экране, и через неделю
+    // именно по ней интерфейс опознаётся.
+    '.vn-lk.on{ color:var(--bone); background:rgba(255,255,255,.07); }',
+    '.vn-lk.on::before, .vn-sub-lk.on::before{ content:""; display:inline-block;',
+    '  width:5px; height:2px; border-radius:1px; background:var(--iris);',
+    '  margin-right:8px; vertical-align:3px; }',
     '.vn-right{ display:flex; align-items:center; gap:14px; flex:none; }',
     // колокольчик уведомлений — всегда справа; цифра непрочитанного гаснет, когда открыл
     '.vn-bell{ position:relative; display:flex; align-items:center; justify-content:center;',
@@ -117,8 +126,12 @@
     '.vn-bell .vn-badge{ position:absolute; top:-6px; right:-6px; margin:0; }',
     '.vn-biz{ font-weight:200; font-size:var(--fs-caption); color:var(--ash); max-width:150px; overflow:hidden;',
     '  text-overflow:ellipsis; white-space:nowrap; }',
+    // Высота цели, а не только текста: кнопка была 15px — попасть в неё пальцем
+    // можно было только со второго раза. Отступ добавлен по вертикали, шапку он
+    // не растит: её высоту держит колокольчик 44px.
     '.vn-out{ font-weight:400; font-size:var(--fs-caption); letter-spacing:.14em; text-transform:uppercase; color:var(--ash);',
-    '  background:none; border:none; font-family:inherit; cursor:pointer; transition:color .25s; }',
+    '  background:none; border:none; font-family:inherit; cursor:pointer; transition:color .25s;',
+    '  min-height:44px; padding:0 4px; display:inline-flex; align-items:center; }',
     '.vn-out:hover{ color:var(--bone); }',
     // вторая строка — подразделы активного раздела
     // Высота шапки НЕ прописана числом. Она зависит от самого высокого
@@ -135,7 +148,7 @@
     '.vn-sub-lk{ padding:6px 13px; border-radius:16px; font-weight:400; font-size:var(--fs-sm); color:var(--ash);',
     '  white-space:nowrap; transition:color .2s, background .2s; }',
     '.vn-sub-lk:hover{ color:var(--bone); background:rgba(255,255,255,.05); }',
-    '.vn-sub-lk.on{ color:var(--bone); background:rgba(128,82,255,.24); }',
+    '.vn-sub-lk.on{ color:var(--bone); background:rgba(255,255,255,.07); }',
     '.vn-spacer{ width:100%; height:var(--vn-sub-h,47px); }',
     // бургер
     '.vn-burger{ display:none; width:44px; height:44px; border-radius:14px; background:rgba(255,255,255,.05);',
@@ -157,7 +170,7 @@
     '.vn-sheet .vn-kids{ display:grid; grid-template-columns:repeat(2,1fr); gap:6px 10px; margin-bottom:6px; }',
     '.vn-sheet .vn-sub-lk{ display:block; padding:12px 14px; font-size:var(--fs-body); border-radius:14px;',
     '  background:rgba(255,255,255,.04); color:var(--silver); }',
-    '.vn-sheet .vn-sub-lk.on{ background:rgba(128,82,255,.20); color:var(--bone); }',
+    '.vn-sheet .vn-sub-lk.on{ background:rgba(255,255,255,.07); color:var(--bone); }',
     '.vn-foot{ display:flex; align-items:center; justify-content:space-between; gap:12px;',
     '  margin-top:20px; padding-top:18px; border-top:1px solid rgba(255,255,255,.08); }',
     // пороги: сначала прячем «имя бизнеса», потом уходим в бургер (и прячем под-строку)

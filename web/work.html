@@ -80,7 +80,7 @@
   @media(max-width:760px){ .card{ padding:var(--sp-4); } }
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
-<link rel="stylesheet" href="velor.css">
+<link rel="stylesheet" href="velor.css?v=13">
 </head>
 <body>
 
@@ -95,6 +95,13 @@
       </div>
     </div>
     <div class="v-acts">
+      <!-- Знак присутствия. На этой странице он уместен как нигде: она вся о
+           том, что делает VELOR, — и «проверить сейчас» видно не по спиннеру
+           на кнопке, а по тому, что сотрудник перешёл в разбор. -->
+      <div class="v-core-line">
+        <span data-velor-core></span>
+        <span data-velor-state aria-live="polite"></span>
+      </div>
       <button class="v-btn ghost" type="button" id="scan">Проверить сейчас</button>
     </div>
   </header>
@@ -117,6 +124,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
+<script src="velor-state.js?v=13"></script>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g,
   c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -313,13 +321,19 @@ document.getElementById('zone').addEventListener('click', async e => {
 
 document.getElementById('scan').addEventListener('click', async e => {
   const b = e.currentTarget;
+  const C = window.VELOR_CORE;
   b.disabled = true; b.textContent = 'Смотрю…';
+  if (C) C.setState('processing');
   try{
     await fetch('/api/initiatives/scan', {
       method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
     await load();
+    if (C){ C.setState('connected'); C.insight(); }
     toast('Проверил');
-  }catch{ toast('Не получилось проверить.'); }
+  }catch{
+    if (C) C.setState('error');
+    toast('Не получилось проверить.');
+  }
   finally{ b.disabled = false; b.textContent = 'Проверить сейчас'; }
 });
 

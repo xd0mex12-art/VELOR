@@ -1,64 +1,101 @@
-// ===== VELOR — состояние сотрудника словом =====
+// ===== VELOR CORE — присутствие сотрудника: знак и слово =====
 //
-// Состояние VELOR показывает живое ядро — трёхмерная сфера на «Обзоре» и
-// «Спросить». Но свечение читает не каждый и не всегда: оттенок и скорость
-// пульсации — это не слово, а по нему нельзя понять, сотрудник думает или
-// у него сбой связи. Этот файл добавляет второй, читаемый носитель того же
-// сигнала: точку и слово в шапке экрана.
+// Одно состояние, два носителя. Знак (`[data-velor-core]`) — маленькая
+// уменьшенная поверхность VELOR: та же рамка, тот же угол, а внутри три нити
+// записи и метка внимания на них. Слово (`[data-velor-state]`) стоит рядом и
+// говорит то же самое буквами.
 //
-// Ядро и слово — не два механизма, а один: window.VELOR_CORE остаётся
-// единственной точкой управления, и вызов уходит в обе стороны. На страницах,
-// где ядра нет, работает только слово — API от этого не меняется.
+// Почему два: по форме и цвету нельзя отличить «думает» от «сбоя связи» —
+// цвет в этой системе никогда не единственный носитель смысла. И наоборот:
+// одно слово в углу экрана не даёт ощущения, что рядом кто-то есть.
 //
-// Правило то же, что во всей системе: цвет никогда не единственный носитель
-// смысла. У «сбоя связи» есть и коралловый цвет, и надпись.
+// Прежнее ядро было трёхмерной сферой на three.js: 656 КБ ради свечения,
+// которое ничего не сообщало. Здесь — инлайновый SVG и CSS, ноль запросов,
+// а состояний стало больше.
+//
+// Публичный API не менялся:
+//   window.VELOR_CORE.setState('thinking' | 'processing' | 'error' | …)
+//   window.VELOR_CORE.insight()
+// Старые имена состояний (idle / analyzing / generating / insight) работают
+// по-прежнему — они переведены в новые, а не отброшены.
 
 (function () {
-  // Ядро подключается раньше и уже заняло window.VELOR_CORE. Забираем его
-  // себе и вызываем следом за собой, а не вместо.
-  var core = window.VELOR_CORE || null;
-  var WORDS = {
-    idle:       ['на связи',    'calm'],
-    thinking:   ['думает',      'work'],
-    generating: ['пишет ответ', 'work'],
-    analyzing:  ['разбирает',   'work'],
-    error:      ['сбой связи',  'bad'],
-    insight:    ['нашёл',       'warn']
+  // Знак. Рамка — поверхность VELOR, три нити — запись, метка слева — внимание.
+  // vc-lx это правый огрызок верхней нити: он виден только в состоянии «сбой»
+  // и делает разрыв, а не просто короткую линию.
+  var MARK =
+    '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      '<rect class="vc-f" x="1.25" y="1.25" width="21.5" height="21.5" rx="6.5"/>' +
+      '<rect class="vc-l vc-l1" x="8" y="7.15" width="10.5" height="1.7" rx=".85"/>' +
+      '<rect class="vc-lx"      x="16.4" y="7.15" width="2.1" height="1.7" rx=".85"/>' +
+      '<rect class="vc-l vc-l2" x="8" y="11.15" width="7" height="1.7" rx=".85"/>' +
+      '<rect class="vc-l vc-l3" x="8" y="15.15" width="9" height="1.7" rx=".85"/>' +
+      '<circle class="vc-d" cx="5.2" cy="12" r="1.55"/>' +
+    '</svg>';
+
+  // Состояние → [слово, тон слова]. Форму знака задаёт CSS по data-core.
+  var S = {
+    connected:  ['на связи',       'calm'],
+    thinking:   ['думает',         'work'],
+    processing: ['разбирает',      'work'],
+    writing:    ['пишет ответ',    'work'],
+    found:      ['нашёл',          'warn'],
+    warning:    ['нужна проверка', 'warn'],
+    error:      ['сбой связи',     'bad']
   };
 
-  var state = 'idle';
-  var insightTimer = 0;
+  // Имена, которыми ядро звали раньше. Ни один существующий вызов не трогаем.
+  var ALIAS = {
+    idle:'connected', calm:'connected', ok:'connected',
+    analyzing:'processing', generating:'writing',
+    insight:'found', pulse:'found', review:'warning', warn:'warning'
+  };
 
-  function nodes() {
-    return document.querySelectorAll('[data-velor-state]');
+  var state = 'connected';
+  var backTimer = 0;
+
+  function norm(name) {
+    var n = ALIAS[name] || name;
+    return S[n] ? n : 'connected';
   }
 
   function paint(key) {
-    var w = WORDS[key] || WORDS.idle;
-    var list = nodes();
-    for (var i = 0; i < list.length; i++) {
-      var el = list[i];
-      el.className = 'v-pulse ' + w[1];
+    var w = S[key];
+
+    var marks = document.querySelectorAll('[data-velor-core]');
+    for (var i = 0; i < marks.length; i++) {
+      // Разметку вставляем один раз: перерисовка знака на каждом обновлении
+      // сбрасывала бы дыхание и импульс на первый кадр.
+      if (!marks[i].firstChild) {
+        marks[i].className = marks[i].className
+          ? marks[i].className + ' v-core' : 'v-core';
+        marks[i].innerHTML = MARK;
+      }
+      marks[i].setAttribute('data-core', key);
+    }
+
+    var words = document.querySelectorAll('[data-velor-state]');
+    for (var j = 0; j < words.length; j++) {
+      words[j].className = 'v-pulse ' + w[1];
       // Точка — оформление, слово — смысл. Скринридер читает только слово.
-      el.innerHTML = '<i aria-hidden="true"></i><span>' + w[0] + '</span>';
+      words[j].innerHTML = '<i aria-hidden="true"></i><span>' + w[0] + '</span>';
     }
   }
 
   function setState(name) {
-    if (name === 'insight' || name === 'pulse') return insight();
-    state = WORDS[name] ? name : 'idle';
-    if (!insightTimer) paint(state);
-    if (core) core.setState(name);
+    if (name === 'insight' || name === 'pulse' || name === 'found') return insight();
+    state = norm(name);
+    if (!backTimer) paint(state);
   }
 
-  // Находка — короткая янтарная отметка поверх текущего состояния. Не мигание:
-  // одно изменение слова на две с половиной секунды, потом обратно.
+  // Находка — одиночный импульс поверх текущего состояния. Не мигание: одно
+  // движение и одно слово на две с половиной секунды, потом возврат туда, где
+  // сотрудник был. Состояние не теряется.
   function insight() {
-    paint('insight');
-    if (core) core.insight();
-    clearTimeout(insightTimer);
-    insightTimer = setTimeout(function () {
-      insightTimer = 0;
+    paint('found');
+    clearTimeout(backTimer);
+    backTimer = setTimeout(function () {
+      backTimer = 0;
       paint(state);
     }, 2500);
   }
@@ -67,7 +104,9 @@
     setState: setState,
     state: setState,
     insight: insight,
-    pulse: insight
+    pulse: insight,
+    // для блоков, которые появляются позже (строка отчёта двери, модалки)
+    mount: function () { paint(backTimer ? 'found' : state); }
   };
   window.ARINA_CORE_PULSE = insight;   // совместимость со старыми вызовами
 

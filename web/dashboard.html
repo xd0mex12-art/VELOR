@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VELOR AI — Обзор бизнеса</title>
 <link href="vendor/inter.css" rel="stylesheet">
-<script src="vendor/three.min.js"></script>
 <style>
   /* Главная = утренний брифинг владельца: за 30 секунд видно состояние дел
      и что делать. Порядок блоков — это порядок вопросов в голове:
@@ -22,10 +21,10 @@
   /* ── шапка брифинга ── */
   .head{ display:grid; grid-template-columns:1fr auto; align-items:start;
     gap:var(--sp-4) var(--sp-6); margin-bottom:var(--sp-6); }
-  .head .v-pulse{ justify-content:flex-end; margin-bottom:var(--sp-3); }
+  .head .v-core-line{ display:flex; justify-content:flex-end; margin-bottom:var(--sp-3); }
   @media(max-width:760px){
     .head{ grid-template-columns:1fr; }
-    .head .v-pulse{ justify-content:flex-start; }
+    .head .v-core-line{ justify-content:flex-start; }
     .head .v-acts > *{ flex:1 1 auto; justify-content:center; }
   }
   .head .date{ font-weight:400; font-size:var(--fs-sm); letter-spacing:.04em;
@@ -52,12 +51,6 @@
   .says{ border:1px solid var(--hairline); border-left:2px solid var(--iris);
     border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-6); }
   .says-head{ display:flex; align-items:center; gap:var(--sp-4); margin-bottom:var(--sp-5); }
-  /* Живое ядро. Оно здесь не как украшение и не как «мозг ИИ»: это единственное
-     место на экране, где видно, что сотрудник сейчас делает — покой, разбор,
-     находка. Слово о том же состоянии стоит в шапке страницы, потому что цвет
-     и пульсация не должны быть единственным носителем смысла. */
-  .core-square{ position:relative; width:76px; height:76px; flex:none; }
-  #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important; }
   .says-head h2{ font-weight:500; font-size:var(--fs-h3); letter-spacing:-.02em; }
   .says-head .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:200; margin-top:3px; }
 
@@ -200,7 +193,6 @@
   @media(max-width:720px){
     .says{ padding:var(--sp-5); }
     .slots{ grid-template-columns:1fr; }
-    .core-square{ width:60px; height:60px; }
   }
   @media (prefers-reduced-motion: reduce){
     *{ animation:none !important; transition:none !important; }
@@ -226,7 +218,7 @@
   @media(max-width:600px){ .onedoor .od-row{ flex-direction:column; align-items:stretch; }
     .onedoor .od-row .v-btn{ width:100%; } }
 </style>
-<link rel="stylesheet" href="velor.css">
+<link rel="stylesheet" href="velor.css?v=13">
 </head>
 <body>
 
@@ -239,7 +231,13 @@
       <p class="v-state" id="status"><span class="tail">Смотрю, что у вас происходит…</span></p>
     </div>
     <div>
-      <div class="v-pulse" data-velor-state aria-live="polite"></div>
+      <!-- Присутствие VELOR. Знак показывает, что сотрудник делает прямо
+           сейчас, слово рядом это называет. Блок стоит над действиями, а не в
+           центре экрана: внимание владельца принадлежит его делам. -->
+      <div class="v-core-line">
+        <span data-velor-core></span>
+        <span data-velor-state aria-live="polite"></span>
+      </div>
       <div class="v-acts">
         <a class="v-btn" href="home.html">Спросить VELOR</a>
         <!-- Раньше здесь была «Вся история». Ход в работу VELOR полезнее:
@@ -281,7 +279,6 @@
   <!-- 3. Что об этом думает VELOR -->
   <section class="says v-in" aria-labelledby="saysTitle">
     <div class="says-head">
-      <div class="core-square"><canvas id="coreCanvas" aria-hidden="true"></canvas></div>
       <div>
         <h2 id="saysTitle">Что происходит с бизнесом</h2>
         <p class="sub" id="saysSub">Смотрю на ваши цифры…</p>
@@ -331,10 +328,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<!-- Ядро идёт первым: оно занимает window.VELOR_CORE, а velor-state.js
-     подхватывает его и добавляет к свечению читаемое слово. -->
-<script src="core-live.js?v=12"></script>
-<script src="velor-state.js"></script>
+<script src="velor-state.js?v=13"></script>
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
@@ -431,16 +425,17 @@ function deltaHTML(m){
   return `<span class="s ${good ? 'up' : 'down'}">${m.delta > 0 ? '+' : ''}${m.delta}% к прошлому периоду</span>`;
 }
 
-// Цвет числа. Язык тот же, что на «Финансах», и он не выдуман здесь: пришло —
-// зелёное, ушло — коралловое, минус — коралловый, счётчики движения —
-// сиреневые, ноль — серый. Ключ метрики приходит с сервера, гадать не нужно.
-// Смысл в том, чтобы знак читался раньше цифры: «−14 500 ₽» и «14 500 ₽»
-// не должны выглядеть одинаково.
+// Цвет числа как язык, а не как раскраска. Деньги — янтарь: выручка это не
+// «успех», а главный финансовый сигнал экрана. Зелёное значит «получилось» и
+// остаётся за результатом — прибылью. Ушло — коралловое, счётчики движения —
+// сиреневые, ноль — серый. Раньше выручка и прибыль были одного цвета, и
+// «пришло» не отличалось от «заработал». Ключ метрики приходит с сервера,
+// гадать не нужно.
 function kpiTone(m){
   if (!m.enough) return ' void';
   const v = m.value;
   switch (m.key){
-    case 'revenue':  return v ? ' ok' : ' zero';
+    case 'revenue':  return v ? ' money' : ' zero';
     case 'expenses': return v ? ' bad' : ' zero';
     case 'profit':
     case 'margin':   return v === 0 ? ' zero' : (v > 0 ? ' ok' : ' bad');
@@ -510,7 +505,7 @@ function kpiHTML(d){
   return [
     `<a class="v-kpi-card" href="finance.html">
        <span class="k">Доход · 30 дней</span>
-       <span class="v num ${m.income ? 'ok' : 'zero'}">${money(m.income)}</span>
+       <span class="v num ${m.income ? 'money' : 'zero'}">${money(m.income)}</span>
        ${chg(m.income_change, m.income)}</a>`,
     `<a class="v-kpi-card" href="finance.html">
        <span class="k">Прибыль · 30 дней</span>
@@ -976,13 +971,25 @@ setInterval(load, 30000);
   // Имена состояний те же, что на «Входящих», — иначе один и тот же приём
   // рассказывал бы о себе двумя разными словарями.
   const AS = { work:'sending', done:'done', fail:'failed', empty:'empty' };
+  // Состояние двери — это состояние самого VELOR: пока он разбирает
+  // переданное, он разбирает и в шапке экрана. Одна машина состояний на двоих,
+  // поэтому знак у двери и знак в шапке не могут разойтись.
+  const CS = { work:'processing', done:'connected', fail:'error', empty:'connected' };
   function state(name, title, text){
     door.dataset.state = AS[name] || 'empty';
+    if (window.VELOR_CORE){
+      // «Понял» — это возврат в покой плюс одиночный импульс находки, а не
+      // отдельное состояние: иначе знак завис бы на импульсе.
+      window.VELOR_CORE.setState(CS[name] || 'connected');
+      if (name === 'done') window.VELOR_CORE.insight();
+    }
     if (!title){ say.hidden = true; note.hidden = false; return; }
     note.hidden = true;
     say.hidden = false;
     say.className = 'v-door-say ' + name;
-    say.innerHTML = '<div><div class="t">' + title + '</div><div class="d">' + text + '</div></div>';
+    say.innerHTML = '<span data-velor-core></span>' +
+      '<div><div class="t">' + title + '</div><div class="d">' + text + '</div></div>';
+    if (window.VELOR_CORE) window.VELOR_CORE.mount();
   }
   function refresh(){ btn.disabled = !box.value.trim(); }
   box.addEventListener('input', refresh);

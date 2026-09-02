@@ -131,41 +131,73 @@ check("arina-core.js удалён: на него не ссылалась ни о
       not (WEB / "arina-core.js").exists())
 users = [n for n in ALL if "ambientCanvas" in io.open(WEB / n, encoding="utf-8").read()]
 check("поля летающих частиц нет ни на одной странице", not users, users)
-check("частицы удалены из кода ядра, а не просто отключены",
-      "ambientCanvas" not in io.open(WEB / "core-live.js", encoding="utf-8").read())
+check("частицы удалены вместе с кодом, а не отключены флагом",
+      not (WEB / "core-live.js").exists())
 
-# Живое ядро — названное исключение (VELOR_DESIGN_SYSTEM.md §18a): решение
-# владельца продукта, ограниченное двумя экранами и обязательным дублем словом.
-CORE_PAGES = ["dashboard.html", "home.html"]
-cores = sorted(n for n in ALL if "coreCanvas" in io.open(WEB / n, encoding="utf-8").read())
-check("ядро живёт ровно на «Обзоре» и «Спросить»", cores == CORE_PAGES, cores)
-three = sorted(n for n in ALL if "three.min.js" in io.open(WEB / n, encoding="utf-8").read())
-check("three.js грузится только там, где он нужен",
-      three == sorted(CORE_PAGES + ["index.html"]), three)
-for n in CORE_PAGES:
-    src = io.open(WEB / n, encoding="utf-8").read()
-    # Свечение и скорость пульсации — не текст: по ним нельзя отличить
-    # «думает» от «сбоя связи». Слово обязано стоять рядом.
-    check(f"{n}: у ядра есть словесный дубль состояния", "data-velor-state" in src)
-    check(f"{n}: ядро подключено раньше слова",
-          src.index(chr(60) + 'script src="core-live')
-          < src.index(chr(60) + 'script src="velor-state'))
-check("исключение записано в документе", "18a" in
-      io.open(ROOT / "VELOR_DESIGN_SYSTEM.md", encoding="utf-8").read())
-
-# Сигнал «сотрудник на связи / думает / сбой» читается словом на всех экранах.
+# ЯДРО VELOR. Знак присутствия — не «ИИ-сфера»: он собран из тех же элементов,
+# что и остальной кабинет, и весит столько, сколько весит инлайновый SVG.
 STATE = io.open(WEB / "velor-state.js", encoding="utf-8").read()
+check("трёхмерное ядро не вернулось", not (WEB / "core-live.js").exists()
+      and "THREE" not in STATE and "three.min" not in STATE)
+three = sorted(n for n in ALL if "three.min.js" in io.open(WEB / n, encoding="utf-8").read())
+check("three.js не грузится ни на одном экране кабинета", three == ["index.html"], three)
+check("знак — инлайновый SVG, а не картинка и не канвас",
+      "<svg viewBox" in STATE and "canvas" not in STATE.lower())
+cores = sorted(n for n in ALL if "data-velor-core" in io.open(WEB / n, encoding="utf-8").read())
+check("знак присутствия стоит там, где у VELOR есть состояние",
+      cores == ["dashboard.html", "home.html", "inbox.html", "work.html"], cores)
+for n in cores:
+    src = io.open(WEB / n, encoding="utf-8").read()
+    # Форму и цвет читает не каждый: по ним нельзя отличить «думает» от «сбоя
+    # связи». Слово обязано стоять рядом со знаком, а скрипт — быть подключён.
+    # Знак никогда не стоит один: рядом либо строка состояния словом, либо
+    # заголовок двери, который прямо называет, что произошло с данными.
+    check(f"{n}: знак не стоит без слова",
+          "data-velor-state" in src or "v-door-say" in src)
+    check(f"{n}: знак подключён", "velor-state.js" in src)
+
+# Семь состояний. Каждое обязано отличаться ФОРМОЙ — длиной нитей, разрывом,
+# местом метки, — а не только цветом: иначе это раскраска, а не состояние.
+flatc = CSS.replace(" ", "").replace(chr(10), "")
+STATES = ["connected", "thinking", "processing", "writing", "found", "warning", "error"]
+for st in STATES:
+    check(f"состояние «{st}» описано в системе", '[data-core="%s"]' % st in flatc)
+for st, form in (("thinking", "scaleX"), ("processing", "translateY"), ("writing", "scaleX"),
+                 ("found", "scale("), ("warning", "scaleX"), ("error", "scaleX")):
+    rule = flatc.split('[data-core="%s"]' % st, 1)[1][:400]
+    check(f"«{st}» отличается формой, а не только цветом", form in rule)
+check("покой — это дыхание, а не мигание", "@keyframesvc-breath" in flatc)
+
+# prefers-reduced-motion: движение выключается, состояние остаётся. Форма
+# задана статикой, анимация только добавляется сверху — значит, «без движения»
+# не означает «без состояния».
+rm = flatc.split("@media(prefers-reduced-motion:reduce)")
+check("при выключенном движении знак не теряет состояние",
+      any(".v-core*{animation:none!important" in b for b in rm[1:]))
+
 check("состояние сотрудника осталось как компонент", ".v-pulse" in CSS)
-check("слово и ядро — одна точка управления, а не две",
-      "core.setState(name)" in STATE and "core.insight()" in STATE)
-for w in ("на связи", "думает", "пишет ответ", "разбирает", "сбой"):
+for w in ("на связи", "думает", "пишет ответ", "разбирает", "нашёл",
+          "нужна проверка", "сбой"):
     check(f"состояние «{w}» названо словом", w in STATE)
+check("старые имена состояний продолжают работать",
+      all(a in STATE for a in ("idle", "analyzing", "generating", "insight")))
 check("старый публичный вызов VELOR_CORE сохранён",
       "window.VELOR_CORE" in STATE and "setState" in STATE and "insight" in STATE)
 callers = [n for n in ALL if "VELOR_CORE" in io.open(WEB / n, encoding="utf-8").read()]
-check("страницы, звавшие ядро, подключают замену",
+check("страницы, звавшие ядро, подключают его",
       all("velor-state.js" in io.open(WEB / n, encoding="utf-8").read() for n in callers),
       callers)
+check("ядро описано в документе",
+      "VELOR CORE" in io.open(ROOT / "VELOR_DESIGN_SYSTEM.md", encoding="utf-8").read())
+
+# Зарубка — единственная декоративная мелочь в системе, и она же служебная:
+# отмечает начало смыслового блока и текущий пункт меню. Одна форма на всё.
+NAV = io.open(WEB / "nav.js", encoding="utf-8").read()
+check("зарубка стоит перед метками разделов и чисел",
+      ".v-kpi .k::before" in CSS and ".v-panel > h2::before" in CSS)
+check("тот же приём отмечает текущий раздел меню", ".vn-lk.on::before" in NAV)
+check("сиреневая таблетка активного пункта убрана",
+      "'.vn-lk.on{ color:var(--bone); background:rgba(255,255,255,.07); }'" in NAV)
 
 EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-⛿]")
 emo = [(n, "".join(sorted(set(EMOJI.findall(body(n)))))) for n in CABINET
@@ -263,6 +295,16 @@ check("бейдж состояния окрашен подложкой, а не 
 DASH_SRC = io.open(WEB / "dashboard.html", encoding="utf-8").read()
 check("главная красит числа по ключу метрики, а не наугад",
       "function kpiTone" in DASH_SRC)
+# Деньги — янтарь, результат — зелёный. Пока выручка и прибыль были одного
+# цвета, «пришло» не отличалось от «заработал»: цвет был раскраской, а не языком.
+check("деньги говорят янтарём", ".v-kpi.v.money" in flat)
+check("выручка перестала притворяться результатом", "' money'" in DASH_SRC)
+check("зелёное осталось за результатом, а не за оборотом",
+      "case 'profit':" in DASH_SRC and "' ok'" in DASH_SRC)
+# Материал панели: одна световая грань сверху вместо стекла и градиента.
+check("у поверхности есть верхняя грань", "--edge:inset01px0" in flat)
+check("грань применена к панелям и карточкам чисел",
+      flat.count("box-shadow:var(--edge)") >= 3)
 for key in ("revenue", "expenses", "profit", "margin", "clients_new", "orders_new"):
     check("метрика " + key + " получила свой цвет", ("'" + key + "'") in DASH_SRC)
 

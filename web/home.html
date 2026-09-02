@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VELOR AI — AI-сотрудник</title>
 <link href="vendor/inter.css" rel="stylesheet">
-<script src="vendor/three.min.js"></script>
 <style>
   *{ margin:0; padding:0; box-sizing:border-box; }
   a{ text-decoration:none; color:inherit; }
@@ -19,28 +18,29 @@
      body main, а не main: velor.css подключается после и иначе перебьёт. */
 
 
-  /* ── ядро и диалог с сотрудником: первым экраном ── */
-  /* Ядро над перепиской. Размер сознательно меньше прежнего: раньше оно
-     занимало min(78%,540px,54vh) и уводило поле ввода под сгиб — человек
-     приходил сюда спросить, а первым экраном получал заставку. Сигнал тот же,
-     место под разговор осталось. */
-  #coreStage{ display:flex; justify-content:center; padding:var(--sp-5) 0 var(--sp-2); }
-  .core-square{ position:relative; width:min(46%,300px,30vh); aspect-ratio:1; }
-  #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important;
-    cursor:pointer; }
-  @media(max-width:760px){ .core-square{ width:min(52%,220px,24vh); } }
+  /* ── диалог с сотрудником: первым экраном ── */
 
   .talk{ margin-bottom:var(--sp-12); border:1px solid var(--hairline);
     border-left:2px solid var(--iris); border-radius:var(--r-lg); overflow:hidden;
     background:var(--surface); }
   .emp{ display:flex; align-items:center; gap:13px; padding:20px 24px; border-bottom:1px solid var(--hairline); }
-  .emp-badge{ width:40px; height:40px; border-radius:var(--r-xs); flex:none;
-    background:var(--iris); display:flex; align-items:center;
-    justify-content:center; font-weight:600; font-size:var(--fs-lead); color:#fff; }
+  /* Знак VELOR вместо квадрата с буквой «V». Буква ничего не сообщала —
+     знак показывает, что сотрудник делает прямо сейчас, и его же владелец
+     видит на «Обзоре». Своя аватарка бизнеса, если её задали, остаётся рядом:
+     знак говорит о состоянии, аватарка — об имени. */
+  .emp .v-core{ --core-size:40px; }
+  .emp-badge{ width:34px; height:34px; border-radius:var(--r-xs); flex:none;
+    background:var(--surface-2); display:flex; align-items:center;
+    justify-content:center; font-weight:500; font-size:var(--fs-body); color:var(--silver); }
+  .emp-badge[hidden]{ display:none; }
+  /* Точка состояния здесь лишняя: знак стоит в двух сантиметрах слева и
+     говорит то же самое цветом и формой. */
+  .emp-sub .v-pulse{ font-size:var(--fs-caption); gap:0; }
+  .emp-sub .v-pulse i{ display:none; }
+  .emp-sub .sep{ color:var(--hairline-2); margin:0 6px; }
   .emp-name{ font-weight:500; font-size:var(--fs-base); }
   .emp-role{ color:var(--ash); font-weight:400; }
   .emp-sub{ font-size:var(--fs-caption); color:var(--ash); margin-top:2px; }
-  /* 40vh в ограничителе: ядро крупное, но поле ввода остаётся на виду */
 
   .roles{ display:flex; gap:7px; flex-wrap:wrap; padding:14px 20px 0; }
   .role{ min-height:40px; padding:9px 16px; border-radius:var(--r-md); background:rgba(255,255,255,.05);
@@ -146,7 +146,7 @@
     .facts, .h-notes{ grid-template-columns:1fr; }
     .ring{ width:124px; height:124px; } .ring .num{ font-size:var(--fs-display); } }
 </style>
-<link rel="stylesheet" href="velor.css">
+<link rel="stylesheet" href="velor.css?v=13">
 </head>
 <body>
 
@@ -161,7 +161,8 @@
       </div>
     </div>
     <div class="v-acts">
-      <div class="v-pulse" data-velor-state aria-live="polite"></div>
+      <!-- Состояние сотрудника переехало в его собственный блок ниже, к знаку.
+           Два «на связи» на одном экране — это не забота, а шум. -->
       <a class="v-btn ghost" href="memory.html">Чему научить</a>
     </div>
   </header>
@@ -171,13 +172,16 @@
   <section class="talk" aria-labelledby="talkTitle">
     <h2 id="talkTitle" class="sr-only">Разговор с сотрудником</h2>
     <div class="emp">
-      <div class="emp-badge" id="empBadge">V</div>
+      <span data-velor-core></span>
+      <div class="emp-badge" id="empBadge" hidden></div>
       <div>
         <div class="emp-name" id="empName">VELOR <span class="emp-role">· AI-сотрудник</span></div>
-        <div class="emp-sub" id="empKnows">на связи</div>
+        <div class="emp-sub">
+          <span data-velor-state aria-live="polite"></span>
+          <span class="sep" id="empSep" hidden>·</span><span id="empKnows"></span>
+        </div>
       </div>
     </div>
-    <div id="coreStage"><div class="core-square"><canvas id="coreCanvas" aria-hidden="true"></canvas></div></div>
     <div class="roles" id="roles" role="tablist" aria-label="AI-сотрудники">
       <button class="role active" data-role="assistant">Ассистент</button>
       <button class="role" data-role="sales">Продавец</button>
@@ -249,8 +253,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="core-live.js?v=12"></script>
-<script src="velor-state.js"></script>
+<script src="velor-state.js?v=13"></script>
 <script>
 let toastT;
 function toast(msg){
@@ -390,8 +393,12 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<'
       esc(d.business.ai_name) + ' <span class="emp-role">· AI-сотрудник</span>';
     if (window.VELOR_CORE) window.VELOR_CORE.setState('idle');
   }
-  if (d.business.ai_avatar) document.getElementById('empBadge').textContent = d.business.ai_avatar;
-  document.getElementById('empKnows').textContent = 'Знает бизнес на ' + d.health + ' из 100';
+  if (d.business.ai_avatar){
+    const b = document.getElementById('empBadge');
+    b.textContent = d.business.ai_avatar; b.hidden = false;
+  }
+  document.getElementById('empKnows').textContent = 'знает бизнес на ' + d.health + ' из 100';
+  document.getElementById('empSep').hidden = false;
 })();
 
 // ── диалог с сотрудником ──

@@ -59,6 +59,11 @@
   --hairline:rgba(255,255,255,.11);             /* тонкая линия / рамка */
   --hairline-2:rgba(255,255,255,.20);           /* заметная рамка */
   --ring:rgba(128,82,255,.55);                  /* фокус */
+  /* Верхняя световая грань. Панель на тёмном фоне без неё читается как
+     «прямоугольник другого серого», а не как поверхность: глазу не за что
+     зацепиться, чтобы понять, что она лежит ВЫШЕ фона. Одна волосяная линия
+     света по верхнему краю даёт это ощущение без стекла, блюра и градиента. */
+  --edge:inset 0 1px 0 rgba(255,255,255,.07);
 
   /* — радиусы (единая шкала) — */
   --r-xs:10px;            /* значки, мелкие чипы */
@@ -316,17 +321,23 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-badge.bad{  color:var(--ink-coral);   background:var(--tint-bad); }
 .v-badge.calm{ color:var(--ink-iris);    background:var(--tint-iris); }
 
-/* — кнопки: ровно две роли, чтобы главное действие читалось с первого взгляда — */
+/* — кнопки: ровно две роли, чтобы главное действие читалось с первого взгляда —
+   Форма кнопки — это интонация продукта. Таблетка с жирным текстом и заливкой
+   ирисом читается как «большая фиолетовая AI-кнопка»: такую ставит каждый
+   второй SaaS, и она обещает вау вместо работы. VELOR говорит тише: угол 14px
+   (тот же, что у поля ввода — действие и ввод из одного материала), вес 500
+   вместо 600, рост 44px вместо 48. Плотнее, точнее, спокойнее — и по-прежнему
+   ≥44px под палец. Ирис остаётся: он значит «здесь главное действие». */
 .v-btn{ display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2);
-  min-height:48px; padding:12px 26px; border:1px solid transparent; border-radius:var(--r-pill);
-  background:var(--iris); color:#fff; font-family:inherit; font-weight:var(--fw-semi);
-  font-size:var(--fs-body); letter-spacing:.01em; cursor:pointer;
+  min-height:44px; padding:11px 22px; border:1px solid transparent; border-radius:var(--r-sm);
+  background:var(--iris); color:#fff; font-family:inherit; font-weight:var(--fw-med);
+  font-size:var(--fs-body); letter-spacing:.005em; cursor:pointer; box-shadow:var(--edge);
   transition:filter var(--dur-fast), background var(--dur), border-color var(--dur), opacity var(--dur); }
 .v-btn:hover{ filter:brightness(1.12); }
 .v-btn:disabled{ opacity:.45; cursor:default; filter:none; }
 .v-btn.ghost{ background:var(--surface-2); border-color:var(--hairline-2); color:var(--silver); }
 .v-btn.ghost:hover{ background:var(--surface-3); color:var(--bone); filter:none; }
-.v-btn.sm{ min-height:40px; padding:9px 18px; font-size:var(--fs-sm); }
+.v-btn.sm{ min-height:40px; padding:9px 16px; font-size:var(--fs-sm); border-radius:var(--r-xs); }
 .v-btn.danger{ background:transparent; border-color:rgba(255,107,107,.4); color:var(--ink-coral); }
 .v-btn.danger:hover{ background:rgba(255,107,107,.12); filter:none; }
 /* Третья роль: действие внутри строки списка. Рамка там мешает — строк много,
@@ -336,17 +347,102 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-btn.quiet:hover{ color:var(--bone); background:var(--surface-2); filter:none; }
 
 /* Состояние сотрудника — точка и слово.
-   Заменило трёхмерное «ядро»: смысл тот же, но он читается, а не угадывается
-   по свечению. Цвет здесь всегда продублирован словом. */
+   Цвет здесь всегда продублирован словом. */
 .v-pulse{ display:inline-flex; align-items:center; gap:7px; white-space:nowrap;
   font-weight:var(--fw-thin); font-size:var(--fs-sm); color:var(--ash); }
 .v-pulse i{ width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
-.v-pulse.calm{ color:var(--ok); }
+/* «На связи» — не достижение, а присутствие. Зелёный здесь врал: он значит
+   «получилось», а получилось пока ничего. Присутствие VELOR — это ирис. */
+.v-pulse.calm{ color:var(--iris); }
 .v-pulse.work{ color:var(--lilac); }
 .v-pulse.warn{ color:var(--warn); }
 .v-pulse.bad{ color:var(--bad); }
 .v-pulse span{ color:var(--ash); }
 .v-pulse.warn span, .v-pulse.bad span{ color:var(--silver); }
+
+/* ============================================================
+   VELOR CORE — знак присутствия
+   Почему это принадлежит VELOR: ядро — это уменьшенная поверхность продукта.
+   Тот же угол, та же волосяная рамка, та же подложка карточки — а внутри три
+   нити записи и метка внимания на них. Знак говорит ровно одно: «VELOR здесь и
+   вот что он сейчас делает». Не «смотрите, у нас ИИ».
+   Стоит 40 строк CSS и один инлайновый SVG: ни библиотеки, ни канваса, ни
+   запроса. Прежнее трёхмерное ядро стоило 656 КБ и сообщало меньше.
+   Состояние различается ФОРМОЙ — длиной нитей, разрывом, местом метки. Цвет
+   идёт вторым слоем, а слово рядом — третьим: ни один сигнал не одинок.
+   ============================================================ */
+.v-core{ --core-accent:var(--iris); flex:none; display:inline-block; line-height:0;
+  width:var(--core-size,40px); height:var(--core-size,40px); }
+.v-core svg{ display:block; width:100%; height:100%; }
+.vc-f{ fill:var(--surface); stroke:var(--hairline-2); stroke-width:1; }
+.vc-l{ fill:var(--silver); opacity:.55; transform-box:fill-box; transform-origin:left center;
+  transition:transform var(--dur-slow) var(--ease), opacity var(--dur); }
+.vc-lx{ fill:var(--silver); opacity:0; transition:opacity var(--dur); }
+.vc-d{ fill:var(--core-accent); transform-box:fill-box; transform-origin:center;
+  transition:transform var(--dur) var(--ease), fill var(--dur); }
+
+/* СВЯЗЬ — покой. Одно очень медленное дыхание метки, больше ничего не движется. */
+.v-core[data-core="connected"] .vc-d{ animation:vc-breath 5.6s var(--ease) infinite; }
+@keyframes vc-breath{ 0%,100%{ opacity:.5; } 50%{ opacity:1; } }
+
+/* ДУМАЕТ — перестраивается внутренняя структура. Не крутящийся спиннер:
+   меняются длины нитей, как будто мысль ищет свою форму. Статические значения
+   ниже — это же состояние без движения, для prefers-reduced-motion. */
+.v-core[data-core="thinking"] .vc-l1{ transform:scaleX(.55); animation:vc-t1 2.4s var(--ease) infinite; }
+.v-core[data-core="thinking"] .vc-l2{ transform:scaleX(1.35); animation:vc-t2 2.4s var(--ease) infinite; }
+.v-core[data-core="thinking"] .vc-l3{ transform:scaleX(.8); animation:vc-t3 2.4s var(--ease) infinite; }
+@keyframes vc-t1{ 0%,100%{ transform:scaleX(1); } 45%{ transform:scaleX(.5); } }
+@keyframes vc-t2{ 0%,100%{ transform:scaleX(1); } 45%{ transform:scaleX(1.5); } }
+@keyframes vc-t3{ 0%,100%{ transform:scaleX(1); } 60%{ transform:scaleX(.7); } }
+
+/* РАЗБИРАЕТ — сквозь ядро проходит информация: метка идёт сверху вниз,
+   нить под ней на миг становится ярче. */
+.v-core[data-core="processing"]{ --core-accent:var(--lilac); }
+.v-core[data-core="processing"] .vc-d{ transform:translateY(4px); animation:vc-scan 1.8s var(--ease) infinite; }
+.v-core[data-core="processing"] .vc-l{ animation:vc-lit 1.8s linear infinite; }
+.v-core[data-core="processing"] .vc-l2{ animation-delay:.3s; }
+.v-core[data-core="processing"] .vc-l3{ animation-delay:.6s; }
+@keyframes vc-scan{ 0%,100%{ transform:translateY(-4px); } 50%{ transform:translateY(4px); } }
+@keyframes vc-lit{ 0%,100%{ opacity:.3; } 22%{ opacity:.95; } }
+
+/* ПИШЕТ — тихая ритмичная работа: нижняя нить дорастает и начинается заново. */
+.v-core[data-core="writing"]{ --core-accent:var(--lilac); }
+.v-core[data-core="writing"] .vc-l3{ transform:scaleX(.5); animation:vc-write 1.5s var(--ease) infinite; }
+@keyframes vc-write{ 0%{ transform:scaleX(.12); } 78%,100%{ transform:scaleX(1); } }
+
+/* НАШЁЛ — один короткий импульс метки и средняя нить во всю ширину.
+   Не вспышка, не свечение, не салют: одно движение, потом возврат в покой. */
+.v-core[data-core="found"]{ --core-accent:var(--saffron); }
+.v-core[data-core="found"] .vc-l2{ transform:scaleX(1.5); }
+.v-core[data-core="found"] .vc-d{ transform:scale(1.6); animation:vc-found .7s var(--ease); }
+@keyframes vc-found{ 0%{ transform:scale(1); } 35%{ transform:scale(2.1); } 100%{ transform:scale(1.6); } }
+
+/* ВНИМАНИЕ — структура выравнивается: три нити становятся одной длины, метка
+   крупнее. Замерший, собранный вид — «здесь нужно решение». Движения нет. */
+.v-core[data-core="warning"]{ --core-accent:var(--saffron); }
+.v-core[data-core="warning"] .vc-l1{ transform:scaleX(.72); }
+.v-core[data-core="warning"] .vc-l2{ transform:scaleX(1.07); }
+.v-core[data-core="warning"] .vc-l3{ transform:scaleX(.83); }
+.v-core[data-core="warning"] .vc-d{ transform:scale(1.35); }
+
+/* СБОЙ — верхняя нить разорвана, метка сошла со строки. Сдержанно: коралловый
+   знак, ноль движения. Тревожить мигающим красным — не работа интерфейса. */
+.v-core[data-core="error"]{ --core-accent:var(--coral); }
+.v-core[data-core="error"] .vc-l1{ transform:scaleX(.5); }
+.v-core[data-core="error"] .vc-lx{ opacity:.5; }
+.v-core[data-core="error"] .vc-d{ transform:translateY(4.4px); }
+
+/* Уменьшить движение — не значит «потерять состояние»: анимации выключаются,
+   а форма (длины нитей, разрыв, место метки) остаётся и продолжает говорить. */
+@media(prefers-reduced-motion: reduce){
+  .v-core *{ animation:none !important; }
+}
+
+/* Ядро и слово стоят вместе: знак виден, смысл читается рядом. Точка слова при
+   этом лишняя — её роль взял на себя знак. */
+.v-core-line{ display:inline-flex; align-items:center; gap:var(--sp-3); }
+.v-core-line .v-pulse{ gap:0; font-size:var(--fs-body); }
+.v-core-line .v-pulse i{ display:none; }
 
 /* — цифры экрана: одинаковая карточка везде, где есть KPI — */
 .v-kpi{ display:grid; grid-template-columns:repeat(4,1fr); gap:var(--sp-4); }
@@ -355,6 +451,7 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
    дыр. Три колонки читаются как два ровных ряда. */
 .v-kpi.six{ grid-template-columns:repeat(3,1fr); }
 .v-kpi > *{ border:1px solid var(--hairline); border-radius:var(--r-lg); background:var(--surface);
+  box-shadow:var(--edge);
   padding:var(--sp-5) var(--sp-6); min-height:128px; display:flex; flex-direction:column;
   transition:border-color var(--dur), background var(--dur); }
 a.v-kpi-card:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,255,.05); }
@@ -362,18 +459,28 @@ a.v-kpi-card:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,25
 .v-kpi > .v-sk{ border:none; padding:0; }
 .v-kpi .k{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
   text-transform:uppercase; color:var(--ash); }
-.v-kpi .v{ font-weight:var(--fw-reg); font-size:clamp(26px,2.7vw,34px); letter-spacing:-.03em;
-  line-height:1.05; margin-top:auto; font-variant-numeric:tabular-nums; }
+/* Порядок чтения карточки: МЕТКА → ЧИСЛО → ИЗМЕНЕНИЕ → ИСТОЧНИК. Раньше число
+   уезжало вниз (margin-top:auto) и отрывалось от своей метки: шесть карточек
+   читались как шесть одинаковых серых прямоугольников с цифрой где-то внизу.
+   Теперь метка и число стоят вместе и вместе же читаются, а источник прижат к
+   низу карточки — он всегда на одном месте, и его не нужно искать. */
+.v-kpi .v{ font-weight:var(--fw-reg); font-size:clamp(28px,3vw,38px); letter-spacing:-.03em;
+  line-height:1.02; margin-top:var(--sp-2); font-variant-numeric:tabular-nums; }
 .v-kpi .s{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-2); }
 .v-kpi .s.up{ color:var(--ink-verdant); } .v-kpi .s.down{ color:var(--ink-coral); }
 /* Цвет самой цифры. Язык не новый — он уже был на «Финансах»: пришло зелёное,
    ушло коралловое, минус коралловый. Здесь он вынесен в систему, чтобы деньги
    выглядели одинаково на всех экранах, а не только там, где о них страница.
    Цвет тут работает смыслом: владелец видит знак раньше, чем читает число. */
-.v-kpi .v.ok, .v-kpi .v.income{ color:var(--ink-verdant); }
+.v-kpi .v.ok{ color:var(--ink-verdant); }
 .v-kpi .v.bad, .v-kpi .v.expense, .v-kpi .v.minus{ color:var(--ink-coral); }
 .v-kpi .v.warn{ color:var(--ink-saffron); }
 .v-kpi .v.info{ color:var(--lilac); }
+/* Деньги — янтарь. Выручка не «успех»: это факт, главный финансовый сигнал
+   экрана. Зелёное в системе значит «получилось» и остаётся за результатом —
+   прибылью, выигранной сделкой, выполненным действием. Раньше выручка и
+   прибыль были одного цвета, и владелец не различал «пришло» и «заработал». */
+.v-kpi .v.money, .v-kpi .v.income{ color:var(--ink-saffron); }
 /* Ноль — не достижение и не провал: он серый, как и «нет данных». */
 .v-kpi .v.zero{ color:var(--ash); }
 @media(max-width:1000px){ .v-kpi, .v-kpi.three{ grid-template-columns:repeat(2,1fr); } }
@@ -385,11 +492,25 @@ a.v-kpi-card:hover{ border-color:rgba(128,82,255,.35); background:rgba(128,82,25
 
 /* — панель со списком: заголовок-надпись + строки — */
 .v-panel{ border:1px solid var(--hairline); border-radius:var(--r-lg); background:var(--surface);
-  padding:var(--sp-5) var(--sp-6); }
+  box-shadow:var(--edge); padding:var(--sp-5) var(--sp-6); }
 .v-panel > h2, .v-panel > .v-panel-h{ font-weight:var(--fw-semi); font-size:10px;
   letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
-  margin:0 0 var(--sp-4); display:flex; align-items:baseline; gap:var(--sp-2); }
+  margin:0 0 var(--sp-4); display:flex; align-items:center; gap:var(--sp-2); }
 .v-panel > h2 .n, .v-panel > .v-panel-h .n{ color:var(--lilac); }
+
+/* ЗАРУБКА VELOR — фирменная мелочь, которая повторяется.
+   Ирисовая чёрточка 5×2 перед меткой раздела: та же метка внимания, что стоит
+   внутри ядра, только вынесенная в текст. Отдельно она незаметна — её и не
+   надо замечать. Но она стоит перед каждой меткой раздела, перед меткой числа
+   и у текущего пункта меню, и через несколько экранов начинает читаться как
+   «здесь VELOR отметил начало». Это единственное украшение в системе, и оно
+   же служебное: показывает границу смыслового блока. */
+.v-panel > h2::before, .v-panel > .v-panel-h::before, .v-kpi .k::before,
+.v-door .lbl::before, .v-cap::before{
+  content:""; flex:none; display:inline-block; width:5px; height:2px; border-radius:1px;
+  background:var(--iris); margin-right:8px; vertical-align:2px; }
+/* у флексовых заголовков расстояние уже задано gap — второй отступ не нужен */
+.v-panel > h2::before, .v-panel > .v-panel-h::before{ margin-right:0; }
 
 /* Строка списка. Высота ≥44px — палец попадает без прицеливания. */
 .v-row{ display:flex; align-items:flex-start; gap:var(--sp-3); padding:var(--sp-3) 0;
@@ -531,7 +652,7 @@ html{ background:var(--void); }
    «Не получилось» без «данные не изменены» — недоделанное состояние.
    ============================================================ */
 .v-door{ border:1px dashed var(--hairline-2); border-radius:var(--r-xl);
-  background:var(--surface); padding:var(--sp-6);
+  background:var(--surface); box-shadow:var(--edge); padding:var(--sp-6);
   transition:border-color var(--dur), background var(--dur); }
 .v-door[data-state="dragging"]{ border-style:solid; border-color:var(--iris);
   background:var(--tint-iris); }
@@ -547,6 +668,10 @@ html{ background:var(--void); }
   border-left:2px solid var(--hairline-2); border-radius:0 var(--r-sm) var(--r-sm) 0;
   background:var(--surface-2); font-size:var(--fs-body); line-height:1.5; }
 .v-door-say[hidden]{ display:none; }
+/* Ядро внутри двери. Приём материала — фирменная точка контакта с VELOR, и
+   именно здесь важнее всего видеть, что он не «форма отправки», а сотрудник:
+   знак показывает разбор, находку и сбой той же формой, что и в шапке. */
+.v-door-say .v-core{ --core-size:32px; margin-top:1px; }
 .v-door-say .t{ font-weight:var(--fw-reg); color:var(--bone); }
 .v-door-say .d{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
   margin-top:3px; }
