@@ -15,10 +15,8 @@
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
-
-  body main{ padding-top:104px; padding-bottom:80px; }
   section{ margin-bottom:var(--sp-10); }
-  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
     display:flex; align-items:baseline; gap:var(--sp-2); }
   .sec-h .n{ color:var(--lilac); }
@@ -50,21 +48,21 @@
   .kind[aria-pressed="true"][data-kind="income"]{ border-color:var(--verdant); background:rgba(47,212,178,.14); color:var(--bone); }
   .kind[aria-pressed="true"][data-kind="expense"]{ border-color:var(--coral); background:rgba(255,107,107,.14); color:var(--bone); }
   .grid{ display:grid; grid-template-columns:1.4fr 1fr; gap:var(--sp-3); margin-bottom:var(--sp-3); }
-  .form label{ display:block; font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+  .form label{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-caption); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2); }
   .form input{ width:100%; min-height:48px; background:var(--surface-2); border:1px solid var(--hairline);
     border-radius:var(--r-sm); padding:12px 16px; color:var(--bone); font-family:inherit;
-    font-weight:var(--fw-thin); font-size:16px; }
+    font-weight:var(--fw-thin); font-size:var(--fs-base); }
   .form .hint{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-2); }
   .form .go{ margin-top:var(--sp-4); }
 
   /* поля формы и правки — общий вид на весь экран */
-  .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px;
+  .fld label{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-caption);
     letter-spacing:.14em; text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
   .fld label .req{ color:var(--ink-coral); margin-left:4px; }
   .fld input, .fld select{ width:100%; min-height:48px; background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
-    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:16px; }
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:var(--fs-base); }
   .fld input.dirty, .fld select.dirty{ border-color:var(--saffron); }
   .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
   .fld .was{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--saffron); }
@@ -85,7 +83,7 @@
   .entry .body{ min-width:0; }
   .entry .cat-nm{ font-weight:var(--fw-reg); font-size:var(--fs-body); }
   .entry .tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
-  .entry .tag{ font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+  .entry .tag{ font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase;
     font-weight:var(--fw-semi); padding:2px 8px; border-radius:var(--r-pill);
     background:var(--surface-2); color:var(--ash); }
   .entry .tag.who{ background:rgba(128,82,255,.16); color:var(--ink-iris); }
@@ -109,7 +107,7 @@
     white-space:nowrap; font-variant-numeric:tabular-nums; }
   .entry .amt.income{ color:var(--verdant); } .entry .amt.expense{ color:var(--coral); }
   .entry .del{ width:44px; height:44px; flex:none; background:none; border:none; color:var(--ash);
-    font-size:20px; line-height:1; border-radius:var(--r-sm); transition:color var(--dur-fast), background var(--dur-fast); }
+    font-size:var(--fs-h3); line-height:1; border-radius:var(--r-sm); transition:color var(--dur-fast), background var(--dur-fast); }
   .entry .del:hover{ color:var(--coral); background:rgba(255,107,107,.1); }
   /* подтверждение удаления живёт в самой строке — без системного окна поверх экрана */
   .entry.confirm{ background:rgba(255,107,107,.07); }
@@ -117,8 +115,11 @@
   .entry .ask span{ font-size:var(--fs-sm); color:var(--silver); }
 
   /* разбор ИИ */
-  .ai{ background:linear-gradient(150deg,rgba(128,82,255,.12),rgba(255,255,255,.02));
-    border:1px solid rgba(128,82,255,.25); border-radius:var(--r-xl); padding:var(--sp-6); }
+  /* Тут говорит VELOR. Раньше принадлежность обозначал сиреневый градиент во
+     всю карточку — приём, по которому интерфейс и опознают как собранный ИИ.
+     Теперь то же самое говорит одна полоса слева: заметно, но не громко. */
+  .ai{ background:var(--surface); border:1px solid var(--hairline);
+    border-left:2px solid var(--iris); border-radius:var(--r-lg); padding:var(--sp-6); }
   .ai .top{ display:flex; align-items:center; justify-content:space-between;
     gap:var(--sp-4); flex-wrap:wrap; margin-bottom:var(--sp-2); }
   .ai h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em; }
@@ -134,7 +135,7 @@
   .import-cta:hover{ background:rgba(128,82,255,.13); border-color:var(--lilac); }
   .import-cta .t{ font-size:var(--fs-base); font-weight:var(--fw-med); }
   .import-cta .s{ grid-column:1; font-size:var(--fs-sm); color:var(--ash); }
-  .import-cta .go{ grid-row:1/3; grid-column:2; font-size:22px; color:var(--lilac); }
+  .import-cta .go{ grid-row:1/3; grid-column:2; font-size:var(--fs-h3); color:var(--lilac); }
 
   /* карточка операции */
   .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
@@ -147,7 +148,7 @@
   .modal .foot{ margin-top:var(--sp-6); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
   .modal .foot .close{ margin-left:auto; }
   .story{ margin-top:var(--sp-6); }
-  .story > h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .story > h3{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
   .ev{ display:flex; gap:var(--sp-3); padding:var(--sp-3) 0; border-bottom:1px solid var(--hairline); }
   .ev:last-child{ border-bottom:none; }
@@ -168,7 +169,6 @@
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   @media(max-width:620px){
-    body main{ padding-top:92px; }
     .grid, .fields{ grid-template-columns:1fr; }
     .modal{ padding:12px; }
     .modal .box{ padding:var(--sp-6); }

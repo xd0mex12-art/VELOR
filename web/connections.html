@@ -17,10 +17,8 @@
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
-
-  body main{ padding-top:104px; padding-bottom:80px; }
   section{ margin-bottom:var(--sp-8); }
-  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2);
     display:flex; align-items:baseline; gap:var(--sp-2); }
   .sec-h .n{ color:var(--lilac); }
@@ -78,17 +76,17 @@
   .modal h2{ font-weight:var(--fw-med); font-size:var(--fs-h3); letter-spacing:-.02em; }
   .modal .sub{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); line-height:1.5; }
   .fld{ margin-top:var(--sp-4); }
-  .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px; letter-spacing:.14em;
+  .fld label{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-caption); letter-spacing:.14em;
     text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
   .fld input{ width:100%; min-height:48px; background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
-    color:var(--bone); font-family:inherit; font-size:16px; }
+    color:var(--bone); font-family:inherit; font-size:var(--fs-base); }
   .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
   .foot{ margin-top:var(--sp-6); display:flex; gap:var(--sp-2); flex-wrap:wrap; }
   .foot .close{ margin-left:auto; }
 
   #toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,20px);
-    background:#141414; border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    background:var(--sheet); border:1px solid var(--hairline-2); border-radius:var(--r-pill);
     padding:12px 22px; font-size:var(--fs-sm); opacity:0; pointer-events:none;
     transition:opacity var(--dur), transform var(--dur); z-index:120; max-width:92vw; }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
@@ -115,6 +113,14 @@
       <div class="v-state" id="state" aria-live="polite">
         <span class="v-badge calm"><i></i>Смотрю, что подключено…</span>
       </div>
+    </div>
+    <!-- Обновить всё разом. Кнопка переехала со страницы «Источники знаний»:
+         та страница показывала тот же каталог из того же /api/connections,
+         только с индикатором «уровень знаний» поверх. Двух ответов на вопрос
+         «что подключено» быть не должно, поэтому осталась одна страница —
+         а единственная её возможность, которой здесь не было, вот эта. -->
+    <div class="v-acts">
+      <button class="v-btn ghost" type="button" id="syncAll" hidden>Обновить все источники</button>
     </div>
   </header>
 
@@ -344,7 +350,25 @@ async function load(){
   }
   document.getElementById('failZone').innerHTML = '';
   paintState(CAT); paintLegend(CAT); paintCats(CAT);
+  // Кнопку показываем только когда обновлять есть что: предлагать «обновить
+  // все источники» при нуле подключённых — обещание работы, которой нет.
+  document.getElementById('syncAll').hidden = !(CAT.summary && CAT.summary.connected);
 }
+
+document.getElementById('syncAll').addEventListener('click', async e => {
+  const b = e.currentTarget;
+  b.disabled = true; b.textContent = 'Обновляю…';
+  try{
+    const r = await fetch('/api/connections/sync-all', { method:'POST' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не удалось обновить.'); return; }
+    const res = d.results || {};
+    const okN = Object.values(res).filter(v => v && v.ok !== false).length;
+    toast(okN ? ('Обновлено источников: ' + okN) : 'Ничего не обновилось.');
+    await load();
+  }catch{ toast('Сервер не ответил.'); }
+  finally{ b.disabled = false; b.textContent = 'Обновить все источники'; }
+});
 
 // Возврат после входа в сервис: показываем, чем всё кончилось, и убираем
 // метку из адреса, чтобы обновление страницы не повторяло старое сообщение.

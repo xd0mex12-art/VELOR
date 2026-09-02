@@ -50,6 +50,7 @@ import actions
 import initiatives
 import followup
 import qualify
+import outputs
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -2974,49 +2975,106 @@ def api_weekly_list(business_id: int = 0, x_auth: str = Header(default="")):
     return {"reviews": out}
 
 
-# ---------- ИНСТРУМЕНТЫ ----------
+# ---------- РЕЗУЛЬТАТЫ ----------
 #
-# Один список — один источник правды. Чтобы инструмент заработал, достаточно
-# поставить "ready": True и добавить обработчик в TOOL_HANDLERS: страница
-# перерисуется сама, править вёрстку не нужно.
+# Здесь раньше жил список «инструментов»: пять карточек с пометкой «Скоро»,
+# ни одного обработчика и endpoint, отвечающий 501. Возможность была
+# объявлена в продукте, но её не существовало — а по объявленным
+# возможностям владелец принимает решения.
+#
+# Теперь реестр один и он в outputs.py: если там нет сборщика, здесь нет и
+# карточки. Отвечать 501 стало нечему.
 
-TOOLS = [
-    {"id": "pdf",      "name": "Создать PDF",
-     "about": "Прайс, счёт или отчёт одной кнопкой — из ваших данных, готовый к отправке клиенту.",
-     "group": "Документы", "ready": False},
-    {"id": "excel",    "name": "Экспорт Excel",
-     "about": "Выгрузка клиентов, заказов и финансов в таблицу — для бухгалтера или своего анализа.",
-     "group": "Документы", "ready": False},
-    {"id": "contract", "name": "Сгенерировать договор",
-     "about": "Договор под вашу услугу: сотрудник подставит реквизиты, предмет и сроки из памяти компании.",
-     "group": "Документы", "ready": False},
-    {"id": "offer",    "name": "Коммерческое предложение",
-     "about": "КП под конкретного клиента — с вашими услугами, ценами и обоснованием выгоды.",
-     "group": "Продажи", "ready": False},
-    {"id": "letter",   "name": "Написать письмо",
-     "about": "Письмо клиенту или партнёру в вашем тоне: напоминание, извинение, предложение вернуться.",
-     "group": "Продажи", "ready": False},
-]
 
-TOOL_HANDLERS: dict = {}          # id → функция(bid, params); пока пусто
+class OutputIn(BaseModel):
+    kind: str
+    params: dict = {}
+    business_id: int = 0
+
+
+@app.get("/api/outputs/kinds")
+def api_output_kinds(business_id: int = 0, x_auth: str = Header(default="")):
+    """Что VELOR умеет собрать и какие поля для этого нужны."""
+    bid = _resolve_bid(x_auth, business_id)
+    return outputs.catalog(bid)
+
+
+@app.get("/api/outputs")
+def api_outputs(business_id: int = 0, kind: str = "", limit: int = 30,
+                offset: int = 0, x_auth: str = Header(default="")):
+    """История результатов: что собрано, когда и по какому запросу."""
+    bid = _resolve_bid(x_auth, business_id)
+    kind = kind if kind in outputs.KINDS else None
+    rows = database.list_outputs(bid, kind=kind, limit=limit, offset=max(0, offset))
+    return {"items": [outputs.brief(r) for r in rows],
+            "total": database.count_outputs(bid, kind=kind)}
+
+
+@app.post("/api/outputs")
+def api_output_build(body: OutputIn, x_auth: str = Header(default="")):
+    """Собрать результат. Цифры считает база, файл кладётся в то же
+    хранилище, что и оригиналы входящих."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    try:
+        row = outputs.build(bid, body.kind, body.params or {})
+    except outputs.OutputError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception:
+        log.exception("Результат %s не собрался (biz %s)", body.kind, bid)
+        raise HTTPException(status_code=500,
+                            detail="Не удалось собрать результат — попробуйте ещё раз.")
+    return {"ok": True, "item": outputs.public(row)}
+
+
+@app.get("/api/outputs/{output_id}")
+def api_output_one(output_id: int, business_id: int = 0,
+                   x_auth: str = Header(default="")):
+    bid = _resolve_bid(x_auth, business_id)
+    row = database.get_output(output_id, bid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Результат не найден.")
+    return {"item": outputs.public(row)}
+
+
+@app.get("/api/outputs/{output_id}/file")
+def api_output_file(output_id: int, business_id: int = 0,
+                    x_auth: str = Header(default="")):
+    """Отдать файл результата. Право на файл определяет запись в базе, а не
+    знание имени в хранилище."""
+    bid = _resolve_bid(x_auth, business_id)
+    try:
+        data, mime, name = outputs.file_of(bid, output_id)
+    except outputs.OutputError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(content=data, media_type=mime, headers={
+        "Content-Disposition": "attachment; filename*=UTF-8''" + _urlquote(name),
+        "Cache-Control": "no-store",
+    })
+
+
+@app.post("/api/outputs/{output_id}/delete")
+def api_output_delete(output_id: int, business_id: int = 0,
+                      x_auth: str = Header(default="")):
+    bid = _resolve_bid(x_auth, business_id)
+    require_active(bid)
+    if not outputs.remove(bid, output_id):
+        raise HTTPException(status_code=404, detail="Результат не найден.")
+    return {"ok": True}
 
 
 @app.get("/api/tools")
 def api_tools(business_id: int = 0, x_auth: str = Header(default="")):
-    """Список инструментов. Готовые к работе помечены ready."""
-    _resolve_bid(x_auth, business_id)
-    return {"tools": [{**t, "ready": t["ready"] and t["id"] in TOOL_HANDLERS} for t in TOOLS]}
-
-
-@app.post("/api/tools/{tool_id}")
-def api_tool_run(tool_id: int | str, business_id: int = 0,
-                 x_auth: str = Header(default="")):
-    """Запуск инструмента. Пока ни один не подключён — отвечаем честно."""
+    """
+    Старый адрес страницы «Инструменты». Оставлен, чтобы уже открытая
+    вкладка и закладка не упирались в 404, но отвечает он теперь реестром
+    результатов — то есть тем, что действительно работает.
+    """
     bid = _resolve_bid(x_auth, business_id)
-    handler = TOOL_HANDLERS.get(str(tool_id))
-    if not handler:
-        raise HTTPException(status_code=501, detail="Этот инструмент ещё готовится")
-    return handler(bid)
+    return {"tools": [{"id": k, "name": m["title"], "about": m["about"],
+                       "group": m["group"], "ready": True}
+                      for k, m in outputs.KINDS.items()],
+            "moved_to": "results.html"}
 
 
 # ---------- ПОДКЛЮЧЁННЫЕ СЕРВИСЫ (источники знаний) ----------

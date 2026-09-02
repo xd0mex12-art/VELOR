@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Работа VELOR</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Работа VELOR — одно место вместо трёх экранов.
+     Раньше «что требует решения» жило в очереди подтверждений, «что заметил» —
+     карточкой на главной, а «что сделал» — во второй половине страницы
+     автономности. Три разных ответа на один вопрос владельца: чем он вообще
+     занят? Здесь ответ один, а внутренние сущности (находка, действие) в
+     заголовках не упоминаются — это архитектура VELOR, а не работа владельца.
+     Скелет, кнопки и цвета берутся из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+  section{ margin-bottom:var(--sp-8); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
+
+  .tabs{ margin:var(--sp-6) 0 var(--sp-6); }
+
+  /* ── карточка «требует решения» / «заметил» ── */
+  .card{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5) var(--sp-6); margin-bottom:var(--sp-4); }
+  .card.urgent{ border-color:rgba(255,107,107,.32); background:rgba(255,107,107,.05); }
+  .card.high{ border-color:rgba(255,184,41,.28); }
+  .card .chip{ display:inline-block; padding:3px 10px; border-radius:var(--r-pill);
+    background:var(--tint-iris); color:var(--ink-iris); font-size:var(--fs-caption);
+    letter-spacing:.08em; text-transform:uppercase; font-weight:var(--fw-semi); }
+  .card .t{ font-weight:var(--fw-med); font-size:var(--fs-base); margin-top:var(--sp-3); }
+  .card .d{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-body);
+    margin-top:var(--sp-2); line-height:1.5; }
+  .card .why{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    margin-top:var(--sp-2); }
+  .card .val{ margin-top:var(--sp-3); font-size:var(--fs-body); color:var(--silver); }
+  .card .val b{ color:var(--lilac-2); font-weight:var(--fw-med); }
+  .card .val i{ display:block; font-style:normal; color:var(--ash); font-size:var(--fs-sm); }
+  /* Догадка модели отделена рамкой: одинаковый вид с посчитанным означал бы,
+     что владелец не может отличить расчёт от предположения. */
+  .card .guess{ border-left:2px solid var(--saffron); padding-left:var(--sp-4);
+    margin-top:var(--sp-4); color:var(--silver); font-size:var(--fs-sm); }
+  .card .guess i{ display:block; font-style:normal; color:var(--ash); font-size:var(--fs-caption); }
+  .card details{ margin-top:var(--sp-3); }
+  .card summary{ color:var(--ash); font-size:var(--fs-sm); cursor:pointer; }
+  .card .src{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    margin-top:var(--sp-2); }
+  .card .msg{ margin-top:var(--sp-4); padding:var(--sp-4); border-radius:var(--r-sm);
+    background:var(--surface-2); color:var(--silver); font-size:var(--fs-body);
+    white-space:pre-line; }
+  .card .acts{ display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-top:var(--sp-4); }
+  .card .done{ margin-top:var(--sp-3); color:var(--ink-verdant); font-size:var(--fs-sm); }
+
+  /* ── журнал ── */
+  .ev{ display:flex; gap:var(--sp-3); padding:var(--sp-4) 0;
+    border-bottom:1px solid var(--hairline); }
+  .ev:last-child{ border-bottom:none; }
+  .ev .pin{ width:8px; height:8px; border-radius:50%; flex:none; margin-top:8px;
+    background:var(--verdant); }
+  .ev.blocked .pin{ background:var(--saffron); }
+  .ev.failed .pin{ background:var(--coral); }
+  .ev.waiting .pin{ background:var(--lilac); }
+  .ev .b{ flex:1; min-width:0; }
+  .ev .t{ font-size:var(--fs-body); }
+  .ev .d{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm); margin-top:3px; }
+  .ev .r{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-sm); margin-top:4px; }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:130;
+    background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone);
+    font-size:var(--fs-body); padding:14px 26px; border-radius:var(--r-pill);
+    opacity:0; pointer-events:none; transition:var(--dur); }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:760px){ .card{ padding:var(--sp-4); } }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Работа VELOR</h1>
+      <p class="v-lead">Что он заметил, что ждёт вашего слова и что уже сделал —
+        в одном месте и в том порядке, в каком это важно.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Смотрю…</span>
+      </div>
+    </div>
+    <div class="v-acts">
+      <button class="v-btn ghost" type="button" id="scan">Проверить сейчас</button>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+
+  <div class="tabs">
+    <div class="v-segs" id="tabs" role="group" aria-label="Что показать">
+      <button class="v-seg" data-t="decide" aria-pressed="true">Требует решения <span class="n" id="nDecide"></span></button>
+      <button class="v-seg" data-t="noticed" aria-pressed="false">VELOR заметил <span class="n" id="nNotice"></span></button>
+      <button class="v-seg" data-t="done" aria-pressed="false">VELOR сделал</button>
+      <button class="v-seg" data-t="history" aria-pressed="false">История</button>
+    </div>
+  </div>
+
+  <section id="zone"><div class="v-sk row"></div><div class="v-sk row"></div></section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+function when(iso){
+  const d = new Date(String(iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+let toastT;
+function toast(m){
+  const t = document.getElementById('toast');
+  t.textContent = m; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3400);
+}
+
+let tab = 'decide';
+let data = { notes: [], pending: [], feed: [], overview: {}, acts: {} };
+
+// ── находка ──
+function noteHTML(n){
+  const cls = n.level === 'watch' ? '' : (n.priority === 'urgent' ? 'urgent'
+            : (n.priority === 'high' ? 'high' : ''));
+  const val = n.impact_ru
+    ? `<div class="val">${esc(n.impact_label)} ≈ <b class="num">${esc(n.impact_ru)}</b>
+         <i>${esc(n.impact_note)}</i></div>` : '';
+  const guess = n.hypothesis
+    ? `<div class="guess">${esc(n.hypothesis)}<i>${esc(n.hypothesis_note)}</i></div>` : '';
+  const src = n.evidence_ru
+    ? `<details><summary>На чём основано</summary>
+         <div class="src">${esc(n.evidence_ru)}<br>${esc(n.confidence_ru)}.</div></details>` : '';
+  const acts = [
+    n.href ? `<a class="v-btn ghost" href="${esc(n.href)}">Посмотреть</a>` : '',
+    n.can_act ? `<button class="v-btn" type="button" data-act="act"
+        data-id="${n.id}">${esc(n.action_note || 'Сделать')}</button>` : '',
+    `<button class="v-btn ghost" type="button" data-act="ack" data-id="${n.id}">Понятно</button>`,
+    `<button class="v-btn ghost" type="button" data-act="dismiss" data-id="${n.id}">Не интересно</button>`,
+  ].filter(Boolean).join('');
+  return `<article class="card ${cls}" data-note="${n.id}">
+      <span class="chip">${esc(n.tag)}</span>
+      <div class="t">${esc(n.title)}</div>
+      <div class="d">${esc(n.summary)}</div>
+      <div class="why">${esc(n.why)}</div>
+      ${val}${guess}${src}
+      ${n.outcome ? `<div class="done">${esc(n.outcome)}</div>` : ''}
+      <div class="acts">${acts}</div>
+    </article>`;
+}
+
+// ── предложение действия ──
+// Слова «действие» на экране нет намеренно: владелец решает не про запись в
+// реестре, а про то, писать ли клиенту.
+function pendHTML(a){
+  return `<article class="card high" data-pend="${a.id}">
+      <span class="chip">${esc(a.title)}</span>
+      <div class="d">${esc(a.means || a.reason || '')}</div>
+      ${a.reason && a.means ? `<div class="why">${esc(a.reason)}</div>` : ''}
+      ${a.message ? `<div class="msg">${esc(a.message)}</div>` : ''}
+      <div class="why">Предложено ${esc(when(a.created_at))}</div>
+      <div class="acts">
+        <button class="v-btn" type="button" data-pact="approve" data-id="${a.id}">Разрешить</button>
+        <button class="v-btn ghost" type="button" data-pact="reject" data-id="${a.id}">Не надо</button>
+      </div>
+    </article>`;
+}
+
+function evHTML(a){
+  const cls = a.status === 'blocked' || a.status === 'stale' ? 'blocked'
+            : a.status === 'failed' ? 'failed'
+            : a.status === 'proposed' ? 'waiting' : '';
+  return `<div class="ev ${cls}"><span class="pin"></span><div class="b">
+      <div class="t">${esc(a.title)}</div>
+      <div class="d">${esc(a.actor_ru)} · ${esc(a.status_ru)}${
+        a.mode_ru ? ' · ' + esc(a.mode_ru) : ''} · ${esc(when(a.done_at || a.created_at))}</div>
+      ${a.result || a.error || a.reason
+        ? `<div class="r">${esc(a.result || a.error || a.reason)}</div>` : ''}
+    </div></div>`;
+}
+
+const EMPTY = {
+  decide: ['Ничего не ждёт вашего слова',
+           'Когда VELOR найдёт что-то, что решать вам, оно появится здесь.'],
+  noticed: ['Пока тихо',
+            'VELOR смотрит на бизнес по расписанию. Найдёт что-то стоящее — скажет.'],
+  done: ['VELOR ещё ничего не делал',
+         'Здесь появится то, что он сделал сам или с вашего разрешения.'],
+  history: ['История пуста',
+            'Сюда попадает всё: сделанное, отклонённое и то, чего ему не дали.'],
+};
+
+function paint(){
+  const zone = document.getElementById('zone');
+  let html = '';
+  if (tab === 'decide'){
+    // Требует решения — это и находки уровня «решать вам», и предложения,
+    // которые VELOR подготовил и держит. Разделять их по экранам значило бы
+    // заставлять владельца помнить, где какая половина его работы.
+    const notes = data.notes.filter(n => n.level === 'act');
+    html = data.pending.map(pendHTML).join('') + notes.map(noteHTML).join('');
+  } else if (tab === 'noticed'){
+    const notes = data.notes.filter(n => n.level !== 'act');
+    html = notes.map(noteHTML).join('');
+  } else if (tab === 'done'){
+    html = data.feed.filter(a => a.status === 'succeeded').map(evHTML).join('');
+  } else {
+    html = data.feed.map(evHTML).join('');
+  }
+  if (!html){
+    const [h, b] = EMPTY[tab];
+    html = `<div class="v-empty"><strong>${h}</strong>${b}</div>`;
+  }
+  zone.innerHTML = html;
+}
+
+function paintState(){
+  const o = data.overview || {}, a = data.acts || {};
+  const need = (a.waiting || 0) + (o.act || 0);
+  const box = document.getElementById('state');
+  const cls = need ? 'warn' : 'good';
+  const word = need ? need + ' ' + plural(need, 'решение за вами',
+                                          'решения за вами', 'решений за вами')
+                    : 'Ничего не ждёт вас';
+  const tail = [
+    (o.open || 0) ? o.open + ' ' + plural(o.open, 'находка', 'находки', 'находок') : '',
+    (a.done || 0) ? 'сделано за сутки: ' + a.done : '',
+    (a.failed || 0) ? 'не получилось: ' + a.failed : '',
+  ].filter(Boolean).join(' · ');
+  box.innerHTML = `<span class="v-badge ${cls}"><i></i>${esc(word)}</span>` +
+    (tail ? `<span>${esc(tail)}</span>` : '');
+  document.getElementById('nDecide').textContent = need || '';
+  document.getElementById('nNotice').textContent =
+    data.notes.filter(n => n.level !== 'act').length || '';
+}
+
+async function load(){
+  try{
+    const [ini, act] = await Promise.all([
+      fetch('/api/initiatives?limit=50').then(r => r.json()),
+      fetch('/api/actions?kind=all&limit=100').then(r => r.json()),
+    ]);
+    document.getElementById('failZone').innerHTML = '';
+    data.notes = ini.items || [];
+    data.overview = ini.overview || {};
+    data.pending = act.pending || [];
+    data.feed = act.items || [];
+    data.acts = act.overview || {};
+    paintState(); paint();
+  }catch{
+    document.getElementById('zone').innerHTML = '';
+    document.getElementById('failZone').innerHTML =
+      `<div class="v-fail"><div><div class="t">Не загрузилось</div>
+        <div class="d">Сервер не ответил. Ничего из сделанного при этом не потерялось.</div></div>
+        <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+    document.getElementById('retry').addEventListener('click', load);
+  }
+}
+
+document.getElementById('tabs').addEventListener('click', e => {
+  const b = e.target.closest('.v-seg'); if (!b) return;
+  tab = b.dataset.t;
+  [].forEach.call(document.querySelectorAll('#tabs .v-seg'),
+    x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+  paint();
+});
+
+document.getElementById('zone').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-act], button[data-pact]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  btn.disabled = true;
+  try{
+    if (btn.dataset.act){
+      const r = await fetch(`/api/initiatives/${id}/${btn.dataset.act}`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok){ toast(d.detail || 'Не получилось.'); return; }
+      toast(btn.dataset.act === 'act' ? 'VELOR взялся' : 'Записал');
+    } else {
+      const r = await fetch(`/api/actions/${id}/${btn.dataset.pact}`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok){ toast(d.detail || 'Не получилось.'); return; }
+      toast(btn.dataset.pact === 'approve' ? 'Разрешено' : 'Отклонено');
+    }
+    await load();
+  }catch{ toast('Сервер не ответил.'); }
+  finally{ btn.disabled = false; }
+});
+
+document.getElementById('scan').addEventListener('click', async e => {
+  const b = e.currentTarget;
+  b.disabled = true; b.textContent = 'Смотрю…';
+  try{
+    await fetch('/api/initiatives/scan', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    await load();
+    toast('Проверил');
+  }catch{ toast('Не получилось проверить.'); }
+  finally{ b.disabled = false; b.textContent = 'Проверить сейчас'; }
+});
+
+load();
+</script>
+</body>
+</html>

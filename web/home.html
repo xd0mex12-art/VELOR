@@ -5,50 +5,42 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VELOR AI — AI-сотрудник</title>
 <link href="vendor/inter.css" rel="stylesheet">
-<script src="vendor/three.min.js"></script>
 <style>
   *{ margin:0; padding:0; box-sizing:border-box; }
   a{ text-decoration:none; color:inherit; }
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
-  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
   /* заголовок для скринридера там, где визуально его роль играет карточка */
   .sr-only{ position:absolute; width:1px; height:1px; padding:0; margin:-1px;
     overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
 
   /* главная должна умещаться в один экран — отступы здесь плотнее общих.
      body main, а не main: velor.css подключается после и иначе перебьёт. */
-  body main{ padding-top:104px; padding-bottom:70px; }
-  .pulse{ display:flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); }
-  .pulse .dot{ width:7px; height:7px; border-radius:50%; background:var(--verdant);
-    box-shadow:0 0 9px rgba(47,212,178,.8); }
 
 
   /* ── ядро и диалог с сотрудником: первым экраном ── */
-  .talk{ margin-bottom:56px; border:1px solid var(--hairline); border-radius:26px; overflow:hidden;
-    background:linear-gradient(180deg,rgba(128,82,255,.07),transparent); }
+  .talk{ margin-bottom:var(--sp-12); border:1px solid var(--hairline);
+    border-left:2px solid var(--iris); border-radius:var(--r-lg); overflow:hidden;
+    background:var(--surface); }
   .emp{ display:flex; align-items:center; gap:13px; padding:20px 24px; border-bottom:1px solid var(--hairline); }
-  .emp-badge{ width:40px; height:40px; border-radius:12px; flex:none;
-    background:linear-gradient(150deg,#8052ff,#5b6cff); display:flex; align-items:center;
-    justify-content:center; font-weight:600; font-size:18px; color:#fff; }
-  .emp-name{ font-weight:500; font-size:16px; }
+  .emp-badge{ width:40px; height:40px; border-radius:var(--r-xs); flex:none;
+    background:var(--iris); display:flex; align-items:center;
+    justify-content:center; font-weight:600; font-size:var(--fs-lead); color:#fff; }
+  .emp-name{ font-weight:500; font-size:var(--fs-base); }
   .emp-role{ color:var(--ash); font-weight:400; }
-  .emp-sub{ font-size:12.5px; color:var(--ash); margin-top:2px; }
-  #coreStage{ display:flex; justify-content:center; padding:30px 0 12px; }
+  .emp-sub{ font-size:var(--fs-caption); color:var(--ash); margin-top:2px; }
   /* 40vh в ограничителе: ядро крупное, но поле ввода остаётся на виду */
-  .core-square{ position:relative; width:min(78%,540px,54vh); aspect-ratio:1; }
-  #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important; cursor:pointer; }
 
   .roles{ display:flex; gap:7px; flex-wrap:wrap; padding:14px 20px 0; }
-  .role{ min-height:40px; padding:9px 16px; border-radius:18px; background:rgba(255,255,255,.05);
-    border:1px solid var(--hairline); color:var(--silver); font-weight:500; font-size:12px;
+  .role{ min-height:40px; padding:9px 16px; border-radius:var(--r-md); background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-weight:500; font-size:var(--fs-caption);
     transition:background .2s, color .2s, border-color .2s; }
   .role:hover{ color:#fff; }
   .role.active{ background:var(--iris); color:#fff; border-color:transparent; }
   .role.add{ background:transparent; border:1px dashed rgba(255,255,255,.22); color:var(--ash); }
   .role.add:hover{ color:#fff; border-color:var(--iris); }
   .log{ padding:20px; display:flex; flex-direction:column; gap:12px; max-height:300px; overflow-y:auto; }
-  .msg{ max-width:84%; padding:11px 17px; border-radius:18px; font-weight:200; font-size:15.5px;
+  .msg{ max-width:84%; padding:11px 17px; border-radius:var(--r-md); font-weight:200; font-size:var(--fs-body);
     line-height:1.45; white-space:pre-wrap; word-wrap:break-word; }
   .msg.me{ align-self:flex-end; background:var(--iris); color:#fff; border-bottom-right-radius:6px; }
   .msg.core{ align-self:flex-start; background:rgba(255,255,255,.06); border:1px solid var(--hairline);
@@ -56,13 +48,13 @@
   .msg.core.think{ color:var(--ash); font-style:italic; }
   .ask{ display:flex; gap:10px; padding:16px 20px; border-top:1px solid var(--hairline); }
   .ask input{ flex:1; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    border-radius:24px; padding:12px 20px; color:var(--bone); font-size:16px; }
+    border-radius:var(--r-lg); padding:12px 20px; color:var(--bone); font-size:var(--fs-base); }
   /* главное действие экрана — отправка вопроса; облик берём из общей кнопки,
      здесь только ширина под один знак */
-  .ask button{ min-width:56px; padding-left:0; padding-right:0; font-size:18px; }
+  .ask button{ min-width:56px; padding-left:0; padding-right:0; font-size:var(--fs-lead); }
 
   /* ── здоровье бизнеса ── */
-  .health{ margin-bottom:56px; border:1px solid var(--hairline); border-radius:26px; padding:26px 28px; }
+  .health{ margin-bottom:56px; border:1px solid var(--hairline); border-radius:var(--r-xl); padding:26px 28px; }
   .health .sec-h{ margin-bottom:20px; }
   .h-top{ display:flex; gap:34px; align-items:center; }
   .ring{ position:relative; flex:none; width:150px; height:150px; }
@@ -72,20 +64,20 @@
   .ring .arc{ stroke:var(--arc,#8052ff); transition:stroke-dashoffset 1s cubic-bezier(.22,1,.36,1), stroke .6s; }
   .ring .mid{ position:absolute; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center; }
-  .ring .num{ font-size:40px; font-weight:400; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
-  .ring .lvl{ font-size:11.5px; color:var(--ash); margin-top:2px; }
+  .ring .num{ font-size:var(--fs-display); font-weight:400; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  .ring .lvl{ font-size:var(--fs-caption); color:var(--ash); margin-top:2px; }
   .facts{ flex:1; display:grid; grid-template-columns:1fr 1fr; gap:14px 26px; }
-  .fct .fn{ display:flex; justify-content:space-between; font-size:13px; font-weight:500; }
+  .fct .fn{ display:flex; justify-content:space-between; font-size:var(--fs-sm); font-weight:500; }
   .fct .fn i{ font-style:normal; color:var(--ash); font-weight:400; font-variant-numeric:tabular-nums; }
   .fct .bar{ height:4px; border-radius:3px; background:rgba(255,255,255,.07); margin:7px 0 5px; overflow:hidden; }
   .fct .bar span{ display:block; height:100%; width:0; border-radius:3px; background:var(--iris);
     transition:width 1s cubic-bezier(.22,1,.36,1); }
-  .fct .ff{ font-size:12px; color:var(--ash); font-weight:200; }
+  .fct .ff{ font-size:var(--fs-caption); color:var(--ash); font-weight:200; }
   .h-notes{ display:grid; grid-template-columns:1fr 1fr; gap:14px 26px; margin-top:26px;
     padding-top:22px; border-top:1px solid var(--hairline); }
-  .h-notes h3{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--lilac);
+  .h-notes h3{ font-size:var(--fs-caption); letter-spacing:.14em; text-transform:uppercase; color:var(--lilac);
     font-weight:500; margin-bottom:10px; }
-  .h-notes li{ list-style:none; font-size:13.5px; font-weight:200; color:var(--silver);
+  .h-notes li{ list-style:none; font-size:var(--fs-sm); font-weight:200; color:var(--silver);
     line-height:1.5; margin-bottom:8px; padding-left:15px; position:relative; }
   .h-notes li:before{ content:''; position:absolute; left:0; top:8px; width:5px; height:5px;
     border-radius:50%; background:var(--iris); }
@@ -96,39 +88,36 @@
     padding:20px; background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }
   .modal.on{ display:flex; }
   .modal .box{ width:min(94vw,440px); background:var(--sheet); border:1px solid var(--hairline);
-    border-radius:24px; padding:26px; }
-  .modal h3{ font-weight:400; font-size:21px; margin-bottom:6px; }
-  .modal p.m-sub{ font-size:13px; color:var(--ash); font-weight:200; margin-bottom:18px; }
+    border-radius:var(--r-lg); padding:26px; }
+  .modal h3{ font-weight:400; font-size:var(--fs-h3); margin-bottom:6px; }
+  .modal p.m-sub{ font-size:var(--fs-sm); color:var(--ash); font-weight:200; margin-bottom:18px; }
   .modal input, .modal textarea{ width:100%; background:rgba(255,255,255,.05);
-    border:1px solid var(--hairline); border-radius:14px; padding:12px 16px; color:var(--bone);
-    font-family:inherit; font-weight:200; font-size:15px; margin-bottom:12px; }
+    border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 16px; color:var(--bone);
+    font-family:inherit; font-weight:200; font-size:var(--fs-body); margin-bottom:12px; }
   .modal textarea{ min-height:100px; resize:vertical; }
   .m-btns{ display:flex; gap:10px; margin-top:6px; }
-  .m-btns button{ flex:1; min-height:46px; border:none; border-radius:24px; font-family:inherit;
-    font-weight:600; font-size:13px; letter-spacing:.1em; text-transform:uppercase; }
+  .m-btns button{ flex:1; min-height:46px; border:none; border-radius:var(--r-lg); font-family:inherit;
+    font-weight:600; font-size:var(--fs-sm); letter-spacing:.1em; text-transform:uppercase; }
   .m-btns .ok{ background:var(--iris); color:#fff; }
   .m-btns .no{ background:rgba(255,255,255,.06); color:var(--silver); }
 
   /* утренний брифинг поверх главной — только при первом входе за день */
   .modal .box.brief{ width:min(94vw,520px); max-height:88vh; overflow-y:auto; }
-  .b-date{ font-size:11px; letter-spacing:.15em; text-transform:uppercase; color:var(--lilac); margin-bottom:8px; }
-  .b-today{ font-size:16px; line-height:1.45; margin:14px 0 18px; }
+  .b-date{ font-size:var(--fs-caption); letter-spacing:.15em; text-transform:uppercase; color:var(--lilac); margin-bottom:8px; }
+  .b-today{ font-size:var(--fs-base); line-height:1.45; margin:14px 0 18px; }
   .b-nums{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
-  .b-nums div{ border:1px solid var(--hairline); border-radius:14px; padding:12px 14px; }
-  .b-nums .k{ font-size:11px; color:var(--ash); }
-  .b-nums .v{ font-size:19px; font-weight:400; margin-top:3px; font-variant-numeric:tabular-nums; }
-  .b-att{ font-size:14px; color:var(--saffron); margin-bottom:14px; }
+  .b-nums div{ border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px; }
+  .b-nums .k{ font-size:var(--fs-caption); color:var(--ash); }
+  .b-nums .v{ font-size:var(--fs-lead); font-weight:400; margin-top:3px; font-variant-numeric:tabular-nums; }
+  .b-att{ font-size:var(--fs-body); color:var(--saffron); margin-bottom:14px; }
   .b-att:empty{ display:none; }
-  .b-advice{ font-size:14.5px; color:var(--silver); border-left:2px solid var(--iris);
+  .b-advice{ font-size:var(--fs-body); color:var(--silver); border-left:2px solid var(--iris);
     padding-left:14px; margin-bottom:20px; }
   .b-advice:empty{ display:none; }
 
   /* на невысоких экранах ноутбуков сводка всё равно должна помещаться целиком */
   @media(min-width:1001px) and (max-height:800px){
-    body main{ padding-top:92px; }
     /* ядро уступает место чату: на 720px иначе поле ввода уходит за экран */
-    #coreStage{ padding:16px 0 6px; }
-    .core-square{ width:min(76%,480px,50vh); }
     .log{ max-height:150px; }
   }
 
@@ -137,9 +126,6 @@
     .facts{ width:100%; } }
   @media(max-width:620px){
     /* на телефоне ядро тоже крупное, но чат должен оставаться в первом экране */
-    body main{ padding-top:96px; }
-    #coreStage{ padding:20px 0 6px; }
-    .core-square{ width:min(78%,320px,34vh); }
     .log{ padding:16px; } .ask{ padding:14px 16px; }
     /* чипов стало на один больше — на телефоне листаем их вбок, а не переносим строкой */
     .roles{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
@@ -147,13 +133,11 @@
     .role{ flex:none; min-height:44px; }
     .health{ padding:22px 20px; }
     .facts, .h-notes{ grid-template-columns:1fr; }
-    .ring{ width:124px; height:124px; } .ring .num{ font-size:34px; } }
+    .ring{ width:124px; height:124px; } .ring .num{ font-size:var(--fs-display); } }
 </style>
 <link rel="stylesheet" href="velor.css">
 </head>
 <body>
-
-<canvas id="ambientCanvas"></canvas>
 
 <main>
   <header class="v-head">
@@ -166,7 +150,7 @@
       </div>
     </div>
     <div class="v-acts">
-      <div class="pulse"><span class="dot"></span><span id="pulse">на связи</span></div>
+      <div class="v-pulse" data-velor-state aria-live="polite"></div>
       <a class="v-btn ghost" href="memory.html">Чему научить</a>
     </div>
   </header>
@@ -182,7 +166,6 @@
         <div class="emp-sub" id="empKnows">на связи</div>
       </div>
     </div>
-    <div id="coreStage"><div class="core-square"><canvas id="coreCanvas"></canvas></div></div>
     <div class="roles" id="roles" role="tablist" aria-label="AI-сотрудники">
       <button class="role active" data-role="assistant">Ассистент</button>
       <button class="role" data-role="sales">Продавец</button>
@@ -254,7 +237,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="core-live.js?v=10"></script>
+<script src="velor-state.js"></script>
 <script>
 let toastT;
 function toast(msg){
@@ -379,7 +362,7 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<'
     document.getElementById('state').innerHTML =
       '<span class="v-badge bad"><i></i>Нет связи с сервером</span>' +
       '<span>сотрудник ответить не сможет, пока сервер не отвечает</span>';
-    document.getElementById('pulse').textContent = 'офлайн';
+    if (window.VELOR_CORE) window.VELOR_CORE.setState('error');
     document.getElementById('failZone').innerHTML =
       '<div class="v-fail"><div><div class="t">Сервер не отвечает</div>' +
       '<div class="d">Сотрудник не сможет ответить, пока нет связи. ' +
@@ -392,7 +375,7 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<'
   if (d.business.ai_name) {
     document.getElementById('empName').innerHTML =
       esc(d.business.ai_name) + ' <span class="emp-role">· AI-сотрудник</span>';
-    document.getElementById('pulse').textContent = esc(d.business.ai_name) + ' на связи';
+    if (window.VELOR_CORE) window.VELOR_CORE.setState('idle');
   }
   if (d.business.ai_avatar) document.getElementById('empBadge').textContent = d.business.ai_avatar;
   document.getElementById('empKnows').textContent = 'Знает бизнес на ' + d.health + ' из 100';

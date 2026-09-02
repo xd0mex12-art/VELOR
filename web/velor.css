@@ -20,11 +20,20 @@
      единой мелкой шкалы и аккуратных деталей, а не от эффектов.
      ============================================================ */
 
-  /* — цвет — */
-  --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
+  /* — цвет —
+     Ни один оттенок бренда не менялся: ирис, бирюза, янтарь, коралл те же.
+     Сведены только нейтрали. Чистый #000 на чистом #fff — самый быстрый признак
+     «цвет никто не выбирал»: у продукта нет ни температуры, ни глубины, а белый
+     текст на абсолютно чёрном режет глаз на длинной сессии. Поэтому фон — почти
+     чёрный с холодным подмесом, текст — почти белый, а серые уведены в тот же
+     холод, что и ирис: тогда весь кабинет читается как одна палитра. */
+  --void:#08080b; --bone:#f4f4f7; --ash:#8f8fa0; --silver:#b6b6c4;
   --iris:#8052ff; --lilac:#a99cff; --saffron:#ffb829; --verdant:#2fd4b2;
   --coral:#ff6b6b; --magenta:#ff4fd8;
-  --iris-1:#8052ff; --iris-2:#5b6cff;           /* градиент бренда */
+
+  /* Смысловые имена поверх фирменных. Страница says «получилось» и «риск»,
+     а не «verdant» и «coral»: цвет должен читаться как состояние. */
+  --ok:var(--verdant); --warn:var(--saffron); --bad:var(--coral); --info:var(--lilac);
   /* Светлые «чернила» бренда: текст поверх цветной подложки. Раньше эти
      оттенки жили хексом внутри страниц, из-за чего один и тот же тег
      «риск» отличался по цвету на разных вкладках. */
@@ -49,32 +58,49 @@
   --r-lg:20px;           /* карточки, панели — базовый радиус */
   --r-xl:26px;           /* крупные «геройские» поверхности, модалки */
   --r-pill:999px;        /* кнопки-таблетки, статусы */
-  --radius:var(--r-lg);  /* обратная совместимость со старым --radius */
 
-  /* — тени (сдержанная лестница, без «резины») — */
+  /* — тени —
+     Тень означает расстояние до поверхности, а не мягкость. Три ступени, больше
+     не нужно. Свечения в шкале нет намеренно: сиреневый ореол, надетый на всё
+     подряд, перестаёт быть акцентом и становится шумом. Фокус показываем
+     кольцом --ring, а не ореолом. */
   --shadow-1:0 1px 2px rgba(0,0,0,.35);
   --shadow-2:0 18px 50px -22px rgba(0,0,0,.7);
   --shadow-pop:0 24px 60px rgba(0,0,0,.6);
-  --glow-iris:0 0 24px rgba(128,82,255,.35);
 
   /* — отступы (шаг 4pt) — */
   --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px;
   --sp-6:24px; --sp-8:32px; --sp-10:40px; --sp-12:48px; --sp-16:64px;
 
-  /* — типографика — */
-  --fs-caption:12px; --fs-sm:13px; --fs-body:15px; --fs-base:17px;
-  --fs-lead:19px; --fs-h3:22px; --fs-h2:28px;
+  /* — типографика —
+     Шкала закрыта. Раньше по страницам ходили 9.5 / 12.5 / 13.5 / 14.5 / 15.5 /
+     16.5 / 17.5px — это читается не как решение, а как случайность. Ступеней
+     ровно столько, сколько ролей у текста, и ни одной «на всякий случай». */
+  --fs-micro:10px;        /* метка-микрокапс: uppercase + трекинг */
+  --fs-caption:12px;      /* источник числа, время */
+  --fs-sm:13px;           /* пояснение */
+  --fs-body:15px;         /* тело в плотных списках */
+  --fs-base:17px;         /* тело */
+  --fs-lead:19px;         /* строка-объект в списке */
+  --fs-h3:20px;           /* раздел внутри страницы */
+  --fs-h2:24px;           /* крупный раздел */
+  --fs-h1:26px;           /* название страницы — служебное, не витрина */
+  --fs-display:clamp(30px,3.4vw,42px);  /* один на экран и только если экран о числе */
   --lh-tight:1.15; --lh:1.55;
   --fw-thin:200; --fw-reg:400; --fw-med:500; --fw-semi:600;
+  --track-micro:.16em;    /* единственный трекинг в продукте */
 
   /* — движение (один ритм на весь продукт) — */
   --ease:cubic-bezier(.22,1,.36,1);
-  --dur:.25s; --dur-fast:.15s;
+  --dur:.25s; --dur-fast:.15s; --dur-slow:.45s;
 
   /* — раскладка — */
   --page:1120px;          /* одна ширина контента на все вкладки */
-  --top:132px;            /* отступ под общей шапкой */
+  --measure:68ch;         /* ширина читаемого текста: 60–75 знаков */
+  --gutter:24px;          /* боковое поле */
+  --top:132px;            /* запасное значение; настоящее меряет nav.js в --vn-h */
 }
+@media(max-width:760px){ :root{ --gutter:18px; } }
 
 body{
   background:var(--void); color:var(--bone);
@@ -82,43 +108,62 @@ body{
   font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden;
 }
 
-/* рамка страницы */
-main{
+/* Рамка страницы.
+   Селектор намеренно «body main», а не «main»: страницы исторически писали
+   именно так, и velor.css подключается после — иначе их старые 104px победили
+   бы. Верхний отступ считается от ИЗМЕРЕННОЙ высоты шапки: она зависит от
+   загрузки шрифта, масштаба и длины названия бизнеса, поэтому любое число,
+   вписанное руками, однажды разойдётся с настоящим. Место под вторую строку
+   навигации резервирует .vn-spacer в потоке — здесь его прибавлять не нужно. */
+body main{
   position:relative; z-index:1;
   max-width:var(--page); margin:0 auto;
-  padding:var(--top) 24px 96px;
+  padding:calc(var(--vn-h,77px) + var(--sp-8)) var(--gutter) 96px;
 }
-@media(max-width:760px){ main{ padding:112px 18px 72px; } }
+@media(max-width:760px){ body main{ padding-bottom:72px; } }
 
 /* Страницы делятся на два типа, но рамка у них одна: заголовок, отступы и левый
    край везде совпадают. Разница только в ширине колонки контента —
    таблицы и сетки используют всю ширину, текст и формы — читаемые 780px. */
 body.narrow main > *{ max-width:780px; }
 
-/* заголовок вкладки */
+/* Название вкладки.
+   Раньше оно занимало 56px и было самым крупным на экране. Но название —
+   единственное, что владелец уже знает: он только что нажал этот пункт меню,
+   и пункт подсвечен. Крупным должно быть то, что изменилось, а не то, где я
+   нахожусь. Поэтому заголовок сведён к служебной строке, а освободившееся
+   место отдано состоянию дел. */
 .label{
   display:inline-block;
-  font-weight:600; font-size:12.5px; letter-spacing:.18em; text-transform:uppercase;
-  color:var(--lilac); margin-bottom:10px;
+  font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:var(--track-micro);
+  text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2);
 }
-h1, .hi{
-  font-weight:400; font-size:clamp(32px,4.4vw,56px); line-height:1.1;
-  letter-spacing:-0.035em; margin:0 0 12px;
+h1{
+  font-weight:var(--fw-reg); font-size:var(--fs-h1); line-height:1.15;
+  letter-spacing:-0.02em; margin:0 0 var(--sp-2);
 }
-.hi b{ font-weight:500; color:#c9bfff; }
+/* .hi — единственный «крупный» заголовок в кабинете: приветствие на главной.
+   Он крупный не ради вида, а потому что это единственный экран, где первая
+   строка обращена к человеку, а не к делу. */
+.hi{
+  font-weight:var(--fw-reg); font-size:var(--fs-display); line-height:1.1;
+  letter-spacing:-0.03em; margin:0 0 var(--sp-3);
+}
+.hi b{ font-weight:var(--fw-med); color:var(--lilac-2); }
 .lead, .sub{
-  color:var(--silver); font-weight:200; font-size:17px;
-  max-width:640px; margin:0 0 42px;
+  color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-body);
+  line-height:1.5; max-width:var(--measure); margin:0 0 var(--sp-6);
 }
-.caption{ font-weight:200; font-size:12px; color:var(--ash); }
+.caption{ font-weight:var(--fw-thin); font-size:var(--fs-caption); color:var(--ash); }
 .num{ font-variant-numeric:tabular-nums; }
 
-/* заголовок секции внутри страницы */
+/* Метка-микрокапс — единственный декоративный приём в продукте, и он же
+   служебный: показывает, что ниже начинается новый смысловой блок. */
 .sec-h{
-  font-weight:600; font-size:11.5px; letter-spacing:.2em; text-transform:uppercase;
-  color:var(--ash); margin-bottom:16px;
+  font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:var(--track-micro);
+  text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
 }
-section{ margin-bottom:40px; }
+section{ margin-bottom:var(--sp-10); }
 
 /* всплывающее уведомление — одинаковое везде */
 #toast{
@@ -229,8 +274,11 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-head{ display:grid; grid-template-columns:1fr auto; align-items:end;
   gap:var(--sp-4) var(--sp-6); margin-bottom:var(--sp-6); }
 .v-head h1{ margin:0; }
-.v-head .v-lead{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-base);
-  max-width:60ch; margin:var(--sp-3) 0 0; }
+/* Пояснение под названием — это справка, а не содержимое экрана. Раньше оно шло
+   тем же кеглем, что и данные, и три строки объяснения занимали столько же
+   внимания, сколько цифры под ними. Оставляем его читаемым, но тише. */
+.v-head .v-lead{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-body);
+  line-height:1.5; max-width:var(--measure); margin:var(--sp-2) 0 0; }
 /* Ссылка внутри пояснения должна выглядеть ссылкой: страницы задают
    a{color:inherit}, и без этого правила переход между разделами не виден. */
 .v-head .v-lead a{ color:var(--lilac); border-bottom:1px solid rgba(169,156,255,.35); }
@@ -264,12 +312,33 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-btn.ghost{ background:var(--surface-2); border-color:var(--hairline-2); color:var(--silver); }
 .v-btn.ghost:hover{ background:var(--surface-3); color:var(--bone); filter:none; }
 .v-btn.sm{ min-height:40px; padding:9px 18px; font-size:var(--fs-sm); }
-.v-btn.danger{ background:transparent; border-color:rgba(255,107,107,.4); color:#ff9b9b; }
+.v-btn.danger{ background:transparent; border-color:rgba(255,107,107,.4); color:var(--ink-coral); }
 .v-btn.danger:hover{ background:rgba(255,107,107,.12); filter:none; }
+/* Третья роль: действие внутри строки списка. Рамка там мешает — строк много,
+   и каждая обведённая кнопка превращает список в сетку коробок. */
+.v-btn.quiet{ background:none; border-color:transparent; color:var(--ash);
+  padding:9px 10px; min-height:40px; font-weight:var(--fw-med); font-size:var(--fs-sm); }
+.v-btn.quiet:hover{ color:var(--bone); background:var(--surface-2); filter:none; }
+
+/* Состояние сотрудника — точка и слово.
+   Заменило трёхмерное «ядро»: смысл тот же, но он читается, а не угадывается
+   по свечению. Цвет здесь всегда продублирован словом. */
+.v-pulse{ display:inline-flex; align-items:center; gap:7px; white-space:nowrap;
+  font-weight:var(--fw-thin); font-size:var(--fs-sm); color:var(--ash); }
+.v-pulse i{ width:7px; height:7px; border-radius:50%; background:currentColor; flex:none; }
+.v-pulse.calm{ color:var(--ok); }
+.v-pulse.work{ color:var(--lilac); }
+.v-pulse.warn{ color:var(--warn); }
+.v-pulse.bad{ color:var(--bad); }
+.v-pulse span{ color:var(--ash); }
+.v-pulse.warn span, .v-pulse.bad span{ color:var(--silver); }
 
 /* — цифры экрана: одинаковая карточка везде, где есть KPI — */
 .v-kpi{ display:grid; grid-template-columns:repeat(4,1fr); gap:var(--sp-4); }
 .v-kpi.three{ grid-template-columns:repeat(3,1fr); }
+/* Шесть чисел в четыре колонки давали сиротский ряд из двух карточек и двух
+   дыр. Три колонки читаются как два ровных ряда. */
+.v-kpi.six{ grid-template-columns:repeat(3,1fr); }
 .v-kpi > *{ border:1px solid var(--hairline); border-radius:var(--r-lg); background:var(--surface);
   padding:var(--sp-5) var(--sp-6); min-height:128px; display:flex; flex-direction:column;
   transition:border-color var(--dur), background var(--dur); }
@@ -360,8 +429,19 @@ a.v-row:hover .t{ color:var(--bone); }
   overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; border:0; }
 
 /* появление контента — один раз, обновления идут без прыжков */
-.v-in{ opacity:0; transform:translateY(10px); animation:velorIn .45s var(--ease) forwards; }
+.v-in{ opacity:0; transform:translateY(10px); animation:velorIn var(--dur-slow) var(--ease) forwards; }
 @keyframes velorIn{ to{ opacity:1; transform:none } }
+
+/* Выключить анимацию — не то же самое, что спрятать содержимое.
+   Глобальное `animation:none !important` ниже останавливало velorIn на первом
+   кадре, и элемент навсегда оставался с opacity:0 — целые разделы просто
+   исчезали у всех, кто включил «уменьшить движение». Возвращаем конечное
+   состояние явно. */
+@media(prefers-reduced-motion: reduce){
+  .v-in,
+  main .rec, main .idea, main .entry, main .opp, main .risk, main .ev{
+    opacity:1 !important; transform:none !important; }
+}
 
 /* ===== переходы между разделами =====
    Раньше здесь был кросс-документный кроссфейд (@view-transition: navigation:auto).
@@ -372,3 +452,85 @@ a.v-row:hover .t{ color:var(--bone); }
    фоном html/body это полностью убирает вспышку.
    Плавность при желании можно вернуть JS-фейдом контента (без смены документа). */
 html{ background:var(--void); }
+
+/* ============================================================
+   ФОРМА — один набор на весь продукт
+   Аудит показал: подпись поля на разных вкладках была то 10px капсом, то 13px
+   обычным, то её не было вовсе и роль подписи играл placeholder. Подсказка под
+   полем встречалась в четырёх видах, ошибка — в трёх. Здесь описан один набор:
+   подпись → поле → подсказка → ошибка. Placeholder подписью не работает: он
+   исчезает ровно тогда, когда человек начал печатать и уже не помнит, чего
+   от него хотели.
+   ============================================================ */
+.v-field{ display:block; margin-bottom:var(--sp-5); }
+.v-label{ display:block; font-weight:var(--fw-med); font-size:var(--fs-sm);
+  color:var(--silver); margin-bottom:var(--sp-2); }
+.v-label .req{ color:var(--warn); margin-left:4px; }
+.v-field input, .v-field textarea, .v-field select{
+  width:100%; background:var(--surface-2); border:1px solid var(--hairline);
+  color:var(--bone); font-size:var(--fs-base); padding:12px 16px; }
+.v-field input::placeholder, .v-field textarea::placeholder{ color:var(--ash); }
+/* Подсказка стоит всегда, а не только пока поле пустое. */
+.v-hint{ display:block; margin-top:var(--sp-2); font-size:var(--fs-sm);
+  font-weight:var(--fw-thin); color:var(--ash); line-height:1.45; }
+/* Ошибка — рядом с полем, а не общим списком наверху: иначе непонятно, какое
+   именно поле чинить. */
+.v-err{ display:block; margin-top:var(--sp-2); font-size:var(--fs-sm);
+  font-weight:var(--fw-reg); color:var(--ink-coral); line-height:1.45; }
+.v-field.bad input, .v-field.bad textarea, .v-field.bad select{
+  border-color:rgba(255,107,107,.5); }
+.v-field.bad input:focus, .v-field.bad textarea:focus{
+  box-shadow:0 0 0 3px rgba(255,107,107,.14); border-color:var(--bad); }
+
+/* ============================================================
+   МЕТКА СОСТОЯНИЯ ОБЪЕКТА
+   Одна метка на все списки. Цвет никогда не единственный носитель смысла —
+   внутри всегда слово.
+   ============================================================ */
+.v-tag{ display:inline-flex; align-items:center; gap:6px;
+  font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:var(--track-micro);
+  text-transform:uppercase; padding:4px 10px; border-radius:var(--r-pill);
+  background:var(--surface-2); color:var(--silver); white-space:nowrap; }
+.v-tag.ok{   background:rgba(47,212,178,.14); color:var(--ink-verdant); }
+.v-tag.warn{ background:rgba(255,184,41,.14); color:var(--ink-saffron); }
+.v-tag.bad{  background:rgba(255,107,107,.16); color:var(--ink-coral); }
+.v-tag.info{ background:rgba(128,82,255,.18); color:var(--ink-iris); }
+
+/* ============================================================
+   ONE DOOR — приём материала
+   Главный вход в продукт, поэтому состояния описаны здесь, а не разложены по
+   веткам скрипта. Правило одно: каждое состояние говорит, что стало с данными.
+   «Не получилось» без «данные не изменены» — недоделанное состояние.
+   ============================================================ */
+.v-door{ border:1px dashed var(--hairline-2); border-radius:var(--r-xl);
+  background:var(--surface); padding:var(--sp-6);
+  transition:border-color var(--dur), background var(--dur); }
+.v-door[data-state="dragging"]{ border-style:solid; border-color:var(--iris);
+  background:var(--tint-iris); }
+.v-door[data-state="sending"], .v-door[data-state="processing"],
+.v-door[data-state="done"], .v-door[data-state="review"],
+.v-door[data-state="duplicate"], .v-door[data-state="failed"]{ border-style:solid; }
+
+/* Строка отчёта о том, что произошло с переданным. Живёт под полем и меняет
+   только цвет полосы слева — форма и место остаются, поэтому взгляд не ищет
+   ответ заново. */
+.v-door-say{ display:flex; align-items:flex-start; gap:var(--sp-3);
+  margin-top:var(--sp-4); padding:var(--sp-3) var(--sp-4);
+  border-left:2px solid var(--hairline-2); border-radius:0 var(--r-sm) var(--r-sm) 0;
+  background:var(--surface-2); font-size:var(--fs-body); line-height:1.5; }
+.v-door-say[hidden]{ display:none; }
+.v-door-say .t{ font-weight:var(--fw-reg); color:var(--bone); }
+.v-door-say .d{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+  margin-top:3px; }
+.v-door-say a{ color:var(--lilac); }
+.v-door-say.work{  border-left-color:var(--iris); }
+.v-door-say.done{  border-left-color:var(--ok); }
+.v-door-say.review{ border-left-color:var(--warn); }
+.v-door-say.dup{   border-left-color:var(--hairline-2); }
+.v-door-say.fail{  border-left-color:var(--bad); }
+
+/* ============================================================
+   ТАБЛИЦА — спокойная, а не «каждая строка — карточка»
+   ============================================================ */
+.v-tablewrap{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.v-tablewrap table{ min-width:520px; }

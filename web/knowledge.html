@@ -16,22 +16,30 @@
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
-
-  body main{ padding-top:104px; padding-bottom:80px; }
   section{ margin-bottom:var(--sp-8); }
-  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
     display:flex; align-items:baseline; gap:var(--sp-2); }
   .sec-h .n{ color:var(--lilac); }
 
   /* карта памяти: разделы и виды знаний внутри них */
+  /* Группы разной длины: в «Компании» одна строка, в «Деньгах» три. По
+     умолчанию grid растягивает все карточки ряда по самой высокой, и короткая
+     превращается в коробку с одной строкой наверху и пустотой под ней —
+     ровно то, из-за чего карта знаний читалась как набор пустых карточек.
+     align-items:start даёт каждой карточке её собственную высоту. */
   .map{ display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
-    gap:var(--sp-4); }
+    gap:var(--sp-4); align-items:start; }
   .grp{ border:1px solid var(--hairline); border-radius:var(--r-lg);
     background:var(--surface); padding:var(--sp-5); }
-  .grp > .gt{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .grp > .gt{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
-  .kind{ width:100%; display:flex; align-items:baseline; gap:var(--sp-3);
+  /* Название и число стоят в строку, приписка об источнике — под ними.
+     Перенос обязателен: у .src ниже flex-basis:100%, и без flex-wrap эта
+     строка не переносится, а сжимает соседей до нуля — название, число и
+     приписка наезжают друг на друга. */
+  .kind{ width:100%; display:flex; flex-wrap:wrap; align-items:baseline;
+    gap:var(--sp-1) var(--sp-3);
     padding:var(--sp-3) 0; border:none; border-bottom:1px solid var(--hairline);
     background:none; color:inherit; text-align:left; min-height:48px;
     transition:color var(--dur-fast); }
@@ -90,7 +98,7 @@
   .rel + .rel{ margin-top:var(--sp-3); }
   .rel > .h{ display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap;
     margin-bottom:var(--sp-2); }
-  .rel > .h .t{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .rel > .h .t{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); }
   .rel > .h .n{ font-size:var(--fs-caption); color:var(--lilac); }
   .rel > .h .hint{ font-size:var(--fs-caption); color:var(--ash); flex-basis:100%; }
@@ -108,12 +116,12 @@
     border:1px solid var(--hairline); }
   .node .via.auto{ color:var(--ink-iris); }
   .node .cut{ flex:none; width:44px; height:44px; border:none; background:none;
-    color:var(--ash); font-size:18px; line-height:1; border-radius:var(--r-sm); }
+    color:var(--ash); font-size:var(--fs-lead); line-height:1; border-radius:var(--r-sm); }
   .node .cut:hover{ color:var(--ink-coral); background:var(--surface-2); }
   .relform{ display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-top:var(--sp-3); }
   .relform select{ flex:1; min-width:150px; min-height:48px; background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
-    color:var(--bone); font-family:inherit; font-size:16px; appearance:none; }
+    color:var(--bone); font-family:inherit; font-size:var(--fs-base); appearance:none; }
 
   /* карточка знания */
   .modal{ position:fixed; inset:0; z-index:80; display:none; align-items:center;
@@ -129,7 +137,7 @@
   @media(max-width:560px){ .modal .foot .close{ margin-left:0; width:100%; } }
 
   .blk{ margin-top:var(--sp-6); }
-  .blk > h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .blk > h3{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
 
   /* цепочка: источник → что извлекли → запись */
@@ -157,12 +165,12 @@
 
   /* форма правки — те же поля, что у настоящей записи */
   .edit{ display:grid; gap:var(--sp-3); }
-  .edit .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px;
+  .edit .fld label{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-caption);
     letter-spacing:.14em; text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
   .edit .fld label .req{ color:var(--ink-coral); margin-left:4px; }
   .edit input, .edit select{ width:100%; min-height:48px; background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
-    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:16px; }
+    color:var(--bone); font-family:inherit; font-weight:var(--fw-thin); font-size:var(--fs-base); }
   .edit input.dirty{ border-color:var(--saffron); }
   .edit .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
   .edit .was{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--saffron); }
@@ -183,7 +191,7 @@
   .ev .chg b{ color:var(--saffron); font-weight:var(--fw-reg); }
 
   #toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,20px);
-    background:#141414; border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    background:var(--sheet); border:1px solid var(--hairline-2); border-radius:var(--r-pill);
     padding:12px 22px; font-size:var(--fs-sm); opacity:0; pointer-events:none;
     transition:opacity var(--dur), transform var(--dur); z-index:120; max-width:92vw; }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
@@ -273,7 +281,6 @@
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
 <script src="velor-form.js"></script>
-<script src="core-live.js?v=11"></script>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const plural = (n, one, few, many) => {

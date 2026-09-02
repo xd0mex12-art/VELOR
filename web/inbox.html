@@ -15,19 +15,17 @@
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
-
-  body main{ padding-top:104px; padding-bottom:80px; }
   section{ margin-bottom:var(--sp-8); }
-  .sec-h{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
     display:flex; align-items:baseline; gap:var(--sp-2); }
   .sec-h .n{ color:var(--lilac); }
 
   /* ── единое окно приёма ── */
-  .drop{ position:relative; border:1px dashed var(--hairline-2); border-radius:var(--r-xl);
-    background:var(--surface); padding:var(--sp-8) var(--sp-6);
-    transition:border-color var(--dur), background var(--dur); }
-  .drop.over{ border-color:var(--lilac); background:var(--tint-iris); }
+  /* Рамка, фон и состояния приёма живут в velor.css (.v-door): это главный
+     вход в продукт, и его состояния должны быть частью системы, а не набором
+     веток внутри одной страницы. Здесь остаётся только наполнение. */
+  .drop{ padding:var(--sp-8) var(--sp-6); }
   .drop .big{ font-size:var(--fs-h3); font-weight:var(--fw-reg); letter-spacing:-.025em;
     line-height:1.2; }
   .drop .small{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash);
@@ -37,7 +35,7 @@
     background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm); padding:14px 16px;
     color:var(--bone); font-family:inherit; font-weight:var(--fw-thin);
-    font-size:16px; line-height:1.55; resize:vertical; }
+    font-size:var(--fs-base); line-height:1.55; resize:vertical; }
   .drop textarea:focus-visible{ outline:2px solid var(--ring); outline-offset:2px;
     border-color:transparent; }
   .drop .row{ margin-top:var(--sp-4); display:flex; gap:var(--sp-3); flex-wrap:wrap; }
@@ -53,7 +51,7 @@
   .chip .nm{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .chip .sz{ color:var(--ash); font-variant-numeric:tabular-nums; flex:none; }
   .chip button{ flex:none; width:28px; height:28px; border-radius:50%; border:0;
-    background:transparent; color:var(--ash); font-size:16px; line-height:1;
+    background:transparent; color:var(--ash); font-size:var(--fs-base); line-height:1;
     cursor:pointer; transition:color var(--dur-fast), background var(--dur-fast); }
   .chip button:hover{ color:var(--bone); background:var(--surface-3); }
   .chip button:focus-visible{ outline:2px solid var(--ring); outline-offset:1px; }
@@ -85,7 +83,7 @@
   .item:last-child{ border-bottom:none; }
   .item .ic{ width:40px; height:40px; flex:none; border-radius:var(--r-sm);
     background:var(--surface-2); display:flex; align-items:center; justify-content:center;
-    font-size:11px; font-weight:var(--fw-semi); letter-spacing:.04em; color:var(--lilac);
+    font-size:var(--fs-caption); font-weight:var(--fw-semi); letter-spacing:.04em; color:var(--lilac);
     text-transform:uppercase; overflow:hidden; }
   .item .ic img{ width:100%; height:100%; object-fit:cover; display:block; }
   .item .txt{ flex:1; min-width:0; }
@@ -97,7 +95,7 @@
   .item .acts{ display:flex; align-items:center; gap:var(--sp-1); flex:none; }
   .item .acts button, .item .acts a{ width:44px; height:44px; display:flex;
     align-items:center; justify-content:center; border:none; background:none;
-    color:var(--ash); border-radius:var(--r-sm); font-size:15px;
+    color:var(--ash); border-radius:var(--r-sm); font-size:var(--fs-body);
     transition:color var(--dur-fast), background var(--dur-fast); }
   .item .acts button:hover, .item .acts a:hover{ color:var(--bone); background:var(--surface-2); }
   .item .acts .rm:hover{ color:var(--coral); background:rgba(255,107,107,.1); }
@@ -107,7 +105,7 @@
 
   /* статус — словом и цветом сразу */
   .st-tag{ display:inline-flex; align-items:center; gap:6px; padding:3px 9px;
-    border-radius:var(--r-pill); font-size:10px; font-weight:var(--fw-semi);
+    border-radius:var(--r-pill); font-size:var(--fs-micro); font-weight:var(--fw-semi);
     letter-spacing:.1em; text-transform:uppercase; background:var(--surface-2); color:var(--ash); }
   .st-tag i{ width:6px; height:6px; border-radius:50%; background:currentColor; flex:none; }
   .st-RECEIVED{ color:var(--lilac); }
@@ -117,12 +115,14 @@
   .st-FAILED{ color:var(--ink-coral); }
 
   /* ── «VELOR понял» ── */
-  .got-card{ margin-top:var(--sp-5); border:1px solid rgba(128,82,255,.28);
-    background:linear-gradient(150deg,rgba(128,82,255,.12),rgba(255,255,255,.02));
+  /* Разбор VELOR — та же полоса слева, что и на «Финансах» и на главной:
+     один приём означает «это сказал сотрудник», где бы он ни встретился. */
+  .got-card{ margin-top:var(--sp-5); border:1px solid var(--hairline);
+    border-left:2px solid var(--iris); background:var(--surface);
     border-radius:var(--r-lg); padding:var(--sp-5); }
   .got-card .cap{ display:flex; align-items:center; gap:var(--sp-3);
     flex-wrap:wrap; margin-bottom:var(--sp-3); }
-  .got-card .cap b{ font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+  .got-card .cap b{ font-weight:var(--fw-semi); font-size:var(--fs-caption); letter-spacing:.16em;
     text-transform:uppercase; color:var(--lilac); }
   .got-card .what{ font-size:var(--fs-lead); font-weight:var(--fw-reg); letter-spacing:-.02em; }
   .got-card .why{ margin-top:var(--sp-2); font-size:var(--fs-body);
@@ -162,13 +162,13 @@
 
   /* форма правки: те же поля, что у настоящей записи */
   .confirm-form{ margin-top:var(--sp-3); display:grid; gap:var(--sp-3); }
-  .confirm-form .fld label{ display:block; font-weight:var(--fw-semi); font-size:11px;
+  .confirm-form .fld label{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-caption);
     letter-spacing:.14em; text-transform:uppercase; color:var(--ash); margin-bottom:6px; }
   .confirm-form .fld label .req{ color:var(--ink-coral); margin-left:4px; }
   .confirm-form input, .confirm-form select{ width:100%; min-height:48px;
     background:var(--surface-2); border:1px solid var(--hairline); border-radius:var(--r-sm);
     padding:12px 14px; color:var(--bone); font-family:inherit;
-    font-weight:var(--fw-thin); font-size:16px; }
+    font-weight:var(--fw-thin); font-size:var(--fs-base); }
   .confirm-form .fld .hint{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
   /* поле, которое человек уже изменил, — видно, что правка не потерялась */
   .confirm-form input.dirty{ border-color:var(--saffron); }
@@ -184,7 +184,7 @@
 
   /* история решений */
   .story{ margin-top:var(--sp-5); }
-  .story > h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .story > h3{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
   .ev{ display:flex; gap:var(--sp-3); padding:var(--sp-3) 0;
     border-bottom:1px solid var(--hairline); }
@@ -207,7 +207,7 @@
     gap:var(--sp-2); flex-wrap:wrap; font-size:var(--fs-sm); color:var(--silver); }
   .got-line .tag{ display:inline-flex; align-items:center; gap:5px; padding:2px 8px;
     border-radius:var(--r-pill); background:rgba(128,82,255,.16); color:var(--ink-iris);
-    font-size:10px; font-weight:var(--fw-semi); letter-spacing:.08em; text-transform:uppercase; }
+    font-size:var(--fs-micro); font-weight:var(--fw-semi); letter-spacing:.08em; text-transform:uppercase; }
   .got-line .dot{ width:6px; height:6px; border-radius:50%; flex:none; }
   .got-line.lv-HIGH .dot{ background:var(--verdant); }
   .got-line.lv-MEDIUM .dot{ background:var(--saffron); }
@@ -238,7 +238,6 @@
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   @media(max-width:560px){
-    body main{ padding-top:92px; }
     .drop{ padding:var(--sp-6) var(--sp-4); }
     .drop .row > *{ flex:1 1 auto; }
     .v-segs{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin:0 -18px; padding:0 18px; }
@@ -246,6 +245,10 @@
     .v-seg{ flex:none; }
   }
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+  /* Иконка кнопки — инлайновый SVG одного размера и одной толщины
+     обводки. Раньше здесь стоял глиф из шрифта: он выглядит по-разному
+     в каждой системе и не подчиняется токенам. */
+  .open svg{ width:16px; height:16px; display:block; }
 </style>
 <link rel="stylesheet" href="velor.css">
 </head>
@@ -256,8 +259,8 @@
     <div>
       <h1>Входящие</h1>
       <p class="v-lead">Одно место для всего, что касается бизнеса. Не нужно решать,
-        «это финансы или клиенты» — бросьте сюда заметку, скриншот, счёт, выписку
-        или прайс. VELOR сохранит оригинал и разберётся позже.</p>
+        «это финансы или клиенты» — бросьте сюда что есть. VELOR сохранит оригинал,
+        разберёт и покажет, что понял и что из этого изменилось.</p>
       <div class="v-state" id="state" aria-live="polite">
         <span class="v-badge calm"><i></i>Открываю ящик…</span>
       </div>
@@ -273,10 +276,15 @@
        что человек и говорит одной фразой — «вот прайс, цены с сентября».
        Ни одного выбора типа: разбираться, что прислали, — работа VELOR. -->
   <section>
-    <div class="drop" id="drop">
-      <h2 class="big">Расскажите VELOR о вашем бизнесе</h2>
-      <p class="small" id="dropHint">Отправьте текст, фото, документ, таблицу или
-        просто напишите сообщение. VELOR сам разберётся.</p>
+    <div class="drop v-door" id="drop" data-state="empty">
+      <!-- Заголовок здесь не «расскажите о вашем бизнесе»: это звучало как
+           первый шаг знакомства, а страница нужна каждый день. Формулировка
+           должна работать и на пятый месяц — когда рассказывать о бизнесе уже
+           нечего, а прайс, чек и заметка приходят по-прежнему. -->
+      <h2 class="big">Передать VELOR</h2>
+      <p class="small" id="dropHint">Прайс, чек, выписка, скриншот переписки,
+        заметка на ходу — что угодно. Разбираться, что это и куда положить, —
+        его работа, а не ваша.</p>
 
       <label for="noteText" class="v-sr-only">Что рассказать VELOR</label>
       <textarea id="noteText" maxlength="20000"
@@ -290,6 +298,7 @@
       </div>
       <div class="small hint" id="noteCount">Перетащите файлы сюда или вставьте
         скриншот из буфера (Ctrl+V). Принимаем изображения, PDF, Word, Excel, CSV и текст.</div>
+      <div class="v-door-say" id="doorSay" role="status" aria-live="polite" hidden></div>
       <input type="file" id="fileInput" multiple hidden>
     </div>
 
@@ -481,7 +490,7 @@ function itemHTML(it){
         ${gotLine(it.result)}
       </div>
       <div class="acts">
-        <button class="open" type="button" title="Открыть" aria-label="Открыть «${esc(it.title || 'материал')}»">👁</button>
+        <button class="open" type="button" title="Открыть" aria-label="Открыть «${esc(it.title || 'материал')}»"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg></button>
         <button class="arch" type="button" title="${it.archived_at ? 'Вернуть в ленту' : 'В архив'}"
           aria-label="${it.archived_at ? 'Вернуть из архива' : 'Убрать в архив'}">${it.archived_at ? '↩' : '⇩'}</button>
         <button class="rm" type="button" title="Удалить" aria-label="Удалить «${esc(it.title || 'материал')}»">×</button>
@@ -517,7 +526,7 @@ function gotCard(it, res){
   const left = (res.suggested_actions || []).filter(a => !doneNames.has(a.action) && a.entity);
 
   const doneHTML = applied.map(a =>
-    `<div class="done">✓ ${esc(a.detail || a.action)}${a.auto ? ' — VELOR сделал сам'
+    `<div class="done">${esc(a.detail || a.action)}${a.auto ? ' — VELOR сделал сам'
       : (a.edited ? ' — с вашими правками' : '')}</div>`).join('');
 
   // Низкая уверенность — действий не предлагаем вовсе. Вместо них просим
@@ -710,7 +719,33 @@ async function load(reset, waitAttempt = 0){
 // отдельно от прайса. Поэтому файлы сначала прикрепляются — человек видит,
 // что именно уйдёт, — и только потом отправляются вместе с текстом.
 const drop = document.getElementById('drop');
+const doorSay = document.getElementById('doorSay');
 const fileInput = document.getElementById('fileInput');
+
+// Состояния приёма. Их семь, и они описаны в дизайн-системе, потому что это
+// главный вход в продукт: человек должен видеть не «идёт запрос», а что стало
+// с тем, что он отдал. Правило одно — «не получилось» всегда сопровождается
+// «данные не изменены», иначе состояние недоделано.
+const DOOR = {
+  empty:      null,
+  dragging:   null,
+  sending:    ['work',   'Передаю…',                  'Файлы уходят вместе с заметкой — одной отправкой.'],
+  processing: ['work',   'VELOR разбирается…',        'Читает, что прислали, и решает, куда это положить.'],
+  done:       ['done',   'Понял. Вот что изменилось', 'Разбор появился ниже — там видно, что он понял и что записал.'],
+  review:     ['review', 'Нужна ваша проверка',       'Часть присланного он разобрать не смог — что именно, видно в списке ниже.'],
+  duplicate:  ['dup',    'Это уже было передано',     'Разбор по нему сделан раньше — открыть его можно в списке ниже.'],
+  failed:     ['fail',   'Не удалось разобрать',      'Данные не изменены. Можно поправить файл и передать снова.']
+};
+
+function door(state, note){
+  drop.dataset.state = state;
+  const d = DOOR[state];
+  if (!d){ doorSay.hidden = true; return; }
+  doorSay.hidden = false;
+  doorSay.className = 'v-door-say ' + d[0];
+  doorSay.innerHTML = '<div><div class="t">' + esc(d[1]) + '</div><div class="d">'
+    + esc(note || d[2]) + '</div></div>';
+}
 const chipsEl = document.getElementById('chips');
 const sendBtn = document.getElementById('sendBtn');
 const noteText = document.getElementById('noteText');
@@ -779,6 +814,7 @@ async function send(){
 
   const wasLabel = sendBtn.textContent;
   sendBtn.disabled = true; sendBtn.textContent = 'Передаю…';
+  door('sending');
   const fail = why => {
     rows.forEach(el => { el.className = 'q bad'; el.querySelector('.st').textContent = why; });
     if (noteRow){ noteRow.className = 'q bad'; noteRow.querySelector('.st').textContent = why; }
@@ -786,6 +822,7 @@ async function send(){
   try{
     const r = await fetch('/api/inbox/intake', { method: 'POST', body: fd });
     if (r.status === 402){
+      door('failed', 'Пробный период завершён — приём новых материалов остановлен. Данные не изменены.');
       fail('пробный период завершён');
       toast('Пробный период завершён — приём новых материалов остановлен');
       return;
@@ -793,6 +830,7 @@ async function send(){
     if (!r.ok){
       let why = 'сервер отказал';
       try{ const e = await r.json(); if (e.detail) why = e.detail; }catch{}
+      door('failed', why[0].toUpperCase() + why.slice(1) + '. Данные не изменены.');
       fail(why);
       return;
     }
@@ -825,14 +863,22 @@ async function send(){
 
     if ((d.accepted || []).length){
       noteText.value = ''; attached = []; paintChips();
+      door('processing');
+      // load(true) внутри дожидается конца разбора (waitForParsing), поэтому
+      // «Понял» мы говорим по факту разбора, а не по факту ответа сети.
       await load(true);
+      door((d.rejected || []).length ? 'review' : 'done');
     } else if ((d.duplicates || []).length && !(d.rejected || []).length){
       noteText.value = ''; attached = []; paintChips();
+      door('duplicate');
+    } else if ((d.rejected || []).length){
+      door('failed', 'Ничего из присланного разобрать не вышло. Данные не изменены.');
     }
     // Принятое уже видно в ленте — строку убираем; повторы и отказы остаются,
     // иначе человек не узнает, что именно не прошло и почему.
     setTimeout(() => queueEl.querySelectorAll('.q.good').forEach(el => el.remove()), 2600);
   }catch{
+    door('failed', 'Нет связи с сервером. Данные не изменены — попробуйте ещё раз.');
     fail('нет связи с сервером');
   }finally{
     sendBtn.textContent = wasLabel; refreshSend();
@@ -849,10 +895,10 @@ fileInput.addEventListener('change', e => { attach(e.target.files); e.target.val
 ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
   document.addEventListener(ev, e => { e.preventDefault(); }, false);
 });
-drop.addEventListener('dragover', () => drop.classList.add('over'));
-drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('dragover', () => door('dragging'));
+drop.addEventListener('dragleave', () => door('empty'));
 drop.addEventListener('drop', e => {
-  drop.classList.remove('over');
+  door('empty');
   if (e.dataTransfer && e.dataTransfer.files.length) attach(e.dataTransfer.files);
 });
 

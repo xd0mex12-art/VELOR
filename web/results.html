@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Результаты</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Результаты — последний шаг работы VELOR: то, что владелец уносит наружу.
+     Экран отвечает по порядку: что можно сделать → на каких данных → что
+     получилось → куда это скачать. Никакой отдельной «красоты»: скелет,
+     кнопки, состояния и цвета берутся из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+  section{ margin-bottom:var(--sp-8); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
+
+  /* ── что можно собрать ── */
+  /* Видов работы четыре. При auto-fill они вставали как «три в ряд и один
+     сиротой» — самая узнаваемая раскладка по умолчанию. Две колонки дают
+     ровные два ряда и вдвое больше места описанию: человек выбирает по
+     тому, что там написано, а не по тому, что карточка красивая. */
+  .kinds{ display:grid; grid-template-columns:repeat(2,1fr); gap:var(--sp-4); }
+  @media(max-width:760px){ .kinds{ grid-template-columns:1fr; } }
+  .kind{ text-align:left; border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5); transition:border-color var(--dur),
+    background var(--dur); display:flex; flex-direction:column; gap:var(--sp-2); }
+  .kind:hover{ border-color:var(--hairline-2); background:var(--surface-2); }
+  .kind[aria-pressed="true"]{ border-color:var(--iris); background:var(--tint-iris); }
+  .kind .g{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--lilac); }
+  .kind .t{ font-weight:var(--fw-med); font-size:var(--fs-base); color:var(--bone); }
+  .kind .a{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    line-height:1.45; }
+
+  /* ── форма запроса ── */
+  .form{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-6); margin-top:var(--sp-4); }
+  .form .fl{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    margin:0 0 var(--sp-2); }
+  .form .fld{ margin-bottom:var(--sp-5); }
+  .form select, .form input[type=text], .form textarea{
+    width:100%; min-height:46px; padding:12px 14px; border-radius:var(--r-sm);
+    border:1px solid var(--hairline-2); background:var(--surface-2);
+    color:var(--bone); font-family:inherit; font-size:var(--fs-body); font-weight:200; }
+  .form textarea{ min-height:78px; resize:vertical; }
+  .form select:focus, .form input:focus, .form textarea:focus{
+    outline:none; border-color:var(--ring); }
+  .form .row{ display:flex; gap:var(--sp-3); flex-wrap:wrap; align-items:center; }
+  .form .hint{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    margin-top:var(--sp-3); }
+
+  /* ── история ── */
+  .out{ display:flex; align-items:flex-start; gap:var(--sp-3); padding:var(--sp-4) 0;
+    border-bottom:1px solid var(--hairline); }
+  .out:last-child{ border-bottom:none; }
+  .out .body{ flex:1; min-width:0; }
+  .out .t{ font-weight:var(--fw-reg); font-size:var(--fs-body); }
+  .out .d{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    margin-top:3px; }
+  .out .acts{ display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+  .tag{ display:inline-block; padding:3px 10px; border-radius:var(--r-pill);
+    background:var(--tint-iris); color:var(--ink-iris); font-size:var(--fs-caption);
+    letter-spacing:.08em; text-transform:uppercase; font-weight:var(--fw-semi); }
+
+  /* ── просмотр документа ── */
+  .modal{ position:fixed; inset:0; z-index:120; display:none; align-items:flex-start;
+    justify-content:center; padding:var(--sp-6); overflow-y:auto;
+    background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }
+  .modal.open{ display:flex; }
+  .modal .box{ width:100%; max-width:780px; margin:auto; border-radius:var(--r-xl);
+    border:1px solid var(--hairline-2); background:var(--sheet); padding:var(--sp-8); }
+  .doc h2{ font-weight:var(--fw-med); font-size:var(--fs-h2); letter-spacing:-.02em; }
+  .doc .subtitle{ color:var(--silver); font-size:var(--fs-base); margin-top:4px; }
+  .doc .meta{ color:var(--ash); font-size:var(--fs-sm); margin-top:var(--sp-2); }
+  .doc .blk{ margin-top:var(--sp-6); }
+  .doc .blk h3{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
+  .doc .kv{ display:grid; grid-template-columns:minmax(140px,38%) 1fr; gap:var(--sp-2) var(--sp-4); }
+  .doc .kv .k{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm); }
+  .doc .kv .v{ font-size:var(--fs-body); }
+  .doc .scroll{ overflow-x:auto; }
+  .doc table{ width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
+  .doc th{ text-align:left; color:var(--ash); font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:.14em; text-transform:uppercase; padding:0 var(--sp-3) var(--sp-2) 0;
+    border-bottom:1px solid var(--hairline); white-space:nowrap; }
+  .doc td{ padding:var(--sp-2) var(--sp-3) var(--sp-2) 0;
+    border-bottom:1px solid var(--hairline); vertical-align:top; }
+  .doc .body-text{ white-space:pre-line; font-size:var(--fs-body); line-height:1.6; }
+  .doc .note{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    margin-top:var(--sp-2); }
+  /* Догадка модели рисуется иначе, чем посчитанное: одинаковый вид означал бы,
+     что владелец не может отличить расчёт от предположения. */
+  .doc .guess{ border-left:2px solid var(--saffron); padding-left:var(--sp-4); }
+  .doc .guess .cap{ color:var(--ink-saffron); font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:.16em; text-transform:uppercase; margin-bottom:var(--sp-2); }
+  .doc .src{ margin-top:var(--sp-8); padding-top:var(--sp-4);
+    border-top:1px solid var(--hairline); color:var(--ash);
+    font-weight:var(--fw-thin); font-size:var(--fs-sm); }
+  .doc .foot{ display:flex; gap:var(--sp-3); flex-wrap:wrap; margin-top:var(--sp-6); }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:130;
+    background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone);
+    font-size:var(--fs-body); padding:14px 26px; border-radius:var(--r-pill);
+    opacity:0; pointer-events:none; transition:var(--dur); }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:760px){
+    .doc .kv{ grid-template-columns:1fr; gap:2px var(--sp-4); }
+    .doc .kv .k{ margin-top:var(--sp-3); }
+    .modal{ padding:var(--sp-3); }
+    .modal .box{ padding:var(--sp-5); }
+    .out{ flex-direction:column; }
+  }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Результаты</h1>
+      <p class="v-lead">Отчёты, документы и письма — из ваших настоящих данных.
+        Все цифры считает база; если что-то добавил ИИ, это подписано отдельно.</p>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+
+  <section>
+    <h2 class="sec-h">Что собрать</h2>
+    <div class="kinds" id="kinds"><div class="v-sk"></div><div class="v-sk"></div></div>
+    <div id="formZone"></div>
+  </section>
+
+  <section>
+    <h2 class="sec-h">Готовое <span class="n" id="cnt"></span></h2>
+    <div id="list"><div class="v-sk row"></div><div class="v-sk row"></div></div>
+    <button class="v-btn ghost" id="more" style="display:none;margin:var(--sp-6) auto 0">Показать ещё</button>
+  </section>
+</main>
+
+<div class="modal" id="view" role="dialog" aria-modal="true" aria-labelledby="vTitle">
+  <div class="box"><div class="doc" id="doc"></div></div>
+</div>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+function size(n){
+  n = Number(n) || 0;
+  if (n < 1024) return n + ' Б';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' КБ';
+  return (n / 1024 / 1024).toFixed(1) + ' МБ';
+}
+function when(iso){
+  const d = new Date(String(iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+let toastT;
+function toast(m){
+  const t = document.getElementById('toast');
+  t.textContent = m; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3400);
+}
+
+const PAGE = 20;
+let KINDS = [], picked = null, clients = [], orders = [];
+let offset = 0, total = 0, aiOn = false;
+
+// ── что можно собрать ──
+function kindHTML(k){
+  return `<button class="kind" type="button" data-k="${esc(k.id)}"
+      aria-pressed="${picked === k.id}">
+    <span class="g">${esc(k.group)}</span>
+    <span class="t">${esc(k.title)}</span>
+    <span class="a">${esc(k.about)}</span>
+  </button>`;
+}
+
+// ── форма под выбранный вид ──
+// Поля описывает сервер (outputs.KINDS), фронт их не придумывает: иначе
+// добавление нового результата требовало бы правки в двух местах, и одно из
+// них однажды забыли бы.
+function fieldHTML(f){
+  const id = 'f_' + f.name;
+  if (f.type === 'choice'){
+    return `<div class="fld"><label class="fl" for="${id}">${esc(f.title)}</label>
+      <select id="${id}" data-n="${esc(f.name)}">${
+        (f.choices || []).map(c =>
+          `<option value="${esc(c.value)}"${c.value === f.default ? ' selected' : ''}>${esc(c.title)}</option>`
+        ).join('')}</select></div>`;
+  }
+  if (f.type === 'client' || f.type === 'order'){
+    const src = f.type === 'client' ? clients : orders;
+    const opts = src.map(o => `<option value="${o.id}">${esc(o.label)}</option>`).join('');
+    return `<div class="fld"><label class="fl" for="${id}">${esc(f.title)}${
+        f.optional ? ' — необязательно' : ''}</label>
+      <select id="${id}" data-n="${esc(f.name)}">
+        <option value="">${f.type === 'client' ? 'Без адресата' : 'Без заявки'}</option>
+        ${opts}</select>
+      ${!src.length ? `<div class="hint">${f.type === 'client'
+        ? 'В базе пока нет клиентов.' : 'В базе пока нет заявок.'}</div>` : ''}</div>`;
+  }
+  return `<div class="fld"><label class="fl" for="${id}">${esc(f.title)}${
+      f.optional ? ' — необязательно' : ''}</label>
+    <textarea id="${id}" data-n="${esc(f.name)}" maxlength="400"
+      placeholder="${esc(f.placeholder || '')}"></textarea></div>`;
+}
+
+function paintForm(){
+  const zone = document.getElementById('formZone');
+  if (!picked){ zone.innerHTML = ''; return; }
+  const k = KINDS.find(x => x.id === picked);
+  if (!k){ zone.innerHTML = ''; return; }
+  zone.innerHTML = `<div class="form">
+    ${(k.params || []).map(fieldHTML).join('')}
+    <div class="row">
+      <button class="v-btn" type="button" id="run">Собрать</button>
+      <button class="v-btn ghost" type="button" id="cancel">Отмена</button>
+    </div>
+    <div class="hint">${k.file === 'pdf'
+      ? 'Получится PDF: цифры из вашей базы, дата сборки и список источников внутри.'
+      : 'Получится черновик текста. Отправлять его VELOR не будет — почтового канала у него нет.'}${
+      aiOn ? '' : ' ИИ сейчас недоступен — соберём по вашим данным, без комментария.'}</div>
+  </div>`;
+  document.getElementById('cancel').addEventListener('click', () => {
+    picked = null; paintKinds(); paintForm();
+  });
+  document.getElementById('run').addEventListener('click', run);
+}
+
+function paintKinds(){
+  document.getElementById('kinds').innerHTML = KINDS.map(kindHTML).join('');
+}
+
+async function run(e){
+  const btn = e.currentTarget;
+  const params = {};
+  document.querySelectorAll('#formZone [data-n]').forEach(el => {
+    const v = (el.value || '').trim();
+    if (v !== '') params[el.dataset.n] = /^\d+$/.test(v) ? Number(v) : v;
+  });
+  btn.disabled = true; btn.textContent = 'Собираю…';
+  try{
+    const r = await fetch('/api/outputs', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ kind: picked, params }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не получилось собрать результат.'); return; }
+    picked = null; paintKinds(); paintForm();
+    await load(true);
+    show(d.item);
+  }catch{
+    toast('Сервер не ответил — попробуйте ещё раз.');
+  }finally{
+    btn.disabled = false; btn.textContent = 'Собрать';
+  }
+}
+
+// ── история ──
+function outHTML(o){
+  const file = o.has_file
+    ? `<button class="v-btn ghost sm dl" type="button" data-id="${o.id}">Скачать PDF</button>` : '';
+  return `<div class="out" data-id="${o.id}">
+    <div class="body">
+      <div class="t">${esc(o.title)}${o.subtitle ? ' — ' + esc(o.subtitle) : ''}</div>
+      <div class="d">${esc(when(o.created_at))} · ${esc(o.engine_ru)}${
+        o.has_file ? ' · ' + esc(size(o.file_size)) : ''}</div>
+    </div>
+    <div class="acts">
+      <span class="tag">${esc(o.kind_title)}</span>
+      <button class="v-btn ghost sm open" type="button" data-id="${o.id}">Открыть</button>
+      ${file}
+      <button class="v-btn ghost sm rm" type="button" data-id="${o.id}">Удалить</button>
+    </div>
+  </div>`;
+}
+
+async function load(reset){
+  const listEl = document.getElementById('list');
+  if (reset){ offset = 0; listEl.innerHTML = '<div class="v-sk row"></div>'; }
+  try{
+    const d = await (await fetch(`/api/outputs?limit=${PAGE}&offset=${offset}`)).json();
+    document.getElementById('failZone').innerHTML = '';
+    total = d.total || 0;
+    document.getElementById('cnt').textContent = total || '';
+    if (reset) listEl.innerHTML = '';
+    if (!total){
+      listEl.innerHTML = `<div class="v-empty"><strong>Пока ничего не собрано</strong>
+        Выберите наверху, что нужно, — VELOR соберёт это из ваших данных.</div>`;
+      document.getElementById('more').style.display = 'none';
+      return;
+    }
+    (d.items || []).forEach(o => listEl.insertAdjacentHTML('beforeend', outHTML(o)));
+    offset += (d.items || []).length;
+    document.getElementById('more').style.display = offset < total ? 'block' : 'none';
+  }catch{
+    if (reset){
+      listEl.innerHTML = '';
+      document.getElementById('failZone').innerHTML =
+        `<div class="v-fail"><div><div class="t">Результаты не загрузились</div>
+          <div class="d">Сервер не ответил. Уже собранное цело.</div></div>
+          <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+      document.getElementById('retry').addEventListener('click', () => load(true));
+    }
+  }
+}
+
+// ── просмотр ──
+function blockHTML(b){
+  const head = b.title ? `<h3>${esc(b.title)}</h3>` : '';
+  const note = b.note && b.type !== 'inference'
+    ? `<div class="note">${esc(b.note)}</div>` : '';
+  if (b.type === 'kv'){
+    return `<div class="blk">${head}<div class="kv">${
+      (b.rows || []).map(([k, v]) =>
+        `<div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>`).join('')
+    }</div>${note}</div>`;
+  }
+  if (b.type === 'table'){
+    return `<div class="blk">${head}<div class="scroll"><table>
+      <thead><tr>${(b.columns || []).map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+      <tbody>${(b.rows || []).map(r =>
+        `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>${note}</div>`;
+  }
+  if (b.type === 'inference'){
+    return `<div class="blk"><div class="guess">
+      <div class="cap">Догадка ИИ, не расчёт</div>
+      <div class="body-text">${esc(b.body)}</div>
+      <div class="note">${esc(b.note)}</div></div></div>`;
+  }
+  return `<div class="blk">${head}<div class="body-text">${esc(b.body)}</div>${note}</div>`;
+}
+
+function show(o){
+  const d = o.doc || {};
+  const meta = (d.meta || []).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' · ');
+  const copy = o.body
+    ? `<button class="v-btn ghost" type="button" id="copy">Скопировать текст</button>` : '';
+  const dl = o.has_file
+    ? `<button class="v-btn" type="button" id="dl" data-id="${o.id}">Скачать PDF</button>` : '';
+  document.getElementById('doc').innerHTML = `
+    <h2 id="vTitle">${esc(d.title || o.title)}</h2>
+    ${d.subtitle ? `<div class="subtitle">${esc(d.subtitle)}</div>` : ''}
+    ${meta ? `<div class="meta">${esc(meta)}</div>` : ''}
+    ${(d.blocks || []).map(blockHTML).join('')}
+    <div class="src">Источник данных: ${esc((d.sources || []).join(', ') || 'данные бизнеса в VELOR')}.
+      ${esc(o.engine === 'llm'
+        ? 'Цифры посчитаны базой, текст и комментарий написал ИИ.'
+        : 'Собрано только по вашим данным, без ИИ.')}</div>
+    <div class="foot">${dl}${copy}
+      <button class="v-btn ghost" type="button" id="close">Закрыть</button></div>`;
+  document.getElementById('view').classList.add('open');
+  document.getElementById('close').addEventListener('click', hide);
+  if (o.body) document.getElementById('copy').addEventListener('click', async () => {
+    try{ await navigator.clipboard.writeText(o.body); toast('Текст скопирован'); }
+    catch{ toast('Браузер не дал доступ к буферу — выделите текст вручную.'); }
+  });
+  if (o.has_file) document.getElementById('dl').addEventListener('click', () => download(o.id));
+}
+
+function hide(){ document.getElementById('view').classList.remove('open'); }
+document.getElementById('view').addEventListener('click', e => {
+  if (e.target.id === 'view') hide();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+
+// Файл отдаётся только по токену в заголовке, поэтому прямой ссылкой его не
+// открыть: качаем запросом и отдаём браузеру уже готовые байты.
+async function download(id){
+  try{
+    const r = await fetch(`/api/outputs/${id}/file`);
+    if (!r.ok){ toast('Файл не отдался — возможно, он потерян в хранилище.'); return; }
+    const name = decodeURIComponent(
+      (r.headers.get('Content-Disposition') || '').split("filename*=UTF-8''")[1] || 'velor.pdf');
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click();
+    a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }catch{ toast('Не удалось скачать файл.'); }
+}
+
+document.getElementById('kinds').addEventListener('click', e => {
+  const b = e.target.closest('.kind'); if (!b) return;
+  picked = (picked === b.dataset.k) ? null : b.dataset.k;
+  paintKinds(); paintForm();
+  if (picked) document.getElementById('formZone').scrollIntoView({ block:'nearest', behavior:'smooth' });
+});
+
+document.getElementById('list').addEventListener('click', async e => {
+  const btn = e.target.closest('button'); if (!btn) return;
+  const id = btn.dataset.id;
+  if (btn.classList.contains('dl')) return download(id);
+  if (btn.classList.contains('open')){
+    try{
+      const d = await (await fetch('/api/outputs/' + id)).json();
+      show(d.item);
+    }catch{ toast('Не удалось открыть.'); }
+    return;
+  }
+  if (btn.classList.contains('rm')){
+    if (!confirm('Удалить результат вместе с файлом?')) return;
+    const r = await fetch(`/api/outputs/${id}/delete`, { method:'POST' });
+    if (r.ok){ toast('Удалено'); load(true); } else toast('Не удалось удалить.');
+  }
+});
+
+document.getElementById('more').addEventListener('click', () => load(false));
+
+(async () => {
+  try{
+    const d = await (await fetch('/api/outputs/kinds')).json();
+    KINDS = d.kinds || []; aiOn = !!d.ai;
+    paintKinds();
+  }catch{
+    document.getElementById('kinds').innerHTML =
+      '<div class="v-empty"><strong>Список не загрузился</strong>Сервер не ответил.</div>';
+  }
+  // Справочники для полей «клиент» и «заявка». Тянем один раз: без них форма
+  // заставляла бы владельца вспоминать номер заявки наизусть.
+  try{
+    const c = await (await fetch('/api/clients?limit=200')).json();
+    clients = (c.items || c.clients || []).map(x => ({
+      id: x.id, label: (x.name || 'без имени') + (x.phone ? ' · ' + x.phone : '') }));
+  }catch{}
+  try{
+    const o = await (await fetch('/api/orders?limit=100')).json();
+    orders = (o.items || []).map(x => ({
+      id: x.id, label: '№' + x.id + ' · ' + String(x.text || '').slice(0, 46) }));
+  }catch{}
+  load(true);
+})();
+</script>
+</body>
+</html>

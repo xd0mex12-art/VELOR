@@ -3,232 +3,190 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#08080b">
 <title>VELOR AI — Вход в кабинет</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{
-    --void:#000; --ink:#07070a; --bone:#fff; --ash:#9a9a9a; --silver:#c9c9d2;
-    --iris:#8052ff; --iris-soft:#a98bff; --verdant:#2fd4b2; --rose:#ff5fb0;
-    --hairline:rgba(255,255,255,.08); --hairline-2:rgba(255,255,255,.14);
-    --glass:rgba(255,255,255,.045); --glass-2:rgba(255,255,255,.03);
-    --shadow:0 40px 120px -40px rgba(0,0,0,.9);
-    --r-lg:26px; --r-md:18px; --r-sm:14px;
-    --ease:cubic-bezier(.22,.61,.36,1);
-  }
+  /* ВХОД В КАБИНЕТ
+     Это первый экран, который видит владелец бизнеса, и до сих пор он жил вне
+     дизайн-системы: своя палитра, свои радиусы, своё движение. Здесь было три
+     плывущих размытых «орба», сетка-вуаль с радиальной маской, виньетка,
+     градиентный текст заголовка, стеклянные карточки с blur(30px) и кнопка с
+     сиреневым ореолом. Ни один из этих приёмов не относится к VELOR — они
+     относятся к тому, как выглядит интерфейс, собранный вокруг слова «AI».
+     Осталась композиция (рассказ слева, вход справа) — она хорошая — и
+     ушло всё, что её украшало. Токены берутся из velor.css. */
   *{ margin:0; padding:0; box-sizing:border-box; }
   html,body{ height:100%; }
-  body{
-    background:var(--void); color:var(--bone);
-    font-family:'Inter',ui-sans-serif,system-ui,sans-serif; font-weight:200;
-    min-height:100dvh; overflow-x:hidden; -webkit-font-smoothing:antialiased;
-    line-height:1.5; position:relative;
-  }
+  body{ min-height:100dvh; overflow-x:hidden; -webkit-font-smoothing:antialiased; }
   a{ color:inherit; text-decoration:none; }
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.35); }
-  :focus-visible{ outline:2px solid var(--iris-soft); outline-offset:3px; border-radius:8px; }
 
-  /* ── Живой фон: мягкие AI-орбы + виньетка ─────────────────────────── */
-  .aura{ position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden; }
-  .orb{ position:absolute; border-radius:50%; filter:blur(90px); opacity:.5;
-    will-change:transform; }
-  .orb.a{ width:60vmax; height:60vmax; left:-18vmax; top:-22vmax;
-    background:radial-gradient(circle at 30% 30%, rgba(128,82,255,.55), transparent 62%);
-    animation:drift1 26s var(--ease) infinite alternate; }
-  .orb.b{ width:46vmax; height:46vmax; right:-14vmax; bottom:-16vmax;
-    background:radial-gradient(circle at 60% 40%, rgba(47,212,178,.32), transparent 60%);
-    animation:drift2 32s var(--ease) infinite alternate; }
-  .orb.c{ width:34vmax; height:34vmax; right:16vw; top:-10vmax;
-    background:radial-gradient(circle at 50% 50%, rgba(255,95,176,.18), transparent 60%);
-    animation:drift3 38s var(--ease) infinite alternate; }
-  .grid-veil{ position:fixed; inset:0; z-index:0; pointer-events:none;
-    background-image:linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
-    background-size:64px 64px;
-    mask-image:radial-gradient(circle at 50% 40%, #000 0%, transparent 72%);
-    -webkit-mask-image:radial-gradient(circle at 50% 40%, #000 0%, transparent 72%); }
-  .vignette{ position:fixed; inset:0; z-index:0; pointer-events:none;
-    background:radial-gradient(120% 90% at 50% 0%, transparent 40%, rgba(0,0,0,.65) 100%); }
-
-  @keyframes drift1{ to{ transform:translate3d(6vw,4vh,0) scale(1.12); } }
-  @keyframes drift2{ to{ transform:translate3d(-5vw,-3vh,0) scale(1.08); } }
-  @keyframes drift3{ to{ transform:translate3d(-3vw,5vh,0) scale(1.15); } }
-
-  /* ── Раскладка ────────────────────────────────────────────────────── */
-  .stage{ position:relative; z-index:1; min-height:100dvh;
+  /* Рамка страницы у велора рассчитана на кабинет с шапкой. Здесь шапки нет,
+     поэтому экран задаёт свою — селектор с .stage перебивает общий body main. */
+  body main.stage{ position:relative; z-index:1; min-height:100dvh;
     display:grid; grid-template-columns:1.04fr .96fr;
     grid-template-areas:"intro auth" "features auth";
-    align-content:center; gap:34px 64px;
-    max-width:1200px; margin:0 auto; padding:56px clamp(22px,5vw,72px); }
+    align-content:center; gap:var(--sp-8) var(--sp-16);
+    max-width:1200px; margin:0 auto;
+    padding:var(--sp-12) clamp(22px,5vw,72px); }
   .intro{ grid-area:intro; align-self:end; }
   .features{ grid-area:features; align-self:start; }
   .auth{ grid-area:auth; align-self:center; display:flex; justify-content:center; }
 
-  /* ── Логотип ──────────────────────────────────────────────────────── */
-  .brand{ display:inline-flex; align-items:center; gap:11px; margin-bottom:34px; }
-  .brand .mark{ width:34px; height:34px; border-radius:11px;
-    display:grid; place-items:center; background:linear-gradient(150deg,#1a1030,#0a0a12);
-    border:1px solid var(--hairline-2); box-shadow:0 0 22px rgba(128,82,255,.35) inset; }
-  .brand .word{ font-weight:500; font-size:19px; letter-spacing:.16em; }
-  .brand .word b{ font-weight:200; color:var(--ash); }
+  /* ── Логотип ── */
+  .brand{ display:inline-flex; align-items:center; gap:11px; margin-bottom:var(--sp-8); }
+  .brand .mark{ width:34px; height:34px; border-radius:var(--r-xs);
+    display:grid; place-items:center; background:var(--surface-2);
+    border:1px solid var(--hairline-2); }
+  .brand .word{ font-weight:var(--fw-med); font-size:var(--fs-lead); letter-spacing:.16em; }
+  .brand .word b{ font-weight:var(--fw-thin); color:var(--ash); }
 
-  .eyebrow{ display:inline-flex; align-items:center; gap:8px; margin-bottom:20px;
-    font-size:11px; font-weight:500; letter-spacing:.22em; text-transform:uppercase;
-    color:var(--iris-soft); }
-  .eyebrow .pulse{ width:7px; height:7px; border-radius:50%; background:var(--verdant);
-    box-shadow:0 0 0 0 rgba(47,212,178,.6); animation:pulse 2.6s ease-out infinite; }
-  @keyframes pulse{ 0%{ box-shadow:0 0 0 0 rgba(47,212,178,.55);} 70%{ box-shadow:0 0 0 9px rgba(47,212,178,0);} 100%{ box-shadow:0 0 0 0 rgba(47,212,178,0);} }
+  .eyebrow{ display:inline-flex; align-items:center; gap:var(--sp-2); margin-bottom:var(--sp-5);
+    font-size:var(--fs-caption); font-weight:var(--fw-med); letter-spacing:var(--track-micro);
+    text-transform:uppercase; color:var(--lilac); }
+  /* Точка не пульсирует: мигающий индикатор просит внимания там, где ничего
+     не происходит. Она просто есть — сервис работает. */
+  .eyebrow .pulse{ width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
 
-  .hero{ font-weight:300; font-size:clamp(38px,5.4vw,64px); line-height:1.02;
-    letter-spacing:-.035em; }
-  .hero .grad{ background:linear-gradient(100deg,#fff 10%,var(--iris-soft) 55%,var(--verdant));
-    -webkit-background-clip:text; background-clip:text; color:transparent; }
-  .lead{ margin-top:22px; max-width:30ch; color:var(--silver); font-size:clamp(15px,1.5vw,17px);
-    font-weight:200; line-height:1.6; }
+  .hero{ font-weight:var(--fw-reg); font-size:clamp(32px,4.4vw,52px); line-height:1.06;
+    letter-spacing:-.03em; }
+  /* Было: заливка текста градиентом белый→сиреневый→бирюзовый. Заголовок —
+     не витраж; выделяем вторую строку одним цветом бренда. */
+  .hero .grad{ color:var(--lilac); }
+  .lead{ margin-top:var(--sp-5); max-width:34ch; color:var(--silver);
+    font-size:var(--fs-base); font-weight:var(--fw-thin); line-height:1.6; }
 
-  .trust{ display:flex; flex-wrap:wrap; align-items:center; gap:9px 16px; margin-top:26px;
-    font-size:12.5px; color:var(--ash); }
+  .trust{ display:flex; flex-wrap:wrap; align-items:center; gap:9px var(--sp-4);
+    margin-top:var(--sp-6); font-size:var(--fs-caption); color:var(--ash); }
   .trust span{ display:inline-flex; align-items:center; gap:7px; }
   .trust .dot{ width:4px; height:4px; border-radius:50%; background:var(--hairline-2); }
 
-  /* ── Карточки возможностей ────────────────────────────────────────── */
-  .features{ display:grid; gap:12px; margin-top:6px; }
+  /* ── Что умеет ── */
+  .features{ display:grid; gap:var(--sp-3); margin-top:6px; }
   .feat{ display:flex; gap:15px; align-items:flex-start; padding:17px 19px;
     border:1px solid var(--hairline); border-radius:var(--r-md);
-    background:linear-gradient(180deg,var(--glass),var(--glass-2));
-    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
-    transition:transform .5s var(--ease), border-color .4s, background .4s; }
-  .feat:hover{ transform:translateY(-3px); border-color:rgba(128,82,255,.35);
-    background:linear-gradient(180deg,rgba(128,82,255,.08),var(--glass-2)); }
-  .feat .ico{ flex:none; width:40px; height:40px; border-radius:12px; display:grid; place-items:center;
-    color:var(--iris-soft); background:rgba(128,82,255,.1); border:1px solid rgba(128,82,255,.2); }
-  .feat.v .ico{ color:var(--verdant); background:rgba(47,212,178,.1); border-color:rgba(47,212,178,.22); }
+    background:var(--surface); transition:border-color var(--dur), background var(--dur); }
+  /* Подъём карточки под курсором был на всех трёх одинаковый — это и есть
+     «эффект ради эффекта». Достаточно того, что рамка отзывается. */
+  .feat:hover{ border-color:var(--hairline-2); background:var(--surface-2); }
+  .feat .ico{ flex:none; width:40px; height:40px; border-radius:var(--r-xs);
+    display:grid; place-items:center; color:var(--lilac); background:var(--tint-iris);
+    border:1px solid rgba(128,82,255,.2); }
+  .feat.v .ico{ color:var(--ok); background:rgba(47,212,178,.1); border-color:rgba(47,212,178,.22); }
   .feat .ico svg{ width:20px; height:20px; }
-  .feat h3{ font-weight:400; font-size:15px; letter-spacing:-.01em; }
-  .feat p{ margin-top:3px; font-size:13px; color:var(--ash); font-weight:200; line-height:1.5; }
+  .feat h3{ font-weight:var(--fw-reg); font-size:var(--fs-body); letter-spacing:-.01em; }
+  .feat p{ margin-top:3px; font-size:var(--fs-sm); color:var(--ash);
+    font-weight:var(--fw-thin); line-height:1.5; }
 
-  /* ── Карточка входа ───────────────────────────────────────────────── */
-  .card{ position:relative; width:min(100%,410px); padding:36px clamp(24px,3.4vw,38px) 30px;
-    border-radius:var(--r-lg); border:1px solid var(--hairline-2);
-    background:linear-gradient(180deg,rgba(22,22,30,.72),rgba(9,9,13,.72));
-    backdrop-filter:blur(30px) saturate(1.2); -webkit-backdrop-filter:blur(30px) saturate(1.2);
-    box-shadow:var(--shadow); overflow:hidden; }
-  .card::before{ content:""; position:absolute; inset:0 0 auto 0; height:1px;
-    background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent); opacity:.55; }
-  .card::after{ content:""; position:absolute; top:-40%; right:-30%; width:70%; height:70%;
-    background:radial-gradient(circle,rgba(128,82,255,.22),transparent 65%);
-    pointer-events:none; }
+  /* ── Карточка входа ──
+     Стекло имеет смысл, когда под ним что-то есть. Фон убран — значит убрано
+     и стекло: карточка стоит на плотной поверхности, тень отвечает за
+     расстояние до страницы. */
+  .card{ position:relative; width:min(100%,410px);
+    padding:var(--sp-8) clamp(24px,3.4vw,38px) var(--sp-6);
+    border-radius:var(--r-xl); border:1px solid var(--hairline-2);
+    background:var(--sheet); box-shadow:var(--shadow-pop); }
 
-  .card h1{ font-weight:400; font-size:25px; letter-spacing:-.02em; }
-  .card .csub{ margin-top:6px; color:var(--ash); font-size:14px; font-weight:200; }
+  .card h1{ font-weight:var(--fw-reg); font-size:var(--fs-h2); letter-spacing:-.02em; }
+  .card .csub{ margin-top:6px; color:var(--ash); font-size:var(--fs-body);
+    font-weight:var(--fw-thin); }
 
-  form{ margin-top:26px; display:flex; flex-direction:column; gap:15px; }
-  .field label{ display:block; font-size:11px; font-weight:500; letter-spacing:.12em;
-    text-transform:uppercase; color:var(--ash); margin-bottom:8px; }
+  form{ margin-top:var(--sp-6); display:flex; flex-direction:column; gap:var(--sp-4); }
+  .field label{ display:block; font-size:var(--fs-sm); font-weight:var(--fw-med);
+    color:var(--silver); margin-bottom:var(--sp-2); }
   .control{ position:relative; }
   .control .lead-ico{ position:absolute; left:15px; top:50%; transform:translateY(-50%);
-    width:18px; height:18px; color:var(--ash); pointer-events:none; transition:color .3s; }
-  .control input{ width:100%; min-height:52px; background:rgba(255,255,255,.04);
+    width:18px; height:18px; color:var(--ash); pointer-events:none;
+    transition:color var(--dur); }
+  .control input{ width:100%; min-height:52px; background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm);
-    padding:14px 46px 14px 44px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px;
-    transition:border-color .3s, box-shadow .3s, background .3s; }
-  .control input::placeholder{ color:#6a6a75; }
+    padding:14px 46px; color:var(--bone); font-family:inherit;
+    font-weight:var(--fw-thin); font-size:var(--fs-base);
+    transition:border-color var(--dur), box-shadow var(--dur), background var(--dur); }
+  .control input::placeholder{ color:var(--ash); }
   .control input:focus{ outline:none; border-color:var(--iris);
-    background:rgba(128,82,255,.06); box-shadow:0 0 0 4px rgba(128,82,255,.14); }
-  .control input:focus + .lead-ico, .control:focus-within .lead-ico{ color:var(--iris-soft); }
+    background:var(--tint-iris); box-shadow:0 0 0 3px var(--tint-iris); }
+  .control input:focus + .lead-ico, .control:focus-within .lead-ico{ color:var(--lilac); }
   .toggle{ position:absolute; right:8px; top:50%; transform:translateY(-50%);
     width:36px; height:36px; border:none; background:transparent; color:var(--ash);
-    border-radius:10px; display:grid; place-items:center; transition:color .2s, background .2s; }
-  .toggle:hover{ color:var(--bone); background:rgba(255,255,255,.06); }
+    border-radius:var(--r-xs); display:grid; place-items:center;
+    transition:color var(--dur-fast), background var(--dur-fast); }
+  .toggle:hover{ color:var(--bone); background:var(--surface-2); }
   .toggle svg{ width:19px; height:19px; }
 
   .row{ display:flex; align-items:center; justify-content:flex-end; margin-top:-4px; }
-  .link-quiet{ background:none; border:none; color:var(--ash); font-size:13px; padding:4px 2px;
-    transition:color .2s; }
-  .link-quiet:hover{ color:var(--iris-soft); }
+  .link-quiet{ background:none; border:none; color:var(--ash); font-size:var(--fs-sm);
+    padding:4px 2px; transition:color var(--dur-fast); }
+  .link-quiet:hover{ color:var(--bone); }
 
-  .hint{ max-height:0; overflow:hidden; opacity:0; font-size:13px; color:var(--silver);
-    line-height:1.55; border-left:2px solid rgba(128,82,255,.5); padding-left:0; margin-top:0;
-    transition:max-height .45s var(--ease), opacity .35s, padding .35s, margin .35s; }
+  .hint{ max-height:0; overflow:hidden; opacity:0; font-size:var(--fs-sm);
+    color:var(--silver); line-height:1.55; border-left:2px solid var(--iris);
+    padding-left:0; margin-top:0;
+    transition:max-height var(--dur-slow) var(--ease), opacity var(--dur), padding var(--dur), margin var(--dur); }
   .hint.on{ max-height:120px; opacity:1; padding-left:13px; margin-top:4px; }
 
-  .submit{ position:relative; width:100%; min-height:54px; margin-top:6px; border:none;
-    border-radius:var(--r-sm); color:#fff; font-weight:600; font-size:14px; letter-spacing:.12em;
-    text-transform:uppercase; overflow:hidden; isolation:isolate;
-    background:linear-gradient(100deg,#8052ff,#6a3ff0);
-    box-shadow:0 12px 34px -12px rgba(128,82,255,.8);
-    transition:transform .18s var(--ease), box-shadow .3s, filter .2s; }
-  .submit::before{ content:""; position:absolute; inset:0; z-index:-1; opacity:0;
-    background:linear-gradient(100deg,#9a74ff,#7b52ff); transition:opacity .3s; }
-  .submit:hover{ transform:translateY(-2px); box-shadow:0 18px 44px -12px rgba(128,82,255,.95); }
-  .submit:hover::before{ opacity:1; }
-  .submit:active{ transform:translateY(0) scale(.985); }
-  .submit:disabled{ opacity:.55; cursor:default; transform:none; box-shadow:none; }
+  /* Кнопка входа — та же первичная кнопка, что во всём продукте: заливка,
+     без градиента, без ореола и без подпрыгивания под курсором. */
+  .submit{ position:relative; width:100%; min-height:52px; margin-top:6px; border:none;
+    border-radius:var(--r-pill); background:var(--iris); color:#fff;
+    font-family:inherit; font-weight:var(--fw-semi); font-size:var(--fs-body);
+    letter-spacing:.01em; transition:filter var(--dur-fast), opacity var(--dur); }
+  .submit:hover{ filter:brightness(1.12); }
+  .submit:disabled{ opacity:.45; cursor:default; filter:none; }
   .submit .spin{ display:none; width:17px; height:17px; border:2px solid rgba(255,255,255,.35);
     border-top-color:#fff; border-radius:50%; vertical-align:-3px; margin-right:9px;
     animation:spin .7s linear infinite; }
   .submit.loading .spin{ display:inline-block; }
   @keyframes spin{ to{ transform:rotate(360deg); } }
 
-  .err{ min-height:20px; margin-top:2px; color:var(--rose); font-size:13.5px; font-weight:200;
-    display:flex; align-items:center; gap:7px; opacity:0; transform:translateY(-3px);
-    transition:opacity .3s, transform .3s; }
+  .err{ min-height:20px; margin-top:2px; color:var(--ink-coral); font-size:var(--fs-sm);
+    font-weight:var(--fw-thin); display:flex; align-items:center; gap:7px;
+    opacity:0; transform:translateY(-3px);
+    transition:opacity var(--dur), transform var(--dur); }
   .err.show{ opacity:1; transform:none; }
   .err svg{ width:15px; height:15px; flex:none; }
 
-  .divider{ display:flex; align-items:center; gap:14px; margin:24px 0 18px;
-    color:#5c5c66; font-size:12px; }
+  .divider{ display:flex; align-items:center; gap:var(--sp-3); margin:var(--sp-6) 0 var(--sp-5);
+    color:var(--ash); font-size:var(--fs-caption); }
   .divider::before, .divider::after{ content:""; flex:1; height:1px; background:var(--hairline); }
 
-  .alt{ text-align:center; font-size:14px; color:var(--ash); font-weight:200; }
-  .alt a{ color:var(--iris-soft); font-weight:400; transition:color .2s; }
-  .alt a:hover{ color:#fff; }
+  .alt{ text-align:center; font-size:var(--fs-body); color:var(--ash); font-weight:var(--fw-thin); }
+  .alt a{ color:var(--lilac); font-weight:var(--fw-reg); transition:color var(--dur-fast); }
+  .alt a:hover{ color:var(--bone); }
 
-  .card-foot{ margin-top:20px; padding-top:16px; border-top:1px solid var(--hairline);
-    display:flex; align-items:center; justify-content:center; gap:8px;
-    font-size:12px; color:#6a6a75; }
-  .card-foot svg{ width:14px; height:14px; color:var(--verdant); }
+  .card-foot{ margin-top:var(--sp-5); padding-top:var(--sp-4);
+    border-top:1px solid var(--hairline);
+    display:flex; align-items:center; justify-content:center; gap:var(--sp-2);
+    font-size:var(--fs-caption); color:var(--ash); }
+  .card-foot svg{ width:14px; height:14px; color:var(--ok); }
 
-  /* ── Адаптив ──────────────────────────────────────────────────────── */
   @media (max-width:960px){
-    .stage{ grid-template-columns:1fr; grid-template-areas:"intro" "auth" "features";
-      gap:30px; padding:40px 22px 48px; align-content:start; }
+    body main.stage{ grid-template-columns:1fr; grid-template-areas:"intro" "auth" "features";
+      gap:var(--sp-8); padding:var(--sp-10) 22px var(--sp-12); align-content:start; }
     .intro{ align-self:start; text-align:center; }
-    .brand{ margin-bottom:22px; }
+    .brand{ margin-bottom:var(--sp-6); }
     .lead{ margin-left:auto; margin-right:auto; }
     .trust{ justify-content:center; }
-    .auth{ margin-top:2px; }
     .eyebrow{ margin-inline:auto; }
   }
   @media (max-width:420px){
-    .stage{ padding:30px 16px 40px; }
-    .card{ padding:28px 20px 24px; }
-  }
-
-  @media (prefers-reduced-motion:reduce){
-    .orb, .pulse, .eyebrow .pulse{ animation:none !important; }
-    *{ transition-duration:.01ms !important; }
+    body main.stage{ padding:var(--sp-8) 16px var(--sp-10); }
+    .card{ padding:var(--sp-8) var(--sp-5) var(--sp-6); }
   }
 </style>
+<link rel="stylesheet" href="velor.css">
 </head>
 <body>
-<div class="aura" aria-hidden="true">
-  <div class="orb a"></div><div class="orb b"></div><div class="orb c"></div>
-</div>
-<div class="grid-veil" aria-hidden="true"></div>
-<div class="vignette" aria-hidden="true"></div>
-
 <main class="stage">
 
   <!-- ЛЕВО: бренд, слоган, описание -->
   <section class="intro">
     <a class="brand" href="index.html" aria-label="VELOR AI — на главную">
       <span class="mark" aria-hidden="true">
-        <svg width="17" height="17" viewBox="0 0 18 18"><path d="M9 1 L17 16 L1 16 Z" fill="url(#g)"/>
-          <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#a98bff"/><stop offset="1" stop-color="#8052ff"/>
-          </linearGradient></defs></svg>
+        <svg width="17" height="17" viewBox="0 0 18 18" aria-hidden="true">
+          <path d="M9 1 L17 16 L1 16 Z" fill="#8052ff"/></svg>
       </span>
       <span class="word">VELOR <b>AI</b></span>
     </a>

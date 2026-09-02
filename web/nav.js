@@ -1,67 +1,74 @@
 // ===== VELOR AI — общая навигация кабинета =====
-// Одна разметка на все страницы. Философия: всего ШЕСТЬ основных разделов, чтобы
-// человек понимал навигацию за пять секунд. Всё остальное не удалено, а собрано
-// ВНУТРИ этих шести — второй строкой (под-навигация) появляются подразделы того
-// раздела, в котором ты сейчас находишься. Главная (Dashboard) — центр продукта:
-// то, что можно показать прямо на ней, туда и вынесено, чтобы не ходить по вкладкам.
+// Одна разметка на все страницы. Шесть разделов — и каждый отвечает на
+// конкретный вопрос владельца, а не называет внутреннюю сущность продукта:
+//
+//   Обзор        — что происходит с бизнесом прямо сейчас?
+//   Входящие     — что я хочу передать VELOR?
+//   Продажи      — что с клиентами и деньгами от продаж?
+//   Финансы      — что с деньгами бизнеса?
+//   Работа VELOR — что он заметил, что ждёт меня, что он сделал?
+//   Ещё          — где всё остальное?
+//
+// Слов «лид», «инициатива», «действие», «память» в верхней строке нет
+// намеренно: это архитектура VELOR, а не работа владельца. Ни одна страница
+// при этом не удалена — то, что ушло из меню, собрано на «Ещё» с описанием.
 (function () {
-  // Шесть разделов. У каждого — свои подразделы (kids). Первый kid обычно и есть
-  // сам раздел. Старые страницы никуда не делись — они просто переехали внутрь.
   var SECTIONS = [
-    { t: 'Главная', h: 'dashboard.html', kids: [
-      { t: 'Обзор',        h: 'dashboard.html' },
-      { t: 'Брифинг',      h: 'briefing.html' },
-      { t: 'Обзор недели', h: 'weekly.html' },
-      { t: 'История',      h: 'timeline.html' },
-      { t: 'Поиск',        h: 'search.html' },
+    { t: 'Обзор', h: 'dashboard.html', kids: [
+      { t: 'Обзор',    h: 'dashboard.html' },
+      // Разговор с VELOR — это тот же вопрос «что происходит», только заданный
+      // словами. Отдельным разделом он был бы ещё одной вкладкой про то же.
+      { t: 'Спросить', h: 'home.html' },
+      { t: 'Брифинг',  h: 'briefing.html' },
+      { t: 'Неделя',   h: 'weekly.html' },
+      { t: 'Цели',     h: 'goals.html' },
     ] },
-    { t: 'Клиенты', h: 'clients.html', kids: [
-      { t: 'Клиенты', h: 'clients.html' },
+    // Входящие — единственная дверь для любого материала о бизнесе. Внутри
+    // делить нечего: разбираться, что прислали, — работа VELOR, а не владельца.
+    { t: 'Входящие', h: 'inbox.html', kids: [
+      { t: 'Входящие', h: 'inbox.html' },
+    ] },
+    { t: 'Продажи', h: 'clients.html', kids: [
+      { t: 'Клиенты',     h: 'clients.html' },
       // Возможности стоят перед заказами, потому что в жизни идут перед ними:
       // сначала человек спросил цену, и только потом появилась заявка.
       { t: 'Возможности', h: 'leads.html' },
-      { t: 'Заказы',  h: 'orders.html' },
-      // Директ — это те же клиенты, только пока они ещё пишут, а не покупают.
+      { t: 'Заказы',      h: 'orders.html' },
       { t: 'Директ Instagram', h: 'instagram.html' },
-      { t: 'Цели',    h: 'goals.html' },
     ] },
     { t: 'Финансы', h: 'finance.html', kids: [
       { t: 'Финансы',        h: 'finance.html' },
       { t: 'Импорт выписки', h: 'import.html' },
-      { t: 'Экспорт',        h: 'export.html' },
     ] },
-    { t: 'AI', h: 'home.html', kids: [
-      { t: 'Сотрудник',        h: 'home.html' },
-      { t: 'Совет директоров', h: 'board.html' },
-      { t: 'Риски',            h: 'risks.html' },
-      { t: 'Возможности',      h: 'opportunities.html' },
-      { t: 'Идеи',             h: 'ideas.html' },
-      { t: 'Дневник',          h: 'journal.html' },
-      { t: 'Продвижение',      h: 'growth.html' },
-      { t: 'Конкуренты',       h: 'research.html' },
+    { t: 'Работа VELOR', h: 'work.html', kids: [
+      { t: 'Что происходит', h: 'work.html' },
+      // Результаты — последний шаг: то, что владелец уносит наружу. Раньше на
+      // этом месте стояли «Инструменты» с пятью карточками «Скоро».
+      { t: 'Результаты',     h: 'results.html' },
+      { t: 'Полномочия',     h: 'autonomy.html' },
     ] },
-    { t: 'Документы', h: 'memory.html', kids: [
-      // Входящие — точка приёма любого материала о бизнесе. Стоит первой:
-      // сюда человек попадает чаще, чем в саму базу знаний.
-      { t: 'Входящие',       h: 'inbox.html' },
-      // Память бизнеса — что VELOR из этих материалов узнал и откуда.
+    { t: 'Ещё', h: 'more.html', kids: [
+      { t: 'Ещё',            h: 'more.html' },
+      { t: 'Настройки',      h: 'settings.html' },
+      { t: 'Подключения',    h: 'connections.html' },
       { t: 'Память бизнеса', h: 'knowledge.html' },
-      { t: 'База знаний',    h: 'memory.html' },
-      { t: 'Инструменты',    h: 'tools.html' },
-    ] },
-    { t: 'Настройки', h: 'settings.html', kids: [
-      { t: 'Настройки',       h: 'settings.html' },
-      // Автономность стоит сразу за настройками: это единственное место, где
-      // видно, что VELOR вправе делать сам и что он уже сделал. Раньше
-      // управление автономией жило внутри страницы директа — и владелец,
-      // который директом не пользуется, не находил его вовсе.
-      { t: 'Автономность',    h: 'autonomy.html' },
-      { t: 'Тариф',           h: 'plans.html' },
-      { t: 'Подключения',      h: 'connections.html' },
-      { t: 'Источники знаний', h: 'integrations.html' },
-      { t: 'Бот в Telegram',  h: 'guide.html' },
+      { t: 'Тариф',          h: 'plans.html' },
     ] },
   ];
+
+  // Страницы, которых нет в меню, всё равно должны подсвечивать «свой»
+  // раздел — иначе, открыв «Экспорт» со страницы «Ещё», человек видит
+  // навигацию без единой активной вкладки и перестаёт понимать, где он.
+  var HOME_OF = {
+    'timeline.html': 'more.html',   'search.html': 'more.html',
+    'memory.html': 'more.html',     'export.html': 'more.html',
+    'guide.html': 'more.html',      'notifications.html': 'more.html',
+    'board.html': 'more.html',      'risks.html': 'more.html',
+    'opportunities.html': 'more.html', 'ideas.html': 'more.html',
+    'journal.html': 'more.html',    'growth.html': 'more.html',
+    'research.html': 'more.html',   'integrations.html': 'more.html',
+    'tools.html': 'work.html',
+  };
 
   var here = (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();
 
@@ -70,7 +77,8 @@
   // от того, на каком именно подразделе ты стоишь.
   function isActiveSection(sec) {
     if (sec.h === here) return true;
-    return sec.kids.some(function (k) { return k.h === here; });
+    if (sec.kids.some(function (k) { return k.h === here; })) return true;
+    return HOME_OF[here] === sec.h;
   }
   var activeSection = null;
   for (var i = 0; i < SECTIONS.length; i++) { if (isActiveSection(SECTIONS[i])) { activeSection = SECTIONS[i]; break; } }
@@ -86,63 +94,70 @@
     '  backdrop-filter:blur(14px); border-bottom:1px solid rgba(255,255,255,.07); }',
     '.vn a{ text-decoration:none; color:inherit; }',
     '.vn-badge{ display:inline-block; min-width:17px; height:17px; padding:0 5px; margin-left:6px;',
-    '  border-radius:9px; background:#ff6b6b; color:#fff; font-size:10.5px; font-weight:600;',
+    '  border-radius:9px; background:var(--bad); color:var(--bone); font-size:var(--fs-micro); font-weight:600;',
     '  line-height:17px; text-align:center; vertical-align:1px; }',
-    '.vn-logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:18px; letter-spacing:.12em; flex:none; }',
-    '.vn-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:#9a9a9a;',
+    '.vn-logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:var(--fs-lead); letter-spacing:.12em; flex:none; }',
+    '.vn-sub{ font-weight:500; font-size:var(--fs-micro); letter-spacing:.16em; text-transform:uppercase; color:var(--ash);',
     '  border-left:1px solid rgba(255,255,255,.1); padding-left:9px; }',
     // верхняя строка — только 6 разделов, крупнее и с воздухом
     '.vn-mid{ display:flex; align-items:center; gap:6px; flex:1; min-width:0; justify-content:center; }',
-    '.vn-lk{ padding:9px 16px; border-radius:20px; font-weight:400; font-size:15px; letter-spacing:.01em;',
-    '  color:#9a9a9a; white-space:nowrap; transition:color .25s, background .25s; background:none; border:none;',
+    '.vn-lk{ padding:9px 16px; border-radius:20px; font-weight:400; font-size:var(--fs-body); letter-spacing:.01em;',
+    '  color:var(--ash); white-space:nowrap; transition:color .25s, background .25s; background:none; border:none;',
     '  font-family:inherit; cursor:pointer; }',
-    '.vn-lk:hover{ color:#fff; background:rgba(255,255,255,.06); }',
-    '.vn-lk.on{ color:#fff; background:rgba(128,82,255,.20); }',
+    '.vn-lk:hover{ color:var(--bone); background:rgba(255,255,255,.06); }',
+    '.vn-lk.on{ color:var(--bone); background:rgba(128,82,255,.20); }',
     '.vn-right{ display:flex; align-items:center; gap:14px; flex:none; }',
     // колокольчик уведомлений — всегда справа; цифра непрочитанного гаснет, когда открыл
     '.vn-bell{ position:relative; display:flex; align-items:center; justify-content:center;',
-    '  width:44px; height:44px; border-radius:14px; color:#c9c9c9; background:rgba(255,255,255,.05);',
+    '  width:44px; height:44px; border-radius:14px; color:var(--silver); background:rgba(255,255,255,.05);',
     '  border:1px solid rgba(255,255,255,.09); transition:color .2s, background .2s; }',
-    '.vn-bell:hover{ color:#fff; background:rgba(255,255,255,.1); }',
-    '.vn-bell.on{ color:#fff; background:rgba(128,82,255,.20); border-color:transparent; }',
+    '.vn-bell:hover{ color:var(--bone); background:rgba(255,255,255,.1); }',
+    '.vn-bell.on{ color:var(--bone); background:rgba(128,82,255,.20); border-color:transparent; }',
     '.vn-bell svg{ width:18px; height:18px; display:block; }',
     '.vn-bell .vn-badge{ position:absolute; top:-6px; right:-6px; margin:0; }',
-    '.vn-biz{ font-weight:200; font-size:12px; color:#9a9a9a; max-width:150px; overflow:hidden;',
+    '.vn-biz{ font-weight:200; font-size:var(--fs-caption); color:var(--ash); max-width:150px; overflow:hidden;',
     '  text-overflow:ellipsis; white-space:nowrap; }',
-    '.vn-out{ font-weight:400; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:#9a9a9a;',
+    '.vn-out{ font-weight:400; font-size:var(--fs-caption); letter-spacing:.14em; text-transform:uppercase; color:var(--ash);',
     '  background:none; border:none; font-family:inherit; cursor:pointer; transition:color .25s; }',
-    '.vn-out:hover{ color:#fff; }',
+    '.vn-out:hover{ color:var(--bone); }',
     // вторая строка — подразделы активного раздела
-    '.vn-sub-bar{ view-transition-name: velor-subbar; position:fixed; top:57px; left:0; right:0; z-index:59;',
+    // Высота шапки НЕ прописана числом. Она зависит от самого высокого
+    // элемента внутри (сейчас это колокольчик 44px) и меняется от шрифта,
+    // масштаба и длины названия бизнеса. Пока здесь стояло «57px», вторая
+    // строка на 20px заезжала под первую и подразделы срезало наполовину.
+    // Значения ниже — только запасные, до первого измерения.
+    '.vn-sub-bar{ view-transition-name: velor-subbar; position:fixed;',
+    '  top:var(--vn-h,77px); left:0; right:0; z-index:59;',
     '  height:47px; box-sizing:border-box;',
     '  display:flex; align-items:center; gap:4px; padding:8px 24px; overflow-x:auto; scrollbar-width:none;',
     '  background:rgba(0,0,0,.55); backdrop-filter:blur(14px); border-bottom:1px solid rgba(255,255,255,.06); }',
     '.vn-sub-bar::-webkit-scrollbar{ display:none; }',
-    '.vn-sub-lk{ padding:6px 13px; border-radius:16px; font-weight:400; font-size:13px; color:#8a8a8a;',
+    '.vn-sub-lk{ padding:6px 13px; border-radius:16px; font-weight:400; font-size:var(--fs-sm); color:var(--ash);',
     '  white-space:nowrap; transition:color .2s, background .2s; }',
-    '.vn-sub-lk:hover{ color:#fff; background:rgba(255,255,255,.05); }',
-    '.vn-sub-lk.on{ color:#fff; background:rgba(128,82,255,.14); }',
-    '.vn-spacer{ width:100%; height:47px; }',
+    '.vn-sub-lk:hover{ color:var(--bone); background:rgba(255,255,255,.05); }',
+    '.vn-sub-lk.on{ color:var(--bone); background:rgba(128,82,255,.14); }',
+    '.vn-spacer{ width:100%; height:var(--vn-sub-h,47px); }',
     // бургер
     '.vn-burger{ display:none; width:44px; height:44px; border-radius:14px; background:rgba(255,255,255,.05);',
     '  border:1px solid rgba(255,255,255,.1); cursor:pointer; padding:0; }',
-    '.vn-burger span{ display:block; width:16px; height:1.5px; margin:3.5px auto; background:#fff;',
+    '.vn-burger span{ display:block; width:16px; height:1.5px; margin:3.5px auto; background:var(--bone);',
     '  transition:transform .3s, opacity .2s; }',
     '.vn-burger.open span:nth-child(1){ transform:translateY(5px) rotate(45deg); }',
     '.vn-burger.open span:nth-child(2){ opacity:0; }',
     '.vn-burger.open span:nth-child(3){ transform:translateY(-5px) rotate(-45deg); }',
     // мобильное меню
-    '.vn-sheet{ position:fixed; top:0; left:0; right:0; z-index:58; padding:82px 20px 26px;',
+    '.vn-sheet{ position:fixed; top:0; left:0; right:0; z-index:58;',
+    '  padding:calc(var(--vn-h,77px) + 22px) 20px 26px;',
     '  background:rgba(6,6,8,.98); backdrop-filter:blur(20px); border-bottom:1px solid rgba(255,255,255,.08);',
     '  display:none; max-height:100dvh; overflow-y:auto; }',
     '.vn-sheet.open{ display:block; animation:vnDrop .32s cubic-bezier(.22,1,.36,1); }',
     '@keyframes vnDrop{ from{ opacity:0; transform:translateY(-12px) } to{ opacity:1; transform:none } }',
-    '.vn-sheet .vn-gr{ font-weight:600; font-size:10px; letter-spacing:.2em; text-transform:uppercase;',
-    '  color:#c1b3ff; padding:16px 4px 8px; }',
+    '.vn-sheet .vn-gr{ font-weight:600; font-size:var(--fs-micro); letter-spacing:.2em; text-transform:uppercase;',
+    '  color:var(--ink-iris); padding:16px 4px 8px; }',
     '.vn-sheet .vn-kids{ display:grid; grid-template-columns:repeat(2,1fr); gap:6px 10px; margin-bottom:6px; }',
-    '.vn-sheet .vn-sub-lk{ display:block; padding:12px 14px; font-size:15px; border-radius:14px;',
-    '  background:rgba(255,255,255,.04); color:#cfcfcf; }',
-    '.vn-sheet .vn-sub-lk.on{ background:rgba(128,82,255,.20); color:#fff; }',
+    '.vn-sheet .vn-sub-lk{ display:block; padding:12px 14px; font-size:var(--fs-body); border-radius:14px;',
+    '  background:rgba(255,255,255,.04); color:var(--silver); }',
+    '.vn-sheet .vn-sub-lk.on{ background:rgba(128,82,255,.20); color:var(--bone); }',
     '.vn-foot{ display:flex; align-items:center; justify-content:space-between; gap:12px;',
     '  margin-top:20px; padding-top:18px; border-top:1px solid rgba(255,255,255,.08); }',
     // пороги: сначала прячем «имя бизнеса», потом уходим в бургер (и прячем под-строку)
@@ -223,6 +238,29 @@
     document.body.insertBefore(sheet, document.body.firstChild);
     if (subBar) document.body.insertBefore(subBar, document.body.firstChild);
     document.body.insertBefore(nav, document.body.firstChild);
+    measure();
+  }
+
+  // Сколько на самом деле занимают строки навигации.
+  //
+  // Измеряем, а не считаем: высота шапки складывается из её содержимого, и
+  // меняется от загрузки шрифта, масштаба страницы и длины названия бизнеса.
+  // Любое число, вписанное сюда руками, однажды разойдётся с настоящим — и
+  // разойдётся молча: вторая строка просто уедет под первую.
+  function measure() {
+    var root = document.documentElement.style;
+    root.setProperty('--vn-h', nav.offsetHeight + 'px');
+    if (subBar) root.setProperty('--vn-sub-h', subBar.offsetHeight + 'px');
+  }
+
+  // Шрифт догружается после первого кадра и делает шапку выше. Один замер при
+  // вставке этого не поймает, поэтому пересчитываем на каждое изменение
+  // размеров шапки, а не только на resize окна.
+  if (window.ResizeObserver) {
+    new ResizeObserver(measure).observe(nav);
+  } else {
+    window.addEventListener('resize', measure);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure);
   }
 
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
@@ -275,24 +313,24 @@
     var tcss = document.createElement('style');
     tcss.textContent = [
       '.vt-bar{ position:fixed; left:0; right:0; bottom:0; z-index:70; display:flex; align-items:center;',
-      '  justify-content:center; gap:14px; padding:11px 18px; font-size:13.5px; color:#e8e6ff;',
+      '  justify-content:center; gap:14px; padding:11px 18px; font-size:var(--fs-sm); color:var(--bone);',
       '  background:rgba(128,82,255,.16); backdrop-filter:blur(12px); border-top:1px solid rgba(128,82,255,.3); }',
-      '.vt-bar.urgent{ background:rgba(255,107,107,.16); border-top-color:rgba(255,107,107,.4); color:#ffd9d9; }',
-      '.vt-bar a{ color:#fff; font-weight:600; text-decoration:none; background:#8052ff; padding:7px 15px;',
+      '.vt-bar.urgent{ background:rgba(255,107,107,.16); border-top-color:rgba(255,107,107,.4); color:var(--ink-coral); }',
+      '.vt-bar a{ color:var(--bone); font-weight:600; text-decoration:none; background:var(--iris); padding:7px 15px;',
       '  border-radius:999px; white-space:nowrap; } .vt-bar a:hover{ filter:brightness(1.15); }',
-      '.vt-bar .vt-x{ background:none; border:none; color:inherit; opacity:.6; cursor:pointer; font-size:16px; }',
+      '.vt-bar .vt-x{ background:none; border:none; color:inherit; opacity:.6; cursor:pointer; font-size:var(--fs-base); }',
       '.vt-ov{ position:fixed; inset:0; z-index:130; display:flex; align-items:center; justify-content:center;',
       '  padding:22px; background:rgba(0,0,0,.72); backdrop-filter:blur(6px); }',
       '.vt-modal{ width:100%; max-width:440px; border-radius:26px; padding:34px; text-align:center;',
-      '  border:1px solid rgba(255,255,255,.1); background:linear-gradient(165deg,#141018,#0a0a0e); }',
-      '.vt-modal h2{ font-weight:500; font-size:24px; letter-spacing:-.02em; margin-bottom:8px; }',
-      '.vt-modal .sub{ color:#9a9a9a; font-size:14px; line-height:1.55; margin-bottom:20px; }',
+      '  border:1px solid rgba(255,255,255,.1); background:var(--sheet); }',
+      '.vt-modal h2{ font-weight:500; font-size:var(--fs-h2); letter-spacing:-.02em; margin-bottom:8px; }',
+      '.vt-modal .sub{ color:var(--ash); font-size:var(--fs-body); line-height:1.55; margin-bottom:20px; }',
       '.vt-stats{ display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:18px 0 22px; text-align:left; }',
       '.vt-stats div{ border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:12px 14px; }',
-      '.vt-stats .n{ font-weight:500; font-size:20px; color:#c9bfff; } .vt-stats .k{ font-size:11.5px; color:#9a9a9a; margin-top:2px; }',
-      '.vt-modal .go{ display:block; width:100%; padding:14px; border-radius:16px; background:#8052ff; color:#fff;',
-      '  font-weight:600; font-size:15px; text-decoration:none; } .vt-modal .go:hover{ filter:brightness(1.15); }',
-      '.vt-modal .look{ display:inline-block; margin-top:14px; color:#9a9a9a; font-size:13px; cursor:pointer; }',
+      '.vt-stats .n{ font-weight:500; font-size:var(--fs-h3); color:var(--lilac-2); } .vt-stats .k{ font-size:var(--fs-caption); color:var(--ash); margin-top:2px; }',
+      '.vt-modal .go{ display:block; width:100%; padding:14px; border-radius:16px; background:var(--iris); color:var(--bone);',
+      '  font-weight:600; font-size:var(--fs-body); text-decoration:none; } .vt-modal .go:hover{ filter:brightness(1.15); }',
+      '.vt-modal .look{ display:inline-block; margin-top:14px; color:var(--ash); font-size:var(--fs-sm); cursor:pointer; }',
     ].join('');
     document.head.appendChild(tcss);
 

@@ -697,6 +697,36 @@ def init_db():
                    created_at  TEXT DEFAULT CURRENT_TIMESTAMP
                )"""
         )
+        # ---------- РЕЗУЛЬТАТЫ ----------
+        # То, что владелец уносит из VELOR наружу: отчёт, коммерческое
+        # предложение, письмо клиенту. Отдельная таблица, а не «документы»:
+        # documents — это то, что человек ЗАГРУЗИЛ и из чего VELOR учится,
+        # а здесь — то, что VELOR СОБРАЛ из данных бизнеса. Смешать их значило
+        # бы получить список, в котором непонятно, чему верить как источнику.
+        #
+        # doc хранит документ целиком (блоки), а не только ссылку на файл:
+        # цифры в отчёте — это снимок на момент сборки. Пересчитать их завтра
+        # заново значило бы показать человеку другой отчёт под тем же именем.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS outputs (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   kind         TEXT NOT NULL,
+                   title        TEXT,
+                   subtitle     TEXT,
+                   request      TEXT,      -- JSON: по какому запросу собрано
+                   doc          TEXT,      -- JSON: сам документ (блоки)
+                   sources      TEXT,      -- JSON: на каких данных построено
+                   body         TEXT,      -- текст письма/КП — то, что копируют
+                   file_key     TEXT,      -- ключ файла в хранилище
+                   file_name    TEXT,
+                   file_size    INTEGER DEFAULT 0,
+                   engine       TEXT,      -- llm | rules
+                   status       TEXT DEFAULT 'READY',
+                   error        TEXT,
+                   created_at   TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
         # ---------- ПАМЯТЬ БИЗНЕСА: откуда что известно ----------
         # Знания живут в своих таблицах (memory_facts, clients, orders,
         # finance_entries, goals, documents) — дублировать их здесь было бы
@@ -1099,6 +1129,7 @@ def init_db():
             # перебор входящих этого бизнеса.
             ("idx_inbox_hash",           "inbox_items",     "business_id, content_hash"),
             ("idx_inbox_blobs_biz",      "inbox_blobs",     "business_id"),
+            ("idx_outputs_biz",          "outputs",         "business_id, id"),
             ("idx_inbox_results_item",   "inbox_results",   "business_id, item_id"),
             ("idx_inbox_decisions_item", "inbox_decisions", "business_id, item_id"),
             ("idx_mem_links_entity",     "memory_links",    "business_id, entity_type, entity_id"),
@@ -2127,7 +2158,7 @@ def delete_business(business_id):
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections",
                     "ig_threads", "ig_seen", "ai_policy", "leads", "followups",
-                    "actions", "initiatives"):
+                    "actions", "initiatives", "outputs"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -6379,3 +6410,107 @@ def count_initiatives(business_id, *, status=None, live=False, level=None):
             "SELECT COUNT(*) AS n FROM initiatives WHERE " + " AND ".join(where),
             args).fetchone()
     return int(row["n"] if row else 0)
+
+
+# ============================================================
+#  РЕЗУЛЬТАТЫ (отчёты, документы, письма)
+# ============================================================
+# Правило то же, что у всего кабинета: любой запрос ограничен business_id.
+# Чужой результат нельзя ни прочитать, ни скачать, ни удалить — не потому что
+# его не показывает интерфейс, а потому что он не проходит через WHERE.
+
+OUTPUT_STATUSES = ("READY", "FAILED")
+
+
+def add_output(business_id, kind, *, title=None, subtitle=None, request=None,
+               doc=None, sources=None, body=None, file_key=None, file_name=None,
+               file_size=0, engine="rules", status="READY", error=None):
+    """Записать готовый результат. Возвращает id."""
+    if status not in OUTPUT_STATUSES:
+        status = "READY"
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO outputs
+               (business_id, kind, title, subtitle, request, doc, sources, body,
+                file_key, file_name, file_size, engine, status, error)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (business_id, kind, title, subtitle,
+             _json.dumps(request or {}, ensure_ascii=False),
+             _json.dumps(doc or {}, ensure_ascii=False),
+             _json.dumps(sources or [], ensure_ascii=False),
+             body, file_key, file_name, int(file_size or 0), engine, status, error),
+        )
+        out_id = cur.lastrowid
+    log_event(business_id, "output", "VELOR собрал результат", (title or kind)[:160])
+    return out_id
+
+
+def _output_row(row):
+    if not row:
+        return None
+    d = dict(row)
+    for field in ("request", "doc", "sources"):
+        try:
+            d[field] = _json.loads(d.get(field) or ("[]" if field == "sources" else "{}"))
+        except (ValueError, TypeError):
+            d[field] = [] if field == "sources" else {}
+    return d
+
+
+def list_outputs(business_id, kind=None, limit=30, offset=0):
+    """Результаты бизнеса, новые сверху. Без doc — список не должен тащить
+    целиком каждый отчёт: на экране истории видно название, дату и файл."""
+    where, params = "business_id = ?", [business_id]
+    if kind:
+        where += " AND kind = ?"
+        params.append(kind)
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""SELECT id, business_id, kind, title, subtitle, request, sources,
+                       file_key, file_name, file_size, engine, status, error, created_at
+                  FROM outputs WHERE {where}
+                 ORDER BY id DESC LIMIT ? OFFSET ?""",
+            (*params, max(1, min(int(limit), 200)), max(0, int(offset))),
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        for field in ("request", "sources"):
+            try:
+                d[field] = _json.loads(d.get(field) or ("[]" if field == "sources" else "{}"))
+            except (ValueError, TypeError):
+                d[field] = [] if field == "sources" else {}
+        out.append(d)
+    return out
+
+
+def count_outputs(business_id, kind=None):
+    where, params = "business_id = ?", [business_id]
+    if kind:
+        where += " AND kind = ?"
+        params.append(kind)
+    with _connect() as conn:
+        return int(conn.execute(
+            f"SELECT COUNT(*) AS n FROM outputs WHERE {where}", tuple(params)
+        ).fetchone()["n"] or 0)
+
+
+def get_output(output_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM outputs WHERE id = ? AND business_id = ?",
+            (int(output_id), business_id)).fetchone()
+    return _output_row(row)
+
+
+def delete_output(output_id, business_id):
+    """Удалить запись о результате. Возвращает ключ файла, чтобы вызвавший
+    убрал и сам файл: хранилище про базу не знает и осиротевший файл иначе
+    остался бы занимать место навсегда."""
+    row = get_output(output_id, business_id)
+    if not row:
+        return None
+    with _connect() as conn:
+        conn.execute("DELETE FROM outputs WHERE id = ? AND business_id = ?",
+                     (int(output_id), business_id))
+    return row.get("file_key")

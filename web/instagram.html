@@ -18,8 +18,6 @@
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
 
-  body main{ padding-top:104px; padding-bottom:80px; }
-
   .split{ display:grid; grid-template-columns:minmax(0,340px) minmax(0,1fr);
     gap:var(--sp-4); align-items:start; }
   /* Ячейка сетки по умолчанию не ужимается меньше своего содержимого, и на
@@ -30,7 +28,7 @@
   .panel{ border:1px solid var(--hairline); border-radius:var(--r-lg);
     background:var(--surface); }
   .panel .hd{ padding:var(--sp-4) var(--sp-5); border-bottom:1px solid var(--hairline);
-    font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+    font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); display:flex; gap:var(--sp-2);
     align-items:baseline; }
   .panel .hd .n{ color:var(--lilac); }
@@ -82,12 +80,12 @@
     border:1px solid var(--hairline); }
   .msg.assistant{ align-self:flex-end; background:var(--tint-iris);
     border:1px solid rgba(128,82,255,.3); }
-  .msg .t{ display:block; margin-top:5px; font-size:11px; color:var(--ash); }
+  .msg .t{ display:block; margin-top:5px; font-size:var(--fs-caption); color:var(--ash); }
 
   .reply textarea{ width:100%; min-height:96px; resize:vertical;
     background:var(--surface-2); border:1px solid var(--hairline);
     border-radius:var(--r-sm); padding:12px 14px; color:var(--bone);
-    font-size:16px; line-height:1.5; }
+    font-size:var(--fs-base); line-height:1.5; }
   .reply textarea:focus{ outline:2px solid var(--ring); outline-offset:1px; }
   .reply textarea:disabled{ opacity:.5; }
   .acts{ margin-top:var(--sp-3); display:flex; gap:var(--sp-2); flex-wrap:wrap;
@@ -97,7 +95,7 @@
   /* автономия продавца */
   .auto{ margin-top:var(--sp-6); border:1px solid var(--hairline);
     border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-5); }
-  .auto h3, .limits h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .auto h3, .limits h3{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); }
   .auto .lead{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--silver);
     line-height:1.6; max-width:70ch; }
@@ -148,7 +146,7 @@
 
   .limits{ margin-top:var(--sp-6); border:1px solid var(--hairline);
     border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-5); }
-  .limits h3{ font-weight:var(--fw-semi); font-size:10px; letter-spacing:.16em;
+  .limits h3{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
   .limits li{ list-style:none; font-size:var(--fs-sm); color:var(--silver);
     line-height:1.6; padding-left:var(--sp-4); position:relative; }
@@ -168,7 +166,7 @@
   .setup .kv .v{ text-align:right; word-break:break-all; font-size:var(--fs-caption); }
 
   #toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,20px);
-    background:#141414; border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    background:var(--sheet); border:1px solid var(--hairline-2); border-radius:var(--r-pill);
     padding:12px 22px; font-size:var(--fs-sm); opacity:0; pointer-events:none;
     transition:opacity var(--dur), transform var(--dur); z-index:120; max-width:92vw; }
   #toast.show{ opacity:1; transform:translate(-50%,0); }

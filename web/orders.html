@@ -6,24 +6,20 @@
 <title>VELOR AI — Заказы</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{
-    --void:#000000; --bone:#ffffff; --ash:#9a9a9a; --silver:#bdbdbd;
-    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --magenta:#ff4fd8;
-    --hairline:rgba(255,255,255,.08);
-  }
+  
   *{ margin:0; padding:0; box-sizing:border-box; }
   body{
     background:var(--void); color:var(--bone);
     font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:18px; line-height:1.5; overflow-x:hidden;
+    font-weight:200; font-size:var(--fs-lead); line-height:1.5; overflow-x:hidden;
   }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   a{ text-decoration:none; color:inherit; }
   button{ font-family:inherit; cursor:pointer; }
   :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
 
-  .label{ font-weight:600; font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:var(--lilac); }
-  .caption{ font-weight:200; font-size:12px; color:var(--ash); }
+  .label{ font-weight:600; font-size:var(--fs-sm); letter-spacing:.18em; text-transform:uppercase; color:var(--lilac); }
+  .caption{ font-weight:200; font-size:var(--fs-caption); color:var(--ash); }
   .num{ font-variant-numeric:tabular-nums; }
 
   /* блок «Сегодня важно» */
@@ -32,32 +28,29 @@
   .today-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
   @media(max-width:900px){ .today-grid{ grid-template-columns:1fr 1fr; } }
   @media(max-width:560px){ .today-grid{ grid-template-columns:1fr; } }
-  .tcard{ border:1px solid var(--hairline); border-radius:20px; padding:24px; background:rgba(255,255,255,.02);
+  .tcard{ border:1px solid var(--hairline); border-radius:var(--r-lg); padding:24px; background:rgba(255,255,255,.02);
     transition:border-color .3s, background .3s; }
   .tcard:hover{ border-color:rgba(128,82,255,.3); background:rgba(128,82,255,.04); }
   .tcard .tv{ font-weight:500; font-size:clamp(30px,4vw,44px); letter-spacing:-0.03em; }
   .tcard.attention .tv{ color:var(--lilac-2); }
-  .tcard .tl{ margin-top:8px; font-weight:400; font-size:13px; color:var(--ash); }
-  .tcard.rec{ grid-column:span 1; display:flex; gap:14px; align-items:flex-start; background:linear-gradient(160deg,rgba(128,82,255,.08),transparent); }
+  .tcard .tl{ margin-top:8px; font-weight:400; font-size:var(--fs-sm); color:var(--ash); }
+  .tcard.rec{ grid-column:span 1; display:flex; gap:14px; align-items:flex-start; background:var(--surface); }
   @media(max-width:900px){ .tcard.rec{ grid-column:1/-1; } }
-  .rec-badge{ width:34px; height:34px; border-radius:10px; flex-shrink:0; background:linear-gradient(150deg,#8052ff,#5b6cff);
-    display:flex; align-items:center; justify-content:center; font-weight:600; font-size:16px; color:#fff; }
-  .rec-txt{ font-weight:400; font-size:14px; line-height:1.5; color:var(--silver); }
+  .rec-badge{ width:34px; height:34px; border-radius:var(--r-xs); flex-shrink:0; background:var(--iris);
+    display:flex; align-items:center; justify-content:center; font-weight:600; font-size:var(--fs-base); color:#fff; }
+  .rec-txt{ font-weight:400; font-size:var(--fs-body); line-height:1.5; color:var(--silver); }
   .rec-txt b{ color:var(--bone); font-weight:500; }
 
   .pill{
     display:inline-block; background:var(--iris); color:#fff; border:none;
-    font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase;
-    padding:14px 26px; border-radius:24px; transition:filter .3s; will-change:transform;
+    font-weight:600; font-size:var(--fs-body); letter-spacing:.35px; text-transform:uppercase;
+    padding:14px 26px; border-radius:var(--r-lg); transition:filter .3s; will-change:transform;
   }
-  .pill:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
-  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
+  .pill:hover{ filter:brightness(1.2); }
+  .ghost{ font-weight:400; font-size:var(--fs-body); letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
   .ghost:hover{ color:var(--bone); }
 
-  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
-
   main{ position:relative; z-index:1; max-width:1280px; margin:0 auto; padding:150px 24px 90px; }
-  h1{ font-weight:400; font-size:clamp(38px,5.5vw,78px); line-height:1.1; letter-spacing:-0.04em; margin:18px 0 60px; }
 
   /* сводка: цифры на пустоте, без рамок */
   .stats{ display:flex; gap:96px; flex-wrap:wrap; margin-bottom:90px; }
@@ -74,9 +67,9 @@
     transition:background .3s, padding-left .3s;
   }
   .order:hover{ background:linear-gradient(90deg,rgba(128,82,255,.07),transparent 70%); padding-left:14px; }
-  .order .oid{ font-weight:400; font-size:20px; color:var(--ash); }
+  .order .oid{ font-weight:400; font-size:var(--fs-h3); color:var(--ash); }
   .order .txt{ font-weight:400; font-size:clamp(17px,2vw,22px); letter-spacing:-0.01em; }
-  .order .meta{ margin-top:6px; font-weight:200; font-size:13px; color:var(--ash); }
+  .order .meta{ margin-top:6px; font-weight:200; font-size:var(--fs-sm); color:var(--ash); }
   .order .right{ display:flex; flex-direction:column; align-items:flex-end; gap:12px; }
   @media(max-width:760px){
     .order{ grid-template-columns:1fr; gap:12px; }
@@ -87,37 +80,39 @@
   /* статус: цвет + точка + текст (не только цвет) */
   .status{
     display:inline-flex; align-items:center; gap:8px;
-    font-weight:600; font-size:12px; letter-spacing:.2em; text-transform:uppercase;
-    padding:8px 16px; border-radius:24px; background:rgba(255,255,255,.05); white-space:nowrap;
+    font-weight:600; font-size:var(--fs-caption); letter-spacing:.2em; text-transform:uppercase;
+    padding:8px 16px; border-radius:var(--r-lg); background:rgba(255,255,255,.05); white-space:nowrap;
   }
-  .status .dot{ width:7px; height:7px; border-radius:50%; background:currentColor; box-shadow:0 0 8px currentColor; }
+  .status .dot{ width:7px; height:7px; border-radius:50%; background:currentColor; }
 
   .actions{ display:flex; gap:10px; flex-wrap:wrap; }
   .act{
-    min-height:44px; padding:10px 18px; border-radius:24px;
+    min-height:44px; padding:10px 18px; border-radius:var(--r-lg);
     background:rgba(255,255,255,.06); border:none; color:var(--silver);
-    font-weight:600; font-size:12px; letter-spacing:.15em; text-transform:uppercase;
+    font-weight:600; font-size:var(--fs-caption); letter-spacing:.15em; text-transform:uppercase;
     transition:background .2s, color .2s, filter .2s; will-change:transform;
   }
-  .act:hover{ color:#fff; filter:drop-shadow(0 0 12px var(--c,rgba(128,82,255,.5))); background:rgba(255,255,255,.12); }
+  .act:hover{ color:#fff; filter:; background:rgba(255,255,255,.12); }
   .act:disabled{ opacity:.4; cursor:default; }
 
   .orders-head{ display:flex; align-items:baseline; justify-content:space-between; gap:16px; flex-wrap:wrap; }
 
   /* сумма заказа — вводится прямо в строке, из неё складывается весь оборот */
   .sum{ display:inline-flex; align-items:center; gap:6px; }
+  /* Поле суммы правится пальцем в списке заказов, поэтому высота — не
+     «сколько нужно тексту», а сколько нужно пальцу: 36px промахивается. */
   .sum input{
-    width:104px; min-height:36px; padding:6px 10px; border-radius:12px;
+    width:104px; min-height:44px; padding:10px 12px; border-radius:var(--r-xs);
     border:1px solid var(--hairline); background:rgba(255,255,255,.04);
-    color:var(--bone); font-family:inherit; font-size:14px; text-align:right;
+    color:var(--bone); font-family:inherit; font-size:var(--fs-body); text-align:right;
     font-variant-numeric:tabular-nums;
   }
   .sum input:focus{ outline:none; border-color:rgba(128,82,255,.55); background:rgba(128,82,255,.07); }
   .sum input.saved{ border-color:rgba(47,212,178,.55); }
-  .sum .cur{ color:var(--ash); font-size:14px; }
+  .sum .cur{ color:var(--ash); font-size:var(--fs-body); }
 
   /* скелетон загрузки */
-  .sk{ height:76px; margin:14px 0; border-radius:16px;
+  .sk{ height:76px; margin:14px 0; border-radius:var(--r-sm);
     background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04));
     background-size:200% 100%; animation:shimmer 1.4s linear infinite; }
   @keyframes shimmer{ from{ background-position:200% 0 } to{ background-position:-200% 0 } }
@@ -126,14 +121,14 @@
   #toast{
     position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:120;
     background:rgba(0,0,0,.75); backdrop-filter:blur(8px);
-    color:var(--bone); font-weight:400; font-size:15px;
-    padding:14px 28px; border-radius:24px; opacity:0; pointer-events:none;
+    color:var(--bone); font-weight:400; font-size:var(--fs-body);
+    padding:14px 28px; border-radius:var(--r-lg); opacity:0; pointer-events:none;
     transition:opacity .3s, transform .3s; text-shadow:0 0 12px rgba(128,82,255,.5);
   }
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   #flash{ position:fixed; inset:0; z-index:110; pointer-events:none; opacity:0; transition:opacity .5s;
-    background:radial-gradient(ellipse at 50% 40%,rgba(128,82,255,.18),transparent 60%); }
+    background:var(--tint-iris); }
 
   footer{ position:relative; z-index:1; display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap;
     max-width:1280px; margin:0 auto; padding:48px 24px; }
@@ -145,8 +140,6 @@
 <link rel="stylesheet" href="velor.css">
 </head>
 <body>
-
-<canvas id="ambientCanvas"></canvas>
 
 
 <main>
@@ -193,7 +186,6 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="core-live.js?v=10"></script>
 <script src="vendor/motion.min.js"></script>
 <script>
 const STATUS_COLOR = { 'новый':'#8052ff', 'принят':'#ffb829', 'выполнен':'#2fd4b2', 'отменён':'#ff4fd8' };
@@ -210,7 +202,7 @@ function toast(msg){
 function ARINA_signal(){
   const f = document.getElementById('flash');
   f.style.opacity = '1'; setTimeout(()=> f.style.opacity = '0', 480);
-  toast('Новый заказ! ✦');
+  toast('Новый заказ');
   try{
     const ac = new (window.AudioContext||window.webkitAudioContext)();
     const o = ac.createOscillator(), g = ac.createGain();

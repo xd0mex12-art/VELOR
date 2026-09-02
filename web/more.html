@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Ещё</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* «Ещё» — не свалка, а честный оглавитель. В верхней навигации осталось
+     шесть разделов, и всё, что не отвечает на ежедневный вопрос владельца,
+     собрано здесь — с одной строкой о том, зачем каждая страница нужна.
+     Ничего не спрятано: скрыть из меню и сломать — разные вещи. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  section{ margin-bottom:var(--sp-10); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2); }
+  .sec-note{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    margin-bottom:var(--sp-4); max-width:640px; }
+  .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+    gap:var(--sp-3); }
+  .it{ display:block; border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-4) var(--sp-5);
+    transition:border-color var(--dur), background var(--dur); }
+  .it:hover{ border-color:var(--hairline-2); background:var(--surface-2); }
+  .it .t{ font-weight:var(--fw-med); font-size:var(--fs-body); color:var(--bone); }
+  .it .a{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    line-height:1.45; margin-top:4px; }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Ещё</h1>
+      <p class="v-lead">Всё, что не нужно каждый день: знания бизнеса, разборы по
+        запросу, настройка и выгрузка данных.</p>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-h">Знания бизнеса</div>
+    <p class="sec-note">Что VELOR знает о вашем деле и откуда. Пополняется само —
+      из того, что вы приносите во «Входящие».</p>
+    <div class="grid">
+      <a class="it" href="knowledge.html"><div class="t">Память бизнеса</div>
+        <div class="a">Все знания VELOR и цепочка «откуда он это взял».</div></a>
+      <a class="it" href="memory.html"><div class="t">База знаний</div>
+        <div class="a">Внести прайс, услуги, правила и файлы вручную.</div></a>
+      <a class="it" href="search.html"><div class="t">Поиск по записям</div>
+        <div class="a">Найти клиента, заказ или операцию обычным вопросом.</div></a>
+      <a class="it" href="timeline.html"><div class="t">История бизнеса</div>
+        <div class="a">Лента событий: что и когда произошло.</div></a>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h">Разборы по запросу</div>
+    <p class="sec-note">VELOR разбирает бизнес сам и приносит найденное в «Работу
+      VELOR». Эти страницы — для случая, когда вы хотите посмотреть под
+      конкретным углом и прямо сейчас.</p>
+    <div class="grid">
+      <a class="it" href="board.html"><div class="t">Совет директоров</div>
+        <div class="a">До пяти решений по бизнесу целиком, раз в день.</div></a>
+      <a class="it" href="risks.html"><div class="t">Риски</div>
+        <div class="a">Что ухудшается: расходы, прибыль, отток клиентов.</div></a>
+      <a class="it" href="opportunities.html"><div class="t">Возможности роста</div>
+        <div class="a">Где бизнес недорабатывает по вашим же цифрам.</div></a>
+      <a class="it" href="ideas.html"><div class="t">Идеи</div>
+        <div class="a">Что можно попробовать: услуги, акции, партнёрства.</div></a>
+      <a class="it" href="journal.html"><div class="t">Дневник</div>
+        <div class="a">Что произошло за день и один совет на завтра.</div></a>
+      <a class="it" href="growth.html"><div class="t">Продвижение</div>
+        <div class="a">Разбор ваших текстов и контент под ваш бизнес.</div></a>
+      <a class="it" href="research.html"><div class="t">Конкуренты</div>
+        <div class="a">Сравнить себя с конкурентом по ссылке или тексту.</div></a>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h">Настройка</div>
+    <div class="grid">
+      <a class="it" href="settings.html"><div class="t">Настройки</div>
+        <div class="a">Профиль бизнеса, тон общения, токен бота.</div></a>
+      <a class="it" href="connections.html"><div class="t">Подключения</div>
+        <div class="a">Откуда VELOR берёт данные и чем говорит с клиентами.</div></a>
+      <a class="it" href="guide.html"><div class="t">Бот в Telegram</div>
+        <div class="a">Как создать своего бота за три минуты.</div></a>
+      <a class="it" href="plans.html"><div class="t">Тариф</div>
+        <div class="a">Подписка, лимит сообщений и расход.</div></a>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h">Данные</div>
+    <div class="grid">
+      <a class="it" href="export.html"><div class="t">Экспорт</div>
+        <div class="a">Выгрузить клиентов, финансы и отчёты в CSV, Excel или PDF.</div></a>
+      <a class="it" href="notifications.html"><div class="t">Уведомления</div>
+        <div class="a">Всё, о чём VELOR вас предупреждал.</div></a>
+    </div>
+  </section>
+</main>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+</body>
+</html>

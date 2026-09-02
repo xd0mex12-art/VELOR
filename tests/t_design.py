@@ -1,0 +1,245 @@
+# -*- coding: utf-8 -*-
+"""
+Визуальная система VELOR — проверки, которые нельзя провести глазами.
+
+Красоту тест не судит. Он охраняет ровно те решения, которые ломаются молча и
+поодиночке: кто-то дописал `font-size:13.5px`, кто-то вернул сиреневый ореол,
+кто-то завёл свою палитру на новой странице — и через месяц кабинет опять
+выглядит как десять разных продуктов.
+
+Источник правды — VELOR_DESIGN_SYSTEM.md. Если правило ниже устарело, сначала
+правится документ, потом тест.
+"""
+import io, os, re, sys, glob
+import pathlib as _pl
+
+sys.stdout.reconfigure(encoding="utf-8")
+ROOT = _pl.Path(__file__).resolve().parents[1]
+WEB = ROOT / "web"
+os.chdir(ROOT)
+
+ok = fail = 0
+
+
+def check(name, cond, extra=""):
+    global ok, fail
+    if cond:
+        ok += 1; print("  OK  ", name)
+    else:
+        fail += 1; print("  FAIL", name, extra)
+
+
+CSS = io.open(WEB / "velor.css", encoding="utf-8").read()
+# Заглушки-редиректы и лендинг живут по своим правилам: у первых нет своего
+# оформления вовсе, второй — маркетинговая страница, а не рабочий экран.
+STUBS = {"tools.html", "integrations.html"}
+LANDING = {"index.html"}
+ALL = sorted(os.path.basename(p) for p in glob.glob(str(WEB / "*.html")))
+CABINET = [n for n in ALL if n not in STUBS and n not in LANDING]
+
+
+def styles(name):
+    src = io.open(WEB / name, encoding="utf-8").read()
+    return "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", src, re.S))
+
+
+def body(name):
+    src = io.open(WEB / name, encoding="utf-8").read()
+    src = re.sub(r"<style.*?</style>", "", src, flags=re.S)
+    return src
+
+
+print("== ОДНА СИСТЕМА НА ВЕСЬ ПРОДУКТ ==")
+outside = [n for n in CABINET if "velor.css" not in io.open(WEB / n, encoding="utf-8").read()]
+check("каждый экран подключает velor.css", not outside, outside)
+
+own_tokens = []
+for n in CABINET:
+    st = styles(n)
+    for m in re.finditer(r":root\s*\{([^}]*)\}", st):
+        vars_ = re.findall(r"(--[a-z0-9-]+)\s*:", m.group(1))
+        # Своя переменная страницы допустима, если её нет в общей системе:
+        # это локальное имя, а не вторая палитра.
+        clash = [v for v in vars_ if (v + ":") in CSS.replace(" ", "")]
+        if clash:
+            own_tokens.append((n, clash))
+check("ни одна страница не переопределяет общие токены", not own_tokens, own_tokens)
+
+scales = []
+for n in CABINET:
+    st = styles(n)
+    if re.search(r"--(sp|fs|r)-[a-z0-9]+\s*:", st):
+        scales.append(n)
+check("шкалы отступов, кеглей и радиусов объявлены только в velor.css",
+      not scales, scales)
+
+
+print("\n== ШКАЛЫ ЗАКРЫТЫ ==")
+# Дробные кегли — самый частый след «подогнал на глаз». В шкале их нет.
+DRIFT = re.compile(r"font-size:\s*\d+\.\d+px")
+drift = [(n, DRIFT.findall(styles(n))) for n in CABINET if DRIFT.search(styles(n))]
+check("нет дробных размеров шрифта (13.5px и такого же рода)", not drift, drift)
+
+bad_rad = []
+for n in CABINET:
+    for m in re.finditer(r"border-radius:\s*([^;}\n]+)", styles(n)):
+        v = m.group(1).strip()
+        if "var(" in v or "%" in v or v == "999px":
+            continue
+        nums = [float(x) for x in re.findall(r"(\d+(?:\.\d+)?)px", v)]
+        # Мелкие радиусы (полоски прогресса, засечки) шкалы не касаются —
+        # там 3–6px это физика элемента, а не решение о форме карточки.
+        if nums and max(nums) > 6:
+            bad_rad.append((n, v))
+check("радиус берётся из шкалы", not bad_rad, bad_rad[:8])
+
+
+print("\n== СВЕЧЕНИЕ И ГРАДИЕНТЫ ==")
+glow = []
+for n in CABINET:
+    st = styles(n)
+    for m in re.finditer(r"box-shadow:\s*0 0 \d+px[^;}]*", st):
+        glow.append((n, m.group(0)[:50]))
+    for m in re.finditer(r"drop-shadow\(0 0 \d+px[^)]*\)", st):
+        glow.append((n, m.group(0)[:50]))
+check("сиреневых ореолов нет ни на кнопках, ни на карточках", not glow, glow[:8])
+check("в шкале теней нет свечения", "--glow-iris" not in CSS)
+
+# Градиент допустим, только если у него есть работа. Разрешённых видов три:
+#   затемнение под фиксированной шапкой (иначе текст страницы читается поверх
+#   текста меню), шиммер скелета и направленная подсветка строки под курсором.
+ALLOWED = (
+    "linear-gradient(180deg,rgba(0,0,0,",       # затемнение под шапкой
+    "linear-gradient(90deg,rgba(255,255,255,",  # шиммер
+    "linear-gradient(90deg,transparent,rgba(255,255,255,",
+    "linear-gradient(90deg,var(--tint-iris",    # подсветка строки
+    "linear-gradient(90deg,rgba(128,82,255,",
+    "linear-gradient(90deg,var(--surface)",
+)
+stray = []
+for n in CABINET:
+    st = re.sub(r"\s+", "", styles(n))
+    for m in re.finditer(r"(linear|radial|conic)-gradient\([^)]*", st):
+        g = m.group(0)
+        if not any(g.startswith(a.replace(" ", "")) for a in ALLOWED):
+            stray.append((n, g[:60]))
+check("градиент остался только там, где он работает", not stray, stray[:8])
+
+
+print("\n== УКРАШЕНИЕ УБРАНО ==")
+for dead in ("core-live.js", "arina-core.js"):
+    check(f"{dead} удалён вместе со своей декорацией", not (WEB / dead).exists())
+users = [n for n in ALL if "ambientCanvas" in io.open(WEB / n, encoding="utf-8").read()]
+check("поля летающих частиц нет ни на одной странице", not users, users)
+cores = [n for n in ALL if "coreCanvas" in io.open(WEB / n, encoding="utf-8").read()]
+check("светящегося трёхмерного «ядра» нет ни на одной странице", not cores, cores)
+three = [n for n in ALL if "three.min.js" in io.open(WEB / n, encoding="utf-8").read()]
+check("three.js (654 КБ) не грузится в кабинете", three == ["index.html"], three)
+
+# Сигнал «сотрудник на связи / думает / сбой» никуда не делся — он просто стал
+# читаемым словом вместо светящейся сферы.
+STATE = io.open(WEB / "velor-state.js", encoding="utf-8").read()
+check("состояние сотрудника осталось как компонент", ".v-pulse" in CSS)
+for w in ("на связи", "думает", "пишет ответ", "разбирает", "сбой"):
+    check(f"состояние «{w}» названо словом", w in STATE)
+check("старый публичный вызов VELOR_CORE сохранён",
+      "window.VELOR_CORE" in STATE and "setState" in STATE and "insight" in STATE)
+callers = [n for n in ALL if "VELOR_CORE" in io.open(WEB / n, encoding="utf-8").read()]
+check("страницы, звавшие ядро, подключают замену",
+      all("velor-state.js" in io.open(WEB / n, encoding="utf-8").read() for n in callers),
+      callers)
+
+EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-⛿]")
+emo = [(n, "".join(sorted(set(EMOJI.findall(body(n)))))) for n in CABINET
+       if EMOJI.search(body(n))]
+check("эмодзи не работают иконками", not emo, emo)
+
+
+print("\n== ДВИЖЕНИЕ НЕ ПРЯЧЕТ СОДЕРЖИМОЕ ==")
+# `*{animation:none!important}` останавливает появление на первом кадре, и
+# элемент с opacity:0 остаётся невидимым навсегда. Для всех, кто включил
+# «уменьшить движение», это не «без анимации», а «без раздела».
+reduced_block = ""
+m = re.search(r"@media\(prefers-reduced-motion: reduce\)\s*\{([^}]*\{[^}]*\}[^}]*)\}", CSS)
+if m:
+    reduced_block = m.group(1)
+reduced_all = "".join(re.findall(r"prefers-reduced-motion[^{]*\{(.*?)\n\}", CSS, re.S))
+ghosts = []
+for n in CABINET:
+    st = styles(n)
+    for m in re.finditer(r"\.([a-z0-9-]+)\s*\{([^}]*)\}", st):
+        blk = m.group(2)
+        if "opacity:0" not in blk.replace(" ", ""):
+            continue
+        if "animation:" not in blk or "animation:none" in blk.replace(" ", ""):
+            continue
+        cls = m.group(1)
+        # Сброс может стоять и в velor.css (общий), и на самой странице.
+        page_reset = re.search(
+            r"prefers-reduced-motion.*?\.%s\b" % re.escape(cls), st, re.S)
+        if ("." + cls) not in reduced_all and not page_reset:
+            ghosts.append((n, "." + cls))
+check("у каждого появления есть сброс для reduced-motion", not ghosts, ghosts)
+check("velor.css возвращает содержимому видимость",
+      "opacity:1 !important" in reduced_all)
+
+
+print("\n== ONE DOOR ==")
+INBOX = io.open(WEB / "inbox.html", encoding="utf-8").read()
+DASH = io.open(WEB / "dashboard.html", encoding="utf-8").read()
+check("состояния приёма описаны в системе, а не в странице",
+      '.v-door[data-state="dragging"]' in CSS)
+for st_name in ("empty", "dragging", "sending", "processing",
+                "done", "review", "duplicate", "failed"):
+    check(f"состояние «{st_name}» существует", st_name + ":" in INBOX or
+          st_name + " " in INBOX)
+check("приём — компонент системы", 'class="drop v-door"' in INBOX)
+check("на главной та же дверь", 'class="onedoor v-door"' in DASH)
+# Главное правило состояний: человек должен узнать не только «не вышло», но и
+# что стало с тем, что он отдал.
+fails = re.findall(r"door\('failed'[^;]*;", INBOX) + re.findall(r"state\('fail'[^;]*;", DASH)
+bad = [f for f in fails if "не изменены" not in f and "DOOR" not in f]
+check("каждое «не получилось» говорит, что данные не изменены", not bad, bad[:4])
+check("шаблон отказа тоже это говорит", "Данные не изменены" in INBOX)
+check("вход остался один: главная бьёт в тот же приёмник",
+      "'/api/inbox'" in DASH and "/api/inbox/intake" in INBOX)
+
+
+print("\n== КОМПОНЕНТЫ ==")
+for role, sel in (("первичная", ".v-btn{"), ("вторичная", ".v-btn.ghost{"),
+                  ("тихая", ".v-btn.quiet{"), ("опасная", ".v-btn.danger{"),
+                  ("выключенная", ".v-btn:disabled{")):
+    check(f"кнопка: роль «{role}» описана", sel in CSS.replace(" ", ""))
+for comp in (".v-field", ".v-label", ".v-hint", ".v-err", ".v-tag",
+             ".v-empty", ".v-fail", ".v-sk", ".v-kpi", ".v-panel", ".v-row"):
+    check(f"компонент {comp} живёт в системе", comp in CSS)
+
+
+print("\n== ИЕРАРХИЯ ==")
+check("название страницы больше не витрина", "font-size:var(--fs-h1)" in CSS.replace(" ", ""))
+huge = [n for n in CABINET
+        if re.search(r"h1[^{]*\{[^}]*font-size:\s*clamp\([^)]*[5-9]\dpx", styles(n))]
+check("ни одна страница не рисует заголовок в полэкрана", not huge, huge)
+check("шкала кеглей объявлена целиком",
+      all(t in CSS for t in ("--fs-micro", "--fs-caption", "--fs-sm", "--fs-body",
+                             "--fs-base", "--fs-lead", "--fs-h3", "--fs-h2",
+                             "--fs-h1", "--fs-display")))
+check("нейтрали сведены, а не чистые",
+      "--void:#08080b" in CSS.replace(" ", "") and "--bone:#f4f4f7" in CSS.replace(" ", ""))
+check("акцент бренда не тронут", "--iris:#8052ff" in CSS.replace(" ", ""))
+check("смысловые имена цвета есть",
+      all(t in CSS for t in ("--ok:", "--warn:", "--bad:", "--info:")))
+
+
+print("\n== ДОКУМЕНТ ==")
+DOC = ROOT / "VELOR_DESIGN_SYSTEM.md"
+check("VELOR_DESIGN_SYSTEM.md существует", DOC.exists())
+if DOC.exists():
+    d = io.open(DOC, encoding="utf-8").read()
+    for part in ("Цвет", "Типографика", "Отступы", "Сетка", "Радиусы", "Тени",
+                 "Компоненты", "Движение", "Доступность", "Запрещённые приёмы",
+                 "One Door", "Пустые состояния", "Ошибки"):
+        check(f"в документе есть раздел «{part}»", part in d)
+
+print(f"\nИТОГО: успешно {ok}, провалено {fail}")
+sys.exit(1 if fail else 0)

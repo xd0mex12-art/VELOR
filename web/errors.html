@@ -6,14 +6,10 @@
 <title>VELOR AI — Журнал ошибок</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{
-    --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd;
-    --iris:#8052ff; --saffron:#ffb829; --verdant:#2fd4b2; --coral:#ff6b6b; --magenta:#ff4fd8;
-    --hairline:rgba(255,255,255,.08); --surface:rgba(255,255,255,.04);
-  }
+  
   *{ margin:0; padding:0; box-sizing:border-box; }
   body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:16px; line-height:1.5; overflow-x:hidden; min-height:100dvh; }
+    font-weight:200; font-size:var(--fs-base); line-height:1.5; overflow-x:hidden; min-height:100dvh; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   a{ text-decoration:none; color:inherit; }
   button{ font-family:inherit; cursor:pointer; }
@@ -22,36 +18,35 @@
 
   nav{ position:fixed; top:0; left:0; right:0; z-index:50; display:flex; align-items:center; justify-content:space-between;
     gap:16px; padding:18px 24px; background:linear-gradient(180deg,rgba(0,0,0,.92),transparent); }
-  .logo{ display:flex; align-items:center; gap:10px; font-weight:400; font-size:18px; letter-spacing:.14em; }
+  .logo{ display:flex; align-items:center; gap:10px; font-weight:400; font-size:var(--fs-lead); letter-spacing:.14em; }
   .nav-links{ display:flex; gap:20px; align-items:center; }
-  .ghost{ font-weight:400; font-size:13px; letter-spacing:.3px; text-transform:uppercase; color:var(--ash);
+  .ghost{ font-weight:400; font-size:var(--fs-sm); letter-spacing:.3px; text-transform:uppercase; color:var(--ash);
     background:none; border:none; transition:color .25s; min-height:44px; display:inline-flex; align-items:center; }
   .ghost:hover{ color:var(--bone); }
 
   main{ position:relative; z-index:1; max-width:1100px; margin:0 auto; padding:104px 24px 80px; }
-  .label{ font-weight:600; font-size:13px; letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
-  h1{ font-weight:400; font-size:clamp(30px,5vw,52px); line-height:1.1; letter-spacing:-0.04em; margin:12px 0 8px; }
-  .sub{ color:var(--ash); font-size:14px; margin-bottom:36px; }
+  .label{ font-weight:600; font-size:var(--fs-sm); letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
+  .sub{ color:var(--ash); font-size:var(--fs-body); margin-bottom:36px; }
 
   /* панель фильтров */
   .filters{ display:grid; grid-template-columns:1fr auto auto auto; gap:14px; align-items:end; margin-bottom:14px; }
   @media(max-width:760px){ .filters{ grid-template-columns:1fr 1fr; } .f-search{ grid-column:1 / -1; } }
   .field{ display:flex; flex-direction:column; gap:7px; }
-  .field label{ font-size:11px; text-transform:uppercase; letter-spacing:.14em; color:var(--ash); font-weight:600; }
-  input, select{ min-height:46px; background:var(--surface); border:1px solid var(--hairline); border-radius:12px;
-    padding:10px 14px; color:var(--bone); font-family:inherit; font-weight:200; font-size:16px;
+  .field label{ font-size:var(--fs-caption); text-transform:uppercase; letter-spacing:.14em; color:var(--ash); font-weight:600; }
+  input, select{ min-height:46px; background:var(--surface); border:1px solid var(--hairline); border-radius:var(--r-xs);
+    padding:10px 14px; color:var(--bone); font-family:inherit; font-weight:200; font-size:var(--fs-base);
     transition:border-color .25s, box-shadow .25s; }
-  input:focus, select:focus{ border-color:var(--iris); box-shadow:0 0 16px rgba(128,82,255,.25); outline:none; }
+  input:focus, select:focus{ border-color:var(--iris); outline:none; }
   select{ cursor:pointer; }
   input[type=date]{ color-scheme:dark; }
   .toolbar{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-bottom:24px; }
-  .count{ font-size:13px; color:var(--ash); }
+  .count{ font-size:var(--fs-sm); color:var(--ash); }
   .count b{ color:var(--bone); font-weight:400; }
   .actions{ display:flex; gap:10px; }
-  .pill{ display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:10px 20px; border-radius:24px;
-    background:var(--iris); color:#fff; border:none; font-weight:600; font-size:12px; letter-spacing:.12em;
+  .pill{ display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:10px 20px; border-radius:var(--r-lg);
+    background:var(--iris); color:#fff; border:none; font-weight:600; font-size:var(--fs-caption); letter-spacing:.12em;
     text-transform:uppercase; transition:filter .25s; }
-  .pill:hover{ filter:brightness(1.18) drop-shadow(0 0 16px rgba(128,82,255,.45)); }
+  .pill:hover{ filter:brightness(1.18)); }
   .pill.sec{ background:var(--surface); color:var(--silver); border:1px solid var(--hairline); }
   .pill.sec:hover{ filter:none; color:var(--bone); border-color:var(--iris); }
   .pill:disabled{ opacity:.4; cursor:default; filter:none; }
@@ -63,27 +58,27 @@
     grid-template-columns:auto auto 1fr auto; gap:16px; align-items:center; padding:18px 6px; transition:background .25s, padding-left .25s; }
   .entry > .head:hover{ background:linear-gradient(90deg,rgba(128,82,255,.07),transparent 70%); padding-left:14px; }
   @media(max-width:760px){ .entry > .head{ grid-template-columns:auto 1fr auto; gap:10px; } .ts{ display:none; } }
-  .badge{ font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; padding:5px 10px;
-    border-radius:8px; white-space:nowrap; }
+  .badge{ font-size:var(--fs-caption); font-weight:600; letter-spacing:.08em; text-transform:uppercase; padding:5px 10px;
+    border-radius:var(--r-xs); white-space:nowrap; }
   .badge.WARNING{ color:var(--saffron); background:rgba(255,184,41,.12); }
   .badge.ERROR{ color:var(--coral); background:rgba(255,107,107,.14); }
   .badge.CRITICAL{ color:#fff; background:var(--coral); }
   .badge.INFO{ color:var(--verdant); background:rgba(47,212,178,.12); }
   .badge.DEBUG{ color:var(--silver); background:rgba(255,255,255,.06); }
-  .ts{ font-size:13px; color:var(--ash); white-space:nowrap; }
-  .msg{ font-size:15px; font-weight:200; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ts{ font-size:var(--fs-sm); color:var(--ash); white-space:nowrap; }
+  .msg{ font-size:var(--fs-body); font-weight:200; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .chev{ color:var(--ash); transition:transform .25s; flex:none; }
   .entry.open .chev{ transform:rotate(90deg); }
   .full{ display:none; padding:0 6px 20px; }
   .entry.open .full{ display:block; }
-  .full pre{ font-family:'JetBrains Mono',ui-monospace,monospace; font-size:13px; line-height:1.6; font-weight:400;
-    background:#0b0b0d; border:1px solid var(--hairline); border-radius:12px; padding:16px; color:var(--silver);
+  .full pre{ font-family:'JetBrains Mono',ui-monospace,monospace; font-size:var(--fs-sm); line-height:1.6; font-weight:400;
+    background:#0b0b0d; border:1px solid var(--hairline); border-radius:var(--r-xs); padding:16px; color:var(--silver);
     overflow-x:auto; white-space:pre; }
 
   /* состояния */
   .state{ padding:60px 20px; text-align:center; color:var(--ash); }
   .state svg{ opacity:.5; margin-bottom:16px; }
-  .state h3{ font-weight:400; font-size:20px; color:var(--bone); margin-bottom:6px; }
+  .state h3{ font-weight:400; font-size:var(--fs-h3); color:var(--bone); margin-bottom:6px; }
   .sk{ height:60px; border-bottom:1px solid var(--hairline); position:relative; overflow:hidden; }
   .sk::after{ content:''; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.05),transparent);
     transform:translateX(-100%); animation:sh 1.4s infinite; }
@@ -91,9 +86,17 @@
   @media(prefers-reduced-motion:reduce){ *{ animation:none !important; transition:none !important; } }
 
   #toast{ position:fixed; left:50%; bottom:28px; transform:translateX(-50%) translateY(20px); z-index:100;
-    background:#141416; border:1px solid var(--hairline); border-radius:12px; padding:12px 20px; font-size:14px;
+    background:#141416; border:1px solid var(--hairline); border-radius:var(--r-xs); padding:12px 20px; font-size:var(--fs-body);
     opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; }
   #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+</style>
+<link rel="stylesheet" href="velor.css">
+<style>
+  /* У страниц владельца сервиса своя шапка, поэтому и свой верхний отступ. */
+  body main{ max-width:1100px; padding:104px var(--gutter) 80px; }
+</style>
+<style>
+  /* У страниц владельца сервиса своя шапка, поэтому и свой верхний отступ. */
 </style>
 </head>
 <body>

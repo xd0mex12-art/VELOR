@@ -42,7 +42,7 @@
     font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase;
     padding:14px 26px; border-radius:24px; transition:filter .3s; will-change:transform;
   }
-  .pill:hover{ filter:brightness(1.2) drop-shadow(0 0 18px rgba(128,82,255,.5)); }
+  .pill:hover{ filter:brightness(1.2); }
   .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; }
   .ghost:hover{ color:var(--bone); }
 
@@ -59,7 +59,6 @@
   @media(max-width:760px){ .nav-links .ghost{ display:none; } }
 
   /* --- амбиент-поле треугольников --- */
-  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
 
   /* --- герой: 3D-призмы на фоне, текст поверх --- */
   .hero{
@@ -148,7 +147,6 @@
 <body>
 
 <!-- амбиент-поле: дрейфующие цветные треугольники -->
-<canvas id="ambientCanvas"></canvas>
 <div id="scrollProgress"></div>
 
 <!-- навигация -->
@@ -318,7 +316,6 @@
 </footer>
 
 <!-- амбиент-поле (частицы) + 3D-призмы героя -->
-<script src="core-live.js?v=10"></script>
 <script src="landing-3d.js"></script>
 <script src="vendor/motion.min.js"></script>
 <script>

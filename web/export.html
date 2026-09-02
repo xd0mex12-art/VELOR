@@ -13,23 +13,23 @@
 
   .rows{ display:grid; gap:14px; max-width:760px; }
   .row{ display:flex; align-items:center; gap:20px; flex-wrap:wrap;
-    border:1px solid var(--hairline); border-radius:20px; padding:22px 26px;
-    background:linear-gradient(165deg,rgba(255,255,255,.045),rgba(255,255,255,.012));
+    border:1px solid var(--hairline); border-radius:var(--r-lg); padding:22px 26px;
+    background:var(--surface);
     transition:border-color .25s; }
   .row:hover{ border-color:rgba(128,82,255,.3); }
   .row .name{ flex:1; min-width:150px; }
-  .row .name .t{ font-weight:400; font-size:20px; letter-spacing:-.01em; }
-  .row .name .s{ font-size:13px; color:var(--ash); margin-top:3px; }
+  .row .name .t{ font-weight:400; font-size:var(--fs-h3); letter-spacing:-.01em; }
+  .row .name .s{ font-size:var(--fs-sm); color:var(--ash); margin-top:3px; }
 
   .fmts{ display:flex; gap:9px; flex-wrap:wrap; }
-  .fmt{ min-height:44px; padding:11px 20px; border-radius:22px; background:rgba(255,255,255,.05);
-    border:1px solid var(--hairline); color:var(--silver); font-weight:600; font-size:12.5px;
+  .fmt{ min-height:44px; padding:11px 20px; border-radius:var(--r-lg); background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-weight:600; font-size:var(--fs-caption);
     letter-spacing:.06em; transition:.2s; display:inline-flex; align-items:center; gap:7px; }
   .fmt:hover{ color:#fff; border-color:var(--iris); background:rgba(128,82,255,.12); }
   .fmt:disabled{ opacity:.5; cursor:progress; }
   .fmt svg{ width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:2; }
 
-  .empty{ color:var(--ash); font-size:15px; padding:28px 0; }
+  .empty{ color:var(--ash); font-size:var(--fs-body); padding:28px 0; }
   @media(max-width:560px){ .row{ padding:20px; } .row .fmts{ width:100%; } .fmt{ flex:1; justify-content:center; } }
 </style>
 <link rel="stylesheet" href="velor.css">

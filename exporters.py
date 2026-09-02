@@ -199,6 +199,17 @@ def _pdf_font():
     return _PDF_FONT or "Helvetica"
 
 
+def pdf_font():
+    """Тот же шрифт с кириллицей для всех, кто рисует PDF в проекте.
+
+    Публичное имя нужно затем, что PDF собирает не только экспорт таблиц:
+    результаты (outputs.py) рисуют отчёты и коммерческие предложения. Второй
+    подбор шрифта означал бы, что однажды один PDF выйдет с кириллицей, а
+    другой — с пустыми квадратами.
+    """
+    return _pdf_font()
+
+
 def to_pdf(ds) -> bytes:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors

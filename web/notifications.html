@@ -6,49 +6,47 @@
 <title>VELOR — Уведомления</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:var(--lilac);
-    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  
   *{ margin:0; padding:0; box-sizing:border-box; }
   body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+    font-weight:200; font-size:var(--fs-base); line-height:1.55; overflow-x:hidden; }
   a{ color:inherit; text-decoration:none; }
   button{ font-family:inherit; cursor:pointer; }
   .num{ font-variant-numeric:tabular-nums; }
-  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
 
   .bar{ display:flex; gap:10px; align-items:center; margin-bottom:18px; flex-wrap:wrap; }
   .bar input{ flex:1; min-width:200px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
-    border-radius:14px; padding:11px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:15px; }
+    border-radius:var(--r-sm); padding:11px 16px; color:var(--bone); font-family:inherit; font-weight:200; font-size:var(--fs-body); }
   .bar input:focus{ border-color:var(--iris); outline:none; }
   .bar button{ border:1px solid var(--hairline); background:rgba(255,255,255,.05); color:var(--silver);
-    border-radius:14px; padding:11px 16px; font-size:13.5px; transition:color .2s, border-color .2s; }
+    border-radius:var(--r-sm); padding:11px 16px; font-size:var(--fs-sm); transition:color .2s, border-color .2s; }
   .bar button:hover{ color:#fff; border-color:var(--lilac); }
   .bar button.on{ background:var(--iris); color:#fff; border-color:transparent; }
 
   .chips{ display:flex; gap:7px; flex-wrap:wrap; margin-bottom:26px; }
-  .chip{ padding:7px 14px; border-radius:18px; background:rgba(255,255,255,.05);
-    border:1px solid var(--hairline); color:var(--silver); font-size:12.5px; font-weight:500;
+  .chip{ padding:7px 14px; border-radius:var(--r-md); background:rgba(255,255,255,.05);
+    border:1px solid var(--hairline); color:var(--silver); font-size:var(--fs-caption); font-weight:500;
     transition:background .2s, color .2s, border-color .2s; }
   .chip:hover{ color:#fff; }
   .chip.on{ background:var(--iris); color:#fff; border-color:transparent; }
   .chip b{ font-weight:600; color:var(--lilac); margin-left:5px; }
   .chip.on b{ color:#fff; }
 
-  .day{ font-size:11px; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
+  .day{ font-size:var(--fs-caption); font-weight:600; letter-spacing:.16em; text-transform:uppercase;
     color:var(--ash); margin:26px 0 10px; }
   .day:first-of-type{ margin-top:0; }
 
-  .n{ display:flex; gap:14px; align-items:flex-start; padding:15px 18px; border-radius:16px;
+  .n{ display:flex; gap:14px; align-items:flex-start; padding:15px 18px; border-radius:var(--r-sm);
     border:1px solid var(--hairline); margin-bottom:9px; transition:background .2s, border-color .2s; }
   .n.unread{ background:rgba(128,82,255,.06); border-color:rgba(128,82,255,.22); }
   .n.important{ border-color:rgba(255,184,41,.3); }
   .n .pin{ width:9px; height:9px; border-radius:50%; margin-top:8px; flex:none; background:var(--ash); }
   .n .body{ flex:1; min-width:0; }
-  .n .t{ font-size:15.5px; font-weight:400; }
-  .n .d{ font-size:13.5px; color:var(--ash); margin-top:3px; }
-  .n .meta{ display:flex; gap:10px; align-items:center; margin-top:6px; font-size:12px; color:var(--ash); }
+  .n .t{ font-size:var(--fs-body); font-weight:400; }
+  .n .d{ font-size:var(--fs-sm); color:var(--ash); margin-top:3px; }
+  .n .meta{ display:flex; gap:10px; align-items:center; margin-top:6px; font-size:var(--fs-caption); color:var(--ash); }
   .n .kd{ color:var(--lilac); }
-  .n .ok{ background:none; border:none; color:var(--ash); font-size:12.5px; padding:2px 6px; flex:none; }
+  .n .ok{ background:none; border:none; color:var(--ash); font-size:var(--fs-caption); padding:2px 6px; flex:none; }
   .n .ok:hover{ color:var(--verdant); }
   .n.read .ok{ visibility:hidden; }
 
@@ -58,7 +56,6 @@
 <link rel="stylesheet" href="velor.css">
 </head>
 <body class="narrow">
-<canvas id="ambientCanvas"></canvas>
 
 <main>
   <span class="label">Core · Уведомления</span>
@@ -79,7 +76,6 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="core-live.js?v=10"></script>
 <script>
 let toastT;
 function toast(msg){

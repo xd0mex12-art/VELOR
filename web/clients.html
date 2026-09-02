@@ -16,9 +16,6 @@
   button{ font-family:inherit; cursor:pointer; }
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   .num{ font-variant-numeric:tabular-nums; }
-  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
-
-  body main{ padding-top:104px; padding-bottom:80px; }
 
   /* панель управления списком: срез + поиск в одной строке */
   .tools{ display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap;
@@ -27,7 +24,7 @@
   .search input{ width:100%; min-height:48px; background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm);
     padding:12px 16px 12px 44px; color:var(--bone); font-family:inherit;
-    font-weight:var(--fw-thin); font-size:16px; }
+    font-weight:var(--fw-thin); font-size:var(--fs-base); }
   .search svg{ position:absolute; left:15px; top:50%; transform:translateY(-50%);
     width:18px; height:18px; stroke:var(--ash); fill:none; pointer-events:none; }
   .found{ font-size:var(--fs-sm); color:var(--ash); min-height:20px; margin-bottom:var(--sp-3); }
@@ -56,7 +53,7 @@
   .client.open .card{ display:block; animation:velorIn .3s var(--ease); }
   .fields{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
     gap:var(--sp-4); margin-bottom:var(--sp-5); }
-  .f label{ display:block; font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+  .f label{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-caption); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2); }
   .f input, .f textarea{ width:100%; min-height:48px; background:var(--surface-2);
     border:1px solid var(--hairline); border-radius:var(--r-sm); padding:12px 14px;
@@ -66,7 +63,7 @@
   .card-acts .sub{ font-size:var(--fs-sm); color:var(--ash); }
 
   .hist{ margin-top:var(--sp-6); }
-  .hist .h, .chat .h{ font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+  .hist .h, .chat .h{ font-weight:var(--fw-semi); font-size:var(--fs-caption); letter-spacing:.16em;
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-3); }
   .hist .o{ display:flex; gap:var(--sp-4); padding:var(--sp-3) 0;
     border-top:1px solid var(--hairline); font-size:var(--fs-body); font-weight:var(--fw-thin); }
@@ -77,12 +74,12 @@
     background:var(--tint-iris); border-radius:var(--r-lg); padding:var(--sp-5); }
   .ai-sum .cap{ display:flex; align-items:center; justify-content:space-between;
     gap:var(--sp-3); margin-bottom:var(--sp-3); }
-  .ai-sum .cap span{ font-weight:var(--fw-semi); font-size:11px; letter-spacing:.16em;
+  .ai-sum .cap span{ font-weight:var(--fw-semi); font-size:var(--fs-caption); letter-spacing:.16em;
     text-transform:uppercase; color:var(--lilac); }
   .ai-sum .txt{ font-weight:var(--fw-thin); font-size:var(--fs-body); line-height:1.5; }
   .ai-sum .adv{ margin-top:var(--sp-3); padding-top:var(--sp-3);
     border-top:1px solid rgba(128,82,255,.2); font-weight:var(--fw-thin); font-size:var(--fs-body); }
-  .ai-sum .adv b{ display:block; color:var(--verdant); font-weight:var(--fw-semi); font-size:11px;
+  .ai-sum .adv b{ display:block; color:var(--verdant); font-weight:var(--fw-semi); font-size:var(--fs-caption);
     letter-spacing:.14em; text-transform:uppercase; margin-bottom:5px; }
 
   /* переписка */
@@ -95,7 +92,7 @@
     border-bottom-left-radius:5px; }
   .msg.assistant{ align-self:flex-end; background:rgba(128,82,255,.14);
     border:1px solid rgba(128,82,255,.28); border-bottom-right-radius:5px; }
-  .msg .who{ display:block; font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  .msg .who{ display:block; font-size:var(--fs-micro); letter-spacing:.14em; text-transform:uppercase;
     color:var(--ash); margin-bottom:3px; }
 
   .more{ display:block; margin:var(--sp-8) auto 0; }
@@ -108,7 +105,6 @@
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   @media(max-width:560px){
-    body main{ padding-top:92px; }
     .search{ max-width:none; }
     .v-segs{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; margin:0 -18px; padding:0 18px; }
     .v-segs::-webkit-scrollbar{ display:none; }
@@ -119,8 +115,6 @@
 <link rel="stylesheet" href="velor.css">
 </head>
 <body>
-
-<canvas id="ambientCanvas"></canvas>
 
 <main>
   <!-- 1. заголовок + что здесь сейчас + главное действие -->
@@ -170,7 +164,6 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="core-live.js?v=10"></script>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = n => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽';
@@ -239,8 +232,8 @@ function isSleeping(c){
 }
 
 function rowMeta(c){
-  return [c.phone && '☎ ' + esc(c.phone), c.birthday && '🎂 ' + esc(c.birthday),
-          c.favorite && '💐 ' + esc(c.favorite)].filter(Boolean).join(' · ')
+  return [c.phone && 'тел. ' + esc(c.phone), c.birthday && 'др ' + esc(c.birthday),
+          c.favorite && 'любит ' + esc(c.favorite)].filter(Boolean).join(' · ')
     || 'нет данных — откройте и заполните';
 }
 
@@ -347,8 +340,8 @@ function wireCard(el, box){
       });
       if (!r.ok) throw 0;
       toast('Сохранено');
-      el.querySelector('.meta').textContent = [data.phone && '☎ ' + data.phone,
-        data.birthday && '🎂 ' + data.birthday, data.favorite && '💐 ' + data.favorite]
+      el.querySelector('.meta').textContent = [data.phone && 'тел. ' + data.phone,
+        data.birthday && 'др ' + data.birthday, data.favorite && 'любит ' + data.favorite]
         .filter(Boolean).join(' · ') || 'нет данных';
       el.querySelector('.nm').innerHTML = esc(data.name || 'Без имени') + '<span class="chev" aria-hidden="true"></span>';
     }catch{ toast('Не сохранилось — проверьте связь с сервером'); }

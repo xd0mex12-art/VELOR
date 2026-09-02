@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VELOR AI — Обзор бизнеса</title>
 <link href="vendor/inter.css" rel="stylesheet">
-<script src="vendor/three.min.js"></script>
 <style>
   /* Главная = утренний брифинг владельца: за 30 секунд видно состояние дел
      и что делать. Порядок блоков — это порядок вопросов в голове:
@@ -17,39 +16,41 @@
   ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:var(--r-xs); }
   .num{ font-variant-numeric:tabular-nums; }
-  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
-
-  body main{ padding-top:104px; padding-bottom:80px; }
   section + section{ margin-top:var(--sp-6); }
 
   /* ── шапка брифинга ── */
   .head{ display:grid; grid-template-columns:1fr auto; align-items:start;
     gap:var(--sp-4) var(--sp-6); margin-bottom:var(--sp-6); }
-  .head .pulse{ justify-content:flex-end; margin-bottom:var(--sp-3); }
+  .head .v-pulse{ justify-content:flex-end; margin-bottom:var(--sp-3); }
   @media(max-width:760px){
     .head{ grid-template-columns:1fr; }
-    .head .pulse{ justify-content:flex-start; }
+    .head .v-pulse{ justify-content:flex-start; }
     .head .v-acts > *{ flex:1 1 auto; justify-content:center; }
   }
   .head .date{ font-weight:400; font-size:var(--fs-sm); letter-spacing:.04em;
     text-transform:lowercase; color:var(--ash); margin-bottom:var(--sp-2); }
-  .hi{ font-weight:400; font-size:clamp(26px,3.2vw,40px); letter-spacing:-.035em; line-height:1.1; }
-  .hi b{ font-weight:500; color:var(--lilac-2); }
-  /* Строка статуса — общий компонент .v-state; своим остаётся только хвост фактов. */
-  .v-state .tail{ color:var(--ash); font-size:var(--fs-body); }
-  .pulse{ display:flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-sm); color:var(--ash); }
-  .pulse .dot{ width:7px; height:7px; border-radius:50%; background:var(--verdant);
-    box-shadow:0 0 9px rgba(47,212,178,.8); animation:breathe 3.6s ease-in-out infinite; }
-  @keyframes breathe{ 0%,100%{ opacity:.55; transform:scale(.82) } 50%{ opacity:1; transform:scale(1.1) } }
+  /* Порядок величин на главной = порядок вопросов.
+     Приветствие — вежливость, а не новость: владелец и так знает, что сейчас
+     день и как называется его компания. Новость — строка под ним. Поэтому
+     приветствие сведено к размеру раздела, а состояние дел набрано крупнее
+     всего остального на экране. Селектор с .head — велор-стили подключаются
+     позже и одиночный .hi перебили бы. */
+  .head .hi{ font-weight:var(--fw-reg); font-size:var(--fs-h2); letter-spacing:-.02em;
+    line-height:1.2; margin-bottom:var(--sp-3); }
+  .head .hi b{ font-weight:var(--fw-med); color:var(--lilac-2); }
+  .head .v-state{ margin-top:0; font-size:var(--fs-lead); align-items:baseline; }
+  .head .v-state .v-badge{ font-size:var(--fs-body); }
+  .head .v-state .tail{ color:var(--silver); font-size:var(--fs-lead); line-height:1.35; }
+
 
 
   /* ── «Что говорит VELOR» — интеллектуальное ядро экрана ── */
-  .says{ border:1px solid rgba(128,82,255,.28); border-radius:var(--r-xl);
-    background:linear-gradient(150deg,rgba(128,82,255,.13),rgba(91,108,255,.04) 55%,rgba(255,255,255,.015));
-    padding:var(--sp-6); }
+  /* Раздел, где говорит VELOR. Раньше он был залит сиреневым градиентом —
+     приём, по которому интерфейс и опознаётся как собранный ИИ. Смысл «здесь
+     говорит сотрудник» несёт не заливка, а одна ирисовая полоса слева. */
+  .says{ border:1px solid var(--hairline); border-left:2px solid var(--iris);
+    border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-6); }
   .says-head{ display:flex; align-items:center; gap:var(--sp-4); margin-bottom:var(--sp-5); }
-  .core-square{ position:relative; width:76px; height:76px; flex:none; }
-  #coreCanvas{ position:absolute; inset:0; width:100%!important; height:100%!important; }
   .says-head h2{ font-weight:500; font-size:var(--fs-h3); letter-spacing:-.02em; }
   .says-head .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:200; margin-top:3px; }
 
@@ -59,7 +60,7 @@
     transition:border-color .25s, background .25s; }
   a.slot:hover{ border-color:rgba(128,82,255,.4); background:rgba(0,0,0,.16); }
   .slot .tag{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start;
-    font-weight:600; font-size:9.5px; letter-spacing:.15em; text-transform:uppercase;
+    font-weight:600; font-size:var(--fs-micro); letter-spacing:.15em; text-transform:uppercase;
     padding:4px 10px; border-radius:var(--r-md); margin-bottom:var(--sp-3); }
   .tag.obs{ background:rgba(255,255,255,.07); color:var(--silver); }
   .tag.prob{ background:rgba(255,107,107,.16); color:var(--ink-coral); }
@@ -137,7 +138,7 @@
   .note.high{ border-color:rgba(255,184,41,.28); }
   .note.watch{ background:transparent; }
   .note .chip{ display:inline-flex; align-items:center; font-weight:600;
-    font-size:9.5px; letter-spacing:.15em; text-transform:uppercase;
+    font-size:var(--fs-micro); letter-spacing:.15em; text-transform:uppercase;
     padding:4px 10px; border-radius:var(--r-md); margin-bottom:var(--sp-3);
     background:rgba(255,255,255,.07); color:var(--silver); }
   .note.urgent .chip{ background:rgba(255,107,107,.16); color:var(--ink-coral); }
@@ -193,18 +194,33 @@
     .slots{ grid-template-columns:1fr; }
     .core-square{ width:60px; height:60px; }
   }
-  @media(max-width:560px){
-    body main{ padding-top:92px; }
-  }
   @media (prefers-reduced-motion: reduce){
     *{ animation:none !important; transition:none !important; }
   }
+  /* ── дверь внутрь на главной ── */
+  /* Компактный ход в приём. Рамку, фон и состояния берёт у общего .v-door —
+     на «Входящих» тот же компонент, и человек видит один и тот же язык. */
+  .onedoor{ padding:var(--sp-4) var(--sp-5); margin-bottom:var(--sp-8);
+    border-style:solid; border-radius:var(--r-lg); }
+  .onedoor .lbl{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    margin-bottom:var(--sp-3); }
+  .onedoor .od-row{ display:flex; gap:var(--sp-3); align-items:center; flex-wrap:wrap; }
+  .onedoor input{ flex:1; min-width:220px; min-height:46px; padding:12px 14px;
+    border-radius:var(--r-sm); border:1px solid var(--hairline-2);
+    background:var(--surface-2); color:var(--bone); font-family:inherit;
+    font-size:var(--fs-body); font-weight:200; }
+  .onedoor input:focus{ outline:none; border-color:var(--ring); }
+  .onedoor .od-note{ color:var(--ash); font-weight:var(--fw-thin);
+    font-size:var(--fs-sm); margin-top:var(--sp-3); }
+  .onedoor .od-note.ok{ color:var(--ink-verdant); }
+  .onedoor .od-note.bad{ color:var(--ink-coral); }
+  @media(max-width:600px){ .onedoor .od-row{ flex-direction:column; align-items:stretch; }
+    .onedoor .od-row .v-btn{ width:100%; } }
 </style>
 <link rel="stylesheet" href="velor.css">
 </head>
 <body>
-
-<canvas id="ambientCanvas"></canvas>
 
 <main>
   <!-- 1. Кто я, какой сегодня день, как дела -->
@@ -215,10 +231,13 @@
       <p class="v-state" id="status"><span class="tail">Смотрю, что у вас происходит…</span></p>
     </div>
     <div>
-      <div class="pulse"><span class="dot"></span><span id="pulse">сотрудник на связи</span></div>
+      <div class="v-pulse" data-velor-state aria-live="polite"></div>
       <div class="v-acts">
         <a class="v-btn" href="home.html">Спросить VELOR</a>
-        <a class="v-btn ghost" href="timeline.html">Вся история</a>
+        <!-- Раньше здесь была «Вся история». Ход в работу VELOR полезнее:
+             история отвечает «что было», а этот вопрос — «что от меня
+             нужно». Сама история никуда не делась, она в разделе «Ещё». -->
+        <a class="v-btn ghost" href="work.html">Работа VELOR</a>
       </div>
     </div>
   </header>
@@ -226,8 +245,27 @@
   <div id="trialZone"></div>
   <div id="failZone" role="alert"></div>
 
+  <!-- 1.5. Дверь внутрь. Ход к «Входящим» стоит здесь, а не только в меню:
+       передать VELOR прайс или чек человек хочет ровно в тот момент, когда
+       смотрит, как идут дела, — и лишний переход по вкладкам этот момент
+       съедает. Полное окно приёма (файлы, буфер, перетаскивание) остаётся
+       одно, на «Входящих»: второй приёмник означал бы вторую очередь и
+       второй набор состояний. -->
+  <section class="onedoor v-door" data-state="empty" aria-labelledby="odTitle">
+    <label class="lbl" id="odTitle" for="odText">Передать VELOR</label>
+    <div class="od-row">
+      <input id="odText" maxlength="2000" autocomplete="off"
+        placeholder="Например: поставщик поднял цену на розы до 180 ₽">
+      <button class="v-btn" type="button" id="odSend" disabled>Отправить</button>
+      <a class="v-btn ghost" href="inbox.html">Файл или фото</a>
+    </div>
+    <p class="od-note" id="odNote">Заметка, цена, новость о бизнесе — VELOR разберёт
+      и покажет во «Входящих», что понял.</p>
+    <div class="v-door-say" id="odSay" role="status" aria-live="polite" hidden></div>
+  </section>
+
   <!-- 2. Исполнительная сводка: шесть чисел о состоянии дел -->
-  <section class="v-kpi" id="kpi" aria-label="Исполнительная сводка" aria-live="polite">
+  <section class="v-kpi six" id="kpi" aria-label="Исполнительная сводка" aria-live="polite">
     <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
     <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
   </section>
@@ -235,7 +273,6 @@
   <!-- 3. Что об этом думает VELOR -->
   <section class="says v-in" aria-labelledby="saysTitle">
     <div class="says-head">
-      <div class="core-square"><canvas id="coreCanvas"></canvas></div>
       <div>
         <h2 id="saysTitle">Что происходит с бизнесом</h2>
         <p class="sub" id="saysSub">Смотрю на ваши цифры…</p>
@@ -264,6 +301,7 @@
     <div class="notice-head">
       <h2 id="noticeTitle">VELOR заметил</h2>
       <span class="sub" id="noticeSub"></span>
+      <a class="v-btn ghost sm" href="work.html" style="margin-left:auto">Все находки</a>
     </div>
     <div class="notes" id="notes"></div>
   </section>
@@ -284,7 +322,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="core-live.js?v=10"></script>
+<script src="velor-state.js"></script>
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
@@ -723,7 +761,6 @@ async function load(){
   document.getElementById('failZone').innerHTML = '';
 
   if (d.business && d.business.ai_name)
-    document.getElementById('pulse').textContent = d.business.ai_name + ' на связи';
 
   document.getElementById('status').innerHTML = statusLine(d);
   // Директор — основной вид главной. Не собрался (старый сервер, сбой) —
@@ -771,31 +808,31 @@ setInterval(load, 30000);
   /* ── Trial: запуск / режим ожидания / ценность ── */
   #trialZone:empty{ display:none; }
   #trialZone{ margin:0 0 var(--sp-5); }
-  .tz-launch, .tz-locked{ border-radius:var(--r-xl); padding:30px 34px;
-    border:1px solid rgba(128,82,255,.3); animation:velorIn .5s var(--ease) both;
-    background:linear-gradient(150deg,rgba(128,82,255,.18),rgba(91,108,255,.05) 60%,rgba(255,255,255,.015)); }
-  .tz-launch h3, .tz-locked h3{ font-weight:500; font-size:clamp(22px,2.6vw,28px); letter-spacing:-.02em; }
+  .tz-launch, .tz-locked{ border-radius:var(--r-lg); padding:var(--sp-6);
+    border:1px solid var(--hairline); border-left:2px solid var(--iris);
+    background:var(--surface); animation:velorIn var(--dur-slow) var(--ease) both; }
+  .tz-launch h3, .tz-locked h3{ font-weight:var(--fw-med); font-size:var(--fs-h2); letter-spacing:-.02em; }
   .tz-launch p, .tz-locked p{ color:var(--silver); font-weight:200; font-size:var(--fs-body);
     line-height:1.55; margin-top:8px; max-width:640px; }
-  .tz-steps{ display:flex; gap:var(--sp-4); flex-wrap:wrap; margin:18px 0 6px; font-size:13.5px; color:var(--ash); }
+  .tz-steps{ display:flex; gap:var(--sp-4); flex-wrap:wrap; margin:18px 0 6px; font-size:var(--fs-sm); color:var(--ash); }
   .tz-steps span{ display:inline-flex; align-items:center; gap:7px; }
   .tz-steps span.ok{ color:var(--verdant); }
   .tz-go{ display:inline-flex; align-items:center; gap:9px; margin-top:var(--sp-5); min-height:48px;
     padding:14px 28px; border-radius:var(--r-sm); border:none; background:var(--iris); color:#fff;
     font-family:inherit; font-weight:600; font-size:var(--fs-body); cursor:pointer; transition:filter .2s; }
-  .tz-go:hover{ filter:brightness(1.16) drop-shadow(0 0 18px rgba(128,82,255,.55)); }
+  .tz-go:hover{ filter:brightness(1.12); }
   .tz-go:disabled{ opacity:.5; cursor:default; filter:none; }
   .tz-msg{ margin-top:var(--sp-3); font-size:var(--fs-body); color:var(--saffron); }
   .tz-msg a{ color:var(--lilac); }
-  .tz-locked{ border-color:rgba(255,255,255,.12); background:linear-gradient(150deg,rgba(128,82,255,.14),rgba(255,255,255,.02)); }
+  .tz-locked{ border-left-color:var(--warn); }
   .tz-stats{ display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--sp-3); margin:var(--sp-5) 0; }
   .tz-stats div{ border:1px solid var(--hairline); border-radius:var(--r-md); padding:14px 16px; }
-  .tz-stats .n{ font-weight:400; font-size:24px; letter-spacing:-.02em; color:#c9bfff; }
+  .tz-stats .n{ font-weight:var(--fw-reg); font-size:var(--fs-h2); letter-spacing:-.02em; color:var(--lilac-2); }
   .tz-stats .k{ font-size:var(--fs-caption); color:var(--ash); margin-top:3px; }
   .tz-strip{ display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; padding:12px 18px;
     border-radius:var(--r-md); border:1px solid var(--hairline); background:var(--surface);
-    font-size:13.5px; color:var(--silver); }
-  .tz-strip b{ color:#c9bfff; font-weight:500; } .tz-strip .d{ margin-left:auto; color:var(--ash); }
+    font-size:var(--fs-sm); color:var(--silver); }
+  .tz-strip b{ color:var(--lilac-2); font-weight:var(--fw-med); } .tz-strip .d{ margin-left:auto; color:var(--ash); }
 </style>
 <script>
 (function(){
@@ -890,6 +927,62 @@ setInterval(load, 30000);
   function plural2(n, a, b, c){ var n10=n%10, n100=n%100;
     if (n10===1 && n100!==11) return a;
     if (n10>=2 && n10<=4 && !(n100>=12 && n100<=14)) return b; return c; }
+})();
+
+// ── дверь внутрь ──
+// Отправляем в тот же приёмник, что и «Входящие»: /api/inbox. Своего пути у
+// главной нет намеренно — иначе у материала появилось бы два способа попасть
+// в систему и два места, где его искать, если что-то пошло не так.
+(function(){
+  const box = document.getElementById('odText');
+  const btn = document.getElementById('odSend');
+  const note = document.getElementById('odNote');
+  const door = document.querySelector('.onedoor');
+  const say = document.getElementById('odSay');
+
+  // Те же состояния, что на «Входящих»: приём один, значит и язык один.
+  // «Не получилось» всегда договаривает, что стало с данными.
+  // Имена состояний те же, что на «Входящих», — иначе один и тот же приём
+  // рассказывал бы о себе двумя разными словарями.
+  const AS = { work:'sending', done:'done', fail:'failed', empty:'empty' };
+  function state(name, title, text){
+    door.dataset.state = AS[name] || 'empty';
+    if (!title){ say.hidden = true; note.hidden = false; return; }
+    note.hidden = true;
+    say.hidden = false;
+    say.className = 'v-door-say ' + name;
+    say.innerHTML = '<div><div class="t">' + title + '</div><div class="d">' + text + '</div></div>';
+  }
+  function refresh(){ btn.disabled = !box.value.trim(); }
+  box.addEventListener('input', refresh);
+  box.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && box.value.trim()){ e.preventDefault(); send(); }
+  });
+  btn.addEventListener('click', send);
+  async function send(){
+    const text = box.value.trim();
+    if (!text) return;
+    btn.disabled = true;
+    state('work', 'Передаю…', 'Заметка уходит в тот же приём, что и файлы.');
+    try{
+      const r = await fetch('/api/inbox', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok){
+        state('fail', 'Не удалось передать',
+          esc(d.detail || 'Сервер отказал') + '. Данные не изменены — попробуйте ещё раз.');
+        return;
+      }
+      box.value = '';
+      state('done', 'Понял. Разбираю',
+        'Что он понял и что записал, видно во <a href="inbox.html">Входящих</a>.');
+      setTimeout(() => state('empty'), 9000);
+    }catch{
+      state('fail', 'Сервер не ответил',
+        'Данные не изменены — попробуйте ещё раз.');
+    }finally{ refresh(); }
+  }
 })();
 </script>
 </body>

@@ -6,67 +6,64 @@
 <title>VELOR — Цели бизнеса</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  :root{ --void:#000; --bone:#fff; --ash:#9a9a9a; --silver:#bdbdbd; --iris:#8052ff; --lilac:var(--lilac);
-    --verdant:#2fd4b2; --saffron:#ffb829; --coral:#ff6b6b; --hairline:rgba(255,255,255,.08); }
+  
   *{ margin:0; padding:0; box-sizing:border-box; }
   body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:17px; line-height:1.55; overflow-x:hidden; }
+    font-weight:200; font-size:var(--fs-base); line-height:1.55; overflow-x:hidden; }
   a{ color:inherit; text-decoration:none; }
   button{ font-family:inherit; cursor:pointer; }
   .num{ font-variant-numeric:tabular-nums; }
-  #ambientCanvas{ position:fixed; inset:0; z-index:0; pointer-events:none; }
 
-  .goal{ border:1px solid var(--hairline); border-radius:22px; padding:26px 28px;
+  .goal{ border:1px solid var(--hairline); border-radius:var(--r-lg); padding:26px 28px;
     background:rgba(255,255,255,.02); margin-bottom:16px; }
   .goal.done{ opacity:.55; }
   .g-head{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
-  .g-title{ font-weight:500; font-size:19px; }
-  .g-metric{ font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--lilac); }
+  .g-title{ font-weight:500; font-size:var(--fs-lead); }
+  .g-metric{ font-size:var(--fs-caption); letter-spacing:.14em; text-transform:uppercase; color:var(--lilac); }
   .g-acts{ margin-left:auto; display:flex; gap:4px; }
-  .g-acts button{ background:none; border:none; color:var(--ash); font-size:13px;
+  .g-acts button{ background:none; border:none; color:var(--ash); font-size:var(--fs-sm);
     padding:3px 7px; transition:color .2s; }
   .g-acts button:hover{ color:var(--lilac); }
   .g-acts button.rm:hover{ color:var(--coral); }
 
   .g-nums{ display:flex; align-items:baseline; gap:10px; margin:16px 0 10px; }
-  .g-cur{ font-size:32px; font-weight:400; letter-spacing:-.03em; }
-  .g-of{ color:var(--ash); font-size:15px; }
-  .g-pct{ margin-left:auto; font-size:15px; font-weight:500; }
+  .g-cur{ font-size:var(--fs-display); font-weight:400; letter-spacing:-.03em; }
+  .g-of{ color:var(--ash); font-size:var(--fs-body); }
+  .g-pct{ margin-left:auto; font-size:var(--fs-body); font-weight:500; }
 
   .track{ height:7px; border-radius:5px; background:rgba(255,255,255,.07); overflow:hidden; }
   .track span{ display:block; height:100%; width:0; border-radius:5px; background:var(--iris);
     transition:width 1s cubic-bezier(.22,1,.36,1); }
 
-  .g-meta{ display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; font-size:13px; }
-  .chip{ padding:5px 12px; border-radius:14px; background:rgba(255,255,255,.05);
+  .g-meta{ display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; font-size:var(--fs-sm); }
+  .chip{ padding:5px 12px; border-radius:var(--r-sm); background:rgba(255,255,255,.05);
     border:1px solid var(--hairline); color:var(--silver); }
   .chip.ahead{ color:var(--verdant); border-color:rgba(47,212,178,.3); }
   .chip.behind{ color:var(--saffron); border-color:rgba(255,184,41,.3); }
   .chip.late{ color:var(--coral); border-color:rgba(255,107,107,.3); }
 
-  .g-advice{ margin-top:18px; padding:16px 18px; border-radius:16px;
+  .g-advice{ margin-top:18px; padding:16px 18px; border-radius:var(--r-sm);
     background:rgba(128,82,255,.07); border:1px solid rgba(128,82,255,.2); }
-  .g-advice .cap{ font-size:11px; letter-spacing:.15em; text-transform:uppercase;
+  .g-advice .cap{ font-size:var(--fs-caption); letter-spacing:.15em; text-transform:uppercase;
     color:var(--lilac); font-weight:500; margin-bottom:7px; }
-  .g-advice .txt{ font-size:14.5px; color:var(--silver); line-height:1.55; }
+  .g-advice .txt{ font-size:var(--fs-body); color:var(--silver); line-height:1.55; }
 
-  .newgoal{ border:1px dashed rgba(255,255,255,.18); border-radius:22px; padding:24px 28px; }
-  .newgoal .cap{ font-weight:500; font-size:16px; margin-bottom:16px; }
+  .newgoal{ border:1px dashed rgba(255,255,255,.18); border-radius:var(--r-lg); padding:24px 28px; }
+  .newgoal .cap{ font-weight:500; font-size:var(--fs-base); margin-bottom:16px; }
   .row{ display:flex; gap:10px; flex-wrap:wrap; }
-  .row > *{ background:rgba(255,255,255,.05); border:1px solid var(--hairline); border-radius:12px;
-    padding:11px 15px; color:var(--bone); font-family:inherit; font-weight:200; font-size:14.5px; }
+  .row > *{ background:rgba(255,255,255,.05); border:1px solid var(--hairline); border-radius:var(--r-xs);
+    padding:11px 15px; color:var(--bone); font-family:inherit; font-weight:200; font-size:var(--fs-body); }
   .row select{ min-width:170px; } .row select option{ background:var(--sheet); }
   .row .t{ flex:1; min-width:180px; } .row .n{ width:150px; } .row .d{ width:170px; }
-  .row button{ border:none; background:var(--iris); color:#fff; font-weight:600; font-size:12px;
+  .row button{ border:none; background:var(--iris); color:#fff; font-weight:600; font-size:var(--fs-caption);
     letter-spacing:.1em; text-transform:uppercase; padding:0 22px; min-height:44px; }
-  .hint{ font-size:13px; color:var(--ash); margin-top:12px; }
+  .hint{ font-size:var(--fs-sm); color:var(--ash); margin-top:12px; }
   .empty{ color:var(--ash); margin-bottom:16px; }
   @media(max-width:620px){ .goal,.newgoal{ padding:20px; } .row > *{ width:100%; } }
 </style>
 <link rel="stylesheet" href="velor.css">
 </head>
 <body class="narrow">
-<canvas id="ambientCanvas"></canvas>
 
 <main>
   <span class="label">Core · Цели</span>
@@ -94,7 +91,6 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="core-live.js?v=10"></script>
 <script>
 let toastT;
 function toast(msg){
