@@ -18,6 +18,8 @@
     text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-2); }
   .sec-note{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
     margin-bottom:var(--sp-4); max-width:640px; }
+  .sec-note a{ color:var(--lilac); border-bottom:1px solid rgba(179,166,255,.3); }
+  .sec-note a:hover{ color:var(--bone); border-color:var(--hairline-2); }
   .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
     gap:var(--sp-3); }
   .it{ display:block; border:1px solid var(--hairline); border-radius:var(--r-lg);
@@ -29,7 +31,7 @@
     line-height:1.45; margin-top:4px; }
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
-<link rel="stylesheet" href="velor.css?v=13">
+<link rel="stylesheet" href="velor.css?v=14">
 </head>
 <body>
 
@@ -37,49 +39,11 @@
   <header class="v-head">
     <div>
       <h1>Ещё</h1>
-      <p class="v-lead">Всё, что не нужно каждый день: знания бизнеса, разборы по
-        запросу, настройка и выгрузка данных.</p>
+      <p class="v-lead">Служебное: настройка, подключения, подписка и выгрузка данных.
+        Всё, что VELOR знает и думает, переехало в разделы «Знание» и «Работа» —
+        там оно и ищется.</p>
     </div>
   </header>
-
-  <section>
-    <div class="sec-h">Знания бизнеса</div>
-    <p class="sec-note">Что VELOR знает о вашем деле и откуда. Пополняется само —
-      из того, что вы приносите во «Входящие».</p>
-    <div class="grid">
-      <a class="it" href="knowledge.html"><div class="t">Память бизнеса</div>
-        <div class="a">Все знания VELOR и цепочка «откуда он это взял».</div></a>
-      <a class="it" href="memory.html"><div class="t">База знаний</div>
-        <div class="a">Внести прайс, услуги, правила и файлы вручную.</div></a>
-      <a class="it" href="search.html"><div class="t">Поиск по записям</div>
-        <div class="a">Найти клиента, заказ или операцию обычным вопросом.</div></a>
-      <a class="it" href="timeline.html"><div class="t">История бизнеса</div>
-        <div class="a">Лента событий: что и когда произошло.</div></a>
-    </div>
-  </section>
-
-  <section>
-    <div class="sec-h">Разборы по запросу</div>
-    <p class="sec-note">VELOR разбирает бизнес сам и приносит найденное в «Работу
-      VELOR». Эти страницы — для случая, когда вы хотите посмотреть под
-      конкретным углом и прямо сейчас.</p>
-    <div class="grid">
-      <a class="it" href="board.html"><div class="t">Совет директоров</div>
-        <div class="a">До пяти решений по бизнесу целиком, раз в день.</div></a>
-      <a class="it" href="risks.html"><div class="t">Риски</div>
-        <div class="a">Что ухудшается: расходы, прибыль, отток клиентов.</div></a>
-      <a class="it" href="opportunities.html"><div class="t">Возможности роста</div>
-        <div class="a">Где бизнес недорабатывает по вашим же цифрам.</div></a>
-      <a class="it" href="ideas.html"><div class="t">Идеи</div>
-        <div class="a">Что можно попробовать: услуги, акции, партнёрства.</div></a>
-      <a class="it" href="journal.html"><div class="t">Дневник</div>
-        <div class="a">Что произошло за день и один совет на завтра.</div></a>
-      <a class="it" href="growth.html"><div class="t">Продвижение</div>
-        <div class="a">Разбор ваших текстов и контент под ваш бизнес.</div></a>
-      <a class="it" href="research.html"><div class="t">Конкуренты</div>
-        <div class="a">Сравнить себя с конкурентом по ссылке или тексту.</div></a>
-    </div>
-  </section>
 
   <section>
     <div class="sec-h">Настройка</div>
@@ -87,9 +51,10 @@
       <a class="it" href="settings.html"><div class="t">Настройки</div>
         <div class="a">Профиль бизнеса, тон общения, токен бота.</div></a>
       <a class="it" href="connections.html"><div class="t">Подключения</div>
-        <div class="a">Откуда VELOR берёт данные и чем говорит с клиентами.</div></a>
-      <a class="it" href="guide.html"><div class="t">Бот в Telegram</div>
-        <div class="a">Как создать своего бота за три минуты.</div></a>
+        <div class="a">Откуда VELOR берёт данные и чем говорит с клиентами.
+          Здесь же Instagram: это источник, а не отдельный раздел.</div></a>
+      <a class="it" href="guide.html"><div class="t">Инструкция</div>
+        <div class="a">Как создать своего бота в Telegram за три минуты.</div></a>
       <a class="it" href="plans.html"><div class="t">Тариф</div>
         <div class="a">Подписка, лимит сообщений и расход.</div></a>
     </div>
@@ -104,9 +69,26 @@
         <div class="a">Всё, о чём VELOR вас предупреждал.</div></a>
     </div>
   </section>
+
+  <!-- Страница «Ещё» долго работала свалкой: в ней лежали и знания, и разборы,
+       и настройки. Разделы переехали туда, где их ищут, но люди помнят старые
+       места — поэтому здесь остаётся одна строка-указатель, а не десять
+       карточек-дублей. -->
+  <section>
+    <div class="sec-h">Куда что переехало</div>
+    <p class="sec-note">
+      Память бизнеса, база знаний, поиск, история и дневник — в разделе
+      <a href="knowledge.html">«Знание»</a>.
+      Совет директоров, идеи и сравнение с конкурентами — в
+      <a href="work.html">«Работе»</a>.
+      Риски и возможности — в <a href="dashboard.html">«Брифинге»</a>, рядом с выводом,
+      к которому относятся.
+    </p>
+  </section>
 </main>
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
+<script src="velor-field.js?v=14"></script>
 </body>
 </html>

@@ -478,6 +478,207 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-core-line .v-pulse{ gap:0; font-size:var(--fs-body); }
 .v-core-line .v-pulse i{ display:none; }
 
+/* ============================================================
+   ЖИВОЕ ПОЛЕ — состояние системы, а не обои
+   ============================================================
+   Что это. Три больших светящихся объёма позади содержимого. Они всё время
+   очень медленно движутся и меняют форму — и меняют её ПО-РАЗНОМУ в
+   зависимости от того, что VELOR сейчас знает о бизнесе. Поле не изображает
+   данные: ни точек, ни линий, ни сетей, ни «нейронов». Оно показывает
+   состояние — то же самое, которое словами написано в брифинге.
+
+   Почему CSS, а не canvas/WebGL. Нужный эффект — несколько огромных мягких
+   объёмов с медленным дрейфом. Это ровно то, что композитор браузера умеет
+   бесплатно: градиент растрируется один раз, дальше двигается только матрица
+   слоя. Ни одного кадра на главном потоке, ни одного пикселя перерисовки,
+   ни библиотеки, ни контекста, ни его потери, ни расхода батареи на
+   бесконечный requestAnimationFrame. WebGL здесь дал бы ту же картинку
+   дороже — это и есть «не добавлять тяжёлую технологию ради эффекта».
+
+   Как устроен слой. Два вложенных элемента, и это принципиально:
+     .vf-l   — вечный дрейф. Его анимация не прерывается никогда.
+     .vf-l>i — состояние. Меняется через transition 1.8 с.
+   Если бы состояние меняло саму анимацию (длительность, амплитуду), слой
+   дёргался бы на каждом переключении. Разделив «движение» и «состояние», мы
+   получаем переход, который втекает в уже идущее движение.
+
+   Бюджет заметности. Пик яркости ядра ~0.19 по альфе на #08080b — поле видно
+   как часть интерфейса, но текст поверх него держит контраст: содержимое
+   лежит на z-index:1 и своей подложки не теряет. На узком экране пик снижен
+   и верхний светлый слой снят: на 375px три объёма превращаются в кашу,
+   а не в глубину.
+   ============================================================ */
+.v-field{
+  position:fixed; inset:0; z-index:0; pointer-events:none;
+  overflow:hidden;
+  /* layout/paint/style, но НЕ size: размер поля задан inset:0, и size-containment
+     здесь ничего не экономит, зато превращает элемент в ловушку при правках. */
+  contain:layout paint style;
+  /* Общая яркость поля считается из двух независимых множителей:
+     --vf-level  — что происходит с бизнесом (состояние),
+     --vf-mob    — сколько поля уместно на этом экране.
+     Разделение не косметическое: состояние задаётся селектором с атрибутом и
+     по весу всегда побеждает медиа-запрос. Пока обе роли писали в одну
+     переменную, узкий экран просто не действовал. */
+  --vf-level:1; --vf-mob:1;
+  --vf-gain:calc(var(--vf-level) * var(--vf-mob));
+}
+.v-field .vf-l{ position:absolute; display:block; }
+/* Внутренний элемент несёт состояние: концентрацию, наклон и яркость.
+   Всё, что меняется при смене состояния, меняется здесь и только плавно. */
+.v-field .vf-l > *{ position:absolute; inset:0; display:block;
+  transition:opacity 1.8s var(--ease), transform 1.8s var(--ease); }
+.v-field .vf-l > i{ opacity:var(--vf-gain); }
+/* Смысловая примесь: поднимается только настоящим выводом Директора. */
+.v-field .vf-l > u{ opacity:0; transition-duration:2.2s; }
+
+/* Глубина. Самый большой и самый медленный объём — он задаёт «дно» кадра. */
+.vf-l1{ left:-32vw; top:-40vh; width:124vw; height:104vh;
+  transform:translate3d(0,0,0) scale(1.03);
+  animation:vf-d1 71s ease-in-out -12s infinite; }
+.vf-l1 > i{ background:radial-gradient(closest-side,
+  rgba(128,82,255,.23) 0%, rgba(128,82,255,.10) 34%,
+  rgba(96,64,196,.028) 68%, rgba(128,82,255,0) 100%); }
+
+/* Средний слой. Он и создаёт ощущение, что объёмы проходят друг сквозь друга. */
+.vf-l2{ left:20vw; top:-20vh; width:84vw; height:78vh;
+  transform:translate3d(0,0,0) scale(1);
+  animation:vf-d2 53s ease-in-out -29s infinite; }
+.vf-l2 > i{ background:radial-gradient(closest-side,
+  rgba(146,104,255,.175) 0%, rgba(120,80,240,.06) 40%, rgba(128,82,255,0) 100%); }
+/* Примеси на среднем слое: он достаточно велик, чтобы смысл читался кадром,
+   а не пятном в углу. Цвета те же, что в языке продукта: коралл — риск,
+   бирюза — получилось. */
+.vf-l2 > u.risk{ background:radial-gradient(closest-side,
+  rgba(255,107,107,.16) 0%, rgba(255,107,107,.05) 44%, rgba(255,107,107,0) 100%); }
+.vf-l2 > u.opp{ background:radial-gradient(closest-side,
+  rgba(47,212,178,.13) 0%, rgba(47,212,178,.04) 44%, rgba(47,212,178,0) 100%); }
+
+/* Светлое поле — быстрее прочих и заметно меньше. Оно даёт «жизнь» без того,
+   чтобы весь кадр начал мельтешить. Здесь же живут смысловые примеси. */
+.vf-l3{ left:2vw; top:12vh; width:52vw; height:46vh;
+  transform:translate3d(0,0,0) scale(1);
+  animation:vf-d3 37s ease-in-out -7s infinite; }
+.vf-l3 > i{ background:radial-gradient(closest-side,
+  rgba(190,178,255,.13) 0%, rgba(150,140,220,.04) 46%, rgba(179,166,255,0) 100%); }
+.vf-l3 > u.risk{ background:radial-gradient(closest-side,
+  rgba(255,107,107,.13) 0%, rgba(255,107,107,.04) 48%, rgba(255,107,107,0) 100%); }
+.vf-l3 > u.opp{ background:radial-gradient(closest-side,
+  rgba(47,212,178,.12) 0%, rgba(47,212,178,.04) 48%, rgba(47,212,178,0) 100%); }
+
+/* — дрейф —
+   Периоды 71 / 53 / 37 с не кратны друг другу, поэтому кадр не повторяется
+   почти час. Смещения намеренно малы: движется в основном форма (scale),
+   а не положение — большой объём, который ездит по экрану, читается как
+   заставка, а объём, который дышит, читается как присутствие. */
+@keyframes vf-d1{
+  0%,100%{ transform:translate3d(-2.4vw,-1.2vh,0) scale(1.00); }
+  50%    { transform:translate3d( 2.4vw, 1.8vh,0) scale(1.10); } }
+@keyframes vf-d2{
+  0%,100%{ transform:translate3d( 2.8vw, 1.4vh,0) scale(1.06); }
+  50%    { transform:translate3d(-2.8vw,-2.2vh,0) scale(0.94); } }
+@keyframes vf-d3{
+  0%,100%{ transform:translate3d(-3.4vw, 2.4vh,0) scale(0.92); }
+  50%    { transform:translate3d( 4.2vw,-2.8vh,0) scale(1.12); } }
+
+/* ── СОСТОЯНИЯ ──
+   Каждое отличается прежде всего ФОРМОЙ поля, а не оттенком: сжалось,
+   потянулось, разредилось. Цветная примесь идёт вторым слоем поверх формы —
+   так состояние читается и на монохромном экране, и при дальтонизме. */
+
+/* ЖДУ ДАННЫХ — Директор не собрался: считать нечего. Поле разрежено и
+   отодвинуто. Это не «выключено»: глубина остаётся, обещания нет. */
+.v-field[data-field="waiting"]{ --vf-level:.42; }
+.v-field[data-field="waiting"] .vf-l > *{ transform:scale(1.16); }
+
+/* НОРМА — базовое состояние, задано выше. Ничего добавлять не нужно. */
+
+/* РИСК — объёмы стягиваются: появляется локальная концентрация, кадр делается
+   плотнее и напряжённее. Плюс медленное сжатие-расширение среднего слоя —
+   движение ускоряется, но не мигает и не краснеет целиком. */
+.v-field[data-field="risk"]{ --vf-level:1.04; }
+.v-field[data-field="risk"] .vf-l1 > *{ transform:scale(.84); }
+.v-field[data-field="risk"] .vf-l2 > *{ transform:scale(.78);
+  animation:vf-tense 8.5s ease-in-out infinite; }
+.v-field[data-field="risk"] .vf-l3 > *{ transform:scale(.86); }
+.v-field[data-field="risk"] .vf-l2 > u.risk,
+.v-field[data-field="risk"] .vf-l3 > u.risk{ opacity:1; }
+@keyframes vf-tense{ 0%,100%{ transform:scale(.78); } 50%{ transform:scale(.89); } }
+
+/* ВОЗМОЖНОСТЬ — поле становится направленным: объёмы тянутся к одной области
+   (туда, где стоит брифинг), светлый слой набирает силу. Ощущение движения
+   к чему-то, а не тревоги. */
+.v-field[data-field="opportunity"]{ --vf-level:1.04; }
+.v-field[data-field="opportunity"] .vf-l1 > *{ transform:translate3d(-5vw,-4vh,0) scale(1.04); }
+.v-field[data-field="opportunity"] .vf-l2 > *{ transform:translate3d(-9vw,-5vh,0) scale(.90); }
+.v-field[data-field="opportunity"] .vf-l3 > *{ transform:translate3d(1vw,-3vh,0) scale(1.24);
+  animation:vf-lean 11s ease-in-out infinite; }
+.v-field[data-field="opportunity"] .vf-l2 > u.opp,
+.v-field[data-field="opportunity"] .vf-l3 > u.opp{ opacity:1; }
+@keyframes vf-lean{ 0%,100%{ transform:translate3d(1vw,-3vh,0) scale(1.24); }
+                    50%    { transform:translate3d(-2vw,-5vh,0) scale(1.34); } }
+
+/* ── СОБЫТИЯ ──
+   Разовый ответ поля на то, что действительно произошло. Ни одно из них не
+   запускается таймером: их поднимает изменившееся число, новый вывод или
+   раскрытая цепочка. */
+.vf-pulse{ position:absolute; left:46%; top:26vh;
+  width:min(150vw,1700px); height:min(110vh,900px);
+  transform:translate(-50%,-50%) scale(.5); opacity:0; }
+.vf-pulse > i{ position:absolute; inset:0; display:block;
+  background:radial-gradient(closest-side,
+  rgba(179,166,255,.20) 0%, rgba(128,82,255,.07) 55%, rgba(128,82,255,0) 100%); }
+
+/* Пришли новые данные — сквозь поле проходит волна и уходит наружу.
+   Ни всплывающего окна, ни вспышки: изменение чувствуется, а не бьёт. */
+.v-field[data-pulse="data"] .vf-pulse{ animation:vf-wave 2.8s var(--ease); }
+@keyframes vf-wave{ 0%{ opacity:0; transform:translate(-50%,-50%) scale(.45); }
+                   24%{ opacity:1; }
+                  100%{ opacity:0; transform:translate(-50%,-50%) scale(1.35); } }
+
+/* VELOR пришёл к новому выводу — движение идёт ВНУТРЬ, к центру. Данные
+   приходят и расходятся; вывод — наоборот, сходится. Направление здесь несёт
+   смысл, поэтому оно противоположное. */
+.v-field[data-pulse="decision"] .vf-pulse{ animation:vf-converge 2.2s var(--ease); }
+@keyframes vf-converge{ 0%{ opacity:0; transform:translate(-50%,-50%) scale(1.42); }
+                       32%{ opacity:1; }
+                      100%{ opacity:0; transform:translate(-50%,-50%) scale(.72); } }
+
+/* Раскрыта цепочка доказательства — короткая мягкая концентрация: VELOR
+   показал ход рассуждения. Самое тихое из трёх событий: человек в этот момент
+   читает, и отвлекать его нельзя. */
+.v-field[data-pulse="focus"] .vf-pulse{ animation:vf-focus 1.7s var(--ease); }
+@keyframes vf-focus{ 0%{ opacity:0; transform:translate(-50%,-50%) scale(1.05); }
+                    40%{ opacity:.55; transform:translate(-50%,-50%) scale(.9); }
+                   100%{ opacity:0; transform:translate(-50%,-50%) scale(.95); } }
+
+/* Узкий экран: светлый слой снят, пик приглушён. Три объёма на 375px
+   перекрывают друг друга целиком и дают не глубину, а мутное пятно. */
+@media(max-width:700px){
+  .v-field{ --vf-mob:.72; }
+  /* Селектор с двумя классами — ровно как у базового `.v-field .vf-l`,
+     иначе «display:block» из базы перевесил бы. */
+  .v-field .vf-l3{ display:none; }
+  .vf-l1{ left:-45vw; width:170vw; height:70vh; top:-22vh; }
+  .vf-l2{ left:10vw; top:-8vh; width:110vw; height:56vh; }
+  .vf-pulse{ top:22vh; }
+}
+
+/* Меньше движения — не значит «плоско». Дрейф и события выключаются, объёмы
+   остаются на своих местах: глубина кадра и разница между состояниями
+   (сжато / разрежено / направлено) сохраняются полностью, потому что они
+   заданы базовым transform, а не анимацией. */
+@media(prefers-reduced-motion: reduce){
+  .v-field .vf-l, .v-field .vf-l > *, .vf-pulse{ animation:none !important; }
+  .vf-pulse{ opacity:0 !important; }
+}
+
+/* Содержимое всегда выше поля. main это уже задаёт выше по файлу; подвал
+   на некоторых страницах не позиционирован — без этой строки он ушёл бы
+   ПОД поле, потому что fixed-элемент с z-index:0 рисуется над обычным
+   потоком. */
+body > footer{ position:relative; z-index:1; }
+
 /* — цифры экрана: одинаковая карточка везде, где есть KPI — */
 .v-kpi{ display:grid; grid-template-columns:repeat(4,1fr); gap:var(--sp-4); }
 .v-kpi.three{ grid-template-columns:repeat(3,1fr); }

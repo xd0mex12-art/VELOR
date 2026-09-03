@@ -115,6 +115,10 @@ ALLOWED = (
     "linear-gradient(90deg,var(--tint-iris",    # подсветка строки
     "linear-gradient(90deg,rgba(128,82,255,",
     "linear-gradient(90deg,var(--surface)",
+    # Метка «здесь говорит VELOR» слева от брифинга. Ровная линия во всю высоту
+    # читается как рамка контейнера; линия, которая гаснет к низу, читается как
+    # акцент при утверждении. Работа есть — значит, градиент допустим.
+    "linear-gradient(tobottom,var(--iris",
 )
 stray = []
 for n in CABINET:
@@ -369,8 +373,14 @@ check("порядок экрана: брифинг → доказательст�
       pos == sorted(pos), list(zip(order, pos)))
 check("первым блоком идёт ответ, а не число",
       DASH.index('id="briefHead"') < DASH.index('id="kpi"'))
+# Не литеральный clamp: правило звучит «ответ крупнее названия вкладки», и
+# охранять надо его, а не конкретные пиксели.
+_bh = re.search(r"\.brief-head\{[^}]*font-size:clamp\((\d+)px",
+                DASH.replace(" ", "").replace("\n", ""))
+_h1 = re.search(r"--fs-h1:(\d+)px", CSS.replace(" ", ""))
 check("заголовок брифинга крупнее заголовка страницы",
-      ".brief-head{" in DASH.replace(" ", "") and "clamp(26px,3.4vw,40px)" in DASH.replace(" ", ""))
+      bool(_bh and _h1) and int(_bh.group(1)) > int(_h1.group(1)),
+      (_bh and _bh.group(1), _h1 and _h1.group(1)))
 
 # Сетки из шести одинаковых плиток больше нет: числа делит воздух и линия.
 check("шесть одинаковых карточек убраны", 'class="v-kpi six"' not in DASH)
@@ -404,9 +414,159 @@ check("у каждого числа осталась строка «как по�
 print("\n== ОБНОВЛЕНИЕ ВИДНО, НО НЕ МЕШАЕТ ==")
 check("изменившееся число помечается", ".fig .v.moved{" in DASH.replace(" ", "")
       or ".fig .v.moved{" in DASH)
-check("отметка гаснет сама, а не мигает", "@keyframes moved" in DASH)
+check("новое число всплывает на место старого", "@keyframes figSwap" in DASH)
+check("подмена укладывается в 400 мс", "animation:figSwap .4s" in DASH.replace("  ", " "))
+check("отметка гаснет сама, а не мигает", "@keyframes figMark" in DASH)
 check("состояние обновления названо словом", "обновлено только что" in DASH)
 check("всплывающих окон при обновлении нет", "alert(" not in DASH)
+
+print("\n== ЖИВОЕ ПОЛЕ: СОСТОЯНИЕ, А НЕ ОБОИ ==")
+FIELD_JS = io.open(WEB / "velor-field.js", encoding="utf-8").read()
+# Запреты проверяем по коду: в комментариях этого файла как раз объясняется,
+# почему ни канваса, ни покадрового цикла здесь нет.
+FIELD_CODE = "\n".join(l for l in FIELD_JS.splitlines()
+                       if not l.strip().startswith("//"))
+
+# Поле — часть кабинета, а не украшение одной страницы.
+no_field = [n for n in CABINET
+            if "nav.js" in io.open(WEB / n, encoding="utf-8").read()
+            and "velor-field.js" not in io.open(WEB / n, encoding="utf-8").read()]
+check("поле подключено на всех страницах кабинета", not no_field, no_field)
+
+# Ни библиотеки, ни канваса, ни кадрового цикла. Эффект целиком композиторный:
+# градиент растрируется один раз, дальше двигается только матрица слоя.
+for banned in ("canvas", "THREE", "three.min", "requestAnimationFrame",
+               "WebGL", "getContext"):
+    check(f"поле обходится без {banned}", banned not in FIELD_CODE, banned)
+check("поле не рисуется в JS покадрово", "setInterval" not in FIELD_CODE)
+
+# Поле показывает состояние — оно не имеет права изображать данные.
+for banned in ("particle", "star", "neural", "node", "dot", "network"):
+    check(f"поле не притворяется данными: нет «{banned}»",
+          banned not in FIELD_CODE.lower() and banned not in CSS.lower().split(
+              "живое поле")[-1].split("body > footer")[0], banned)
+
+# Четыре состояния, и каждое отличается ФОРМОЙ, а не только оттенком.
+FIELD_CSS = CSS[CSS.index("ЖИВОЕ ПОЛЕ"):CSS.index("body > footer")]
+for st in ("waiting", "risk", "opportunity"):
+    blk = [m for m in re.findall(
+        r'\.v-field\[data-field="%s"\][^{]*\{[^}]*\}' % st, FIELD_CSS)]
+    check(f"состояние «{st}» задано", bool(blk), st)
+    check(f"«{st}» меняет форму, а не только цвет",
+          any("transform" in b for b in blk), [b[:60] for b in blk])
+check("норма — база: отдельного правила ей не нужно",
+      'data-field="normal"' not in FIELD_CSS)
+
+# Смысловая примесь поднимается только настоящим выводом Директора.
+check("примесь риска и возможности по умолчанию погашена",
+      re.search(r"\.v-field \.vf-l > u\{[^}]*opacity:0", FIELD_CSS) is not None)
+check("риск красит коралловым, возможность — бирюзовым",
+      "u.risk{ background:radial-gradient" in FIELD_CSS
+      and "255,107,107" in FIELD_CSS and "47,212,178" in FIELD_CSS)
+
+# Три события, и «данные» и «вывод» идут в разные стороны: данные приходят и
+# расходятся, вывод — сходится. Направление здесь несёт смысл.
+check("событие «новые данные» расходится наружу",
+      re.search(r"@keyframes vf-wave\{.*?scale\(\.45\).*?scale\(1\.35\)",
+                FIELD_CSS, re.S) is not None)
+check("событие «новый вывод» сходится внутрь",
+      re.search(r"@keyframes vf-converge\{.*?scale\(1\.42\).*?scale\(\.72\)",
+                FIELD_CSS, re.S) is not None)
+check("раскрытая цепочка отвечает тише всех",
+      "@keyframes vf-focus" in FIELD_CSS)
+check("событие не накладывается само на себя",
+      "if (!f || f.dataset.pulse) return;" in FIELD_JS)
+
+# Периоды дрейфа не кратны друг другу — иначе кадр начинает повторяться и
+# читается как зацикленная заставка.
+periods = [float(x) for x in re.findall(r"animation:vf-d\d (\d+)s", FIELD_CSS)]
+check("три слоя с разной скоростью", len(periods) == 3, periods)
+check("периоды не кратны друг другу",
+      all(max(a, b) % min(a, b) != 0 for i, a in enumerate(periods)
+          for b in periods[i + 1:]), periods)
+check("движение медленное: самый быстрый слой — десятки секунд",
+      periods and min(periods) >= 30, periods)
+
+# Поле не мешает работать.
+check("поле не перехватывает нажатия", "pointer-events:none" in FIELD_CSS)
+check("поле скрыто от скринридера", 'aria-hidden' in FIELD_JS)
+check("содержимое всегда выше поля",
+      "body main{" in CSS.replace("\n", " ") and "body > footer{ position:relative; z-index:1; }" in CSS)
+
+# Меньше движения — не значит «плоско»: дрейф выключается, глубина остаётся.
+rm = FIELD_CSS[FIELD_CSS.index("prefers-reduced-motion"):]
+check("при reduce анимация поля выключена", "animation:none !important" in rm)
+check("при reduce слои остаются на своих местах: transform задан базой",
+      FIELD_CSS.count("transform:translate3d(0,0,0)") >= 2)
+
+# На узком экране три объёма дают не глубину, а мутное пятно.
+mob = FIELD_CSS[FIELD_CSS.index("max-width:700px"):]
+check("на узком экране светлый слой снят", ".v-field .vf-l3{ display:none; }" in mob)
+check("на узком экране пик приглушён", "--vf-mob:.72" in mob)
+# Состояние и экран пишут в РАЗНЫЕ множители: селектор состояния тяжелее
+# медиа-запроса, и общая переменная означала бы, что узкий экран не действует.
+check("состояние и экран не спорят за одну переменную",
+      "--vf-gain:calc(var(--vf-level) * var(--vf-mob))" in FIELD_CSS
+      and "--vf-gain" not in FIELD_CSS.split("СОСТОЯНИЯ")[1])
+
+# Цена поля — не «на глаз», а свойство кода: анимировать разрешено ровно
+# transform и opacity. Всё остальное (width, height, top, left, filter,
+# background-position) заставляет браузер считать раскладку или заново
+# рисовать пиксели каждый кадр — на объёме в 124vw это и есть тормоза.
+def _kf_props(css_block):
+    out = set()
+    for m in re.finditer(r"@keyframes\s+(vf-[\w-]+)\s*\{", css_block):
+        i, depth = m.end(), 1
+        while depth:
+            depth += (css_block[i] == "{") - (css_block[i] == "}")
+            i += 1
+        out |= set(re.findall(r"([a-z-]+)\s*:", css_block[m.end():i - 1]))
+    return out
+
+
+_props = _kf_props(FIELD_CSS)
+check("в кадрах поля двигаются только transform и opacity",
+      _props <= {"transform", "opacity"}, sorted(_props))
+check("кадры вообще есть", bool(_props))
+check("переход состояния тоже дешёвый",
+      not re.search(r"transition:(?![^;]*\b(?:opacity|transform)\b)[^;]*"
+                    r"(width|height|top|left|filter|margin|padding)", FIELD_CSS))
+
+print("\n== ПОЛЕ ГОВОРИТ ТО ЖЕ, ЧТО БРИФИНГ ==")
+# Состояние поля выводится из настоящего разбора Директора: срочный риск,
+# непустой список возможностей, неготовый Директор. Ни таймера, ни случайности.
+check("состояние считается из ответа Директора", "function fieldState(dir)" in DASH)
+check("риск — это риск уровня urgent у Директора",
+      "r.level === 'urgent'" in DASH)
+check("возможность — непустой список возможностей",
+      "(dir.opportunities || []).length" in DASH)
+check("нет данных — поле ждёт, а не изображает работу",
+      "if (!dir || !dir.ready) return 'waiting'" in DASH)
+check("сервер молчит — поле тоже",
+      "VELOR_FIELD.state('waiting')" in DASH)
+check("импульс поднимает изменившееся число, а не таймер",
+      "decided || changed" in DASH)
+check("новый вывод определяется по ключам рекомендаций",
+      "function newDecision(dir)" in DASH and "r.key || r.title" in DASH)
+
+print("\n== ГЛАВНАЯ: ТРИ ГЛАВНЫХ ЧИСЛА, ОСТАЛЬНЫЕ ВПОЛГОЛОСА ==")
+check("деньги набраны в полную величину", "const MAJOR = { revenue:1, expenses:1, profit:1 }" in DASH)
+check("остальные числа тише, но не спрятаны", ".fig.minor{" in DASH.replace(" ", "")
+      or ".fig.minor{" in DASH)
+check("ни одно число с сервера не выброшено",
+      re.search(r"\(dir\.metrics \|\| \[\]\)\.map", DASH) is not None
+      and re.search(r"dir\.metrics[^\n]*slice", DASH) is None)
+
+print("\n== ПУТЬ, У КОТОРОГО ЕСТЬ КОНЕЦ ==")
+INBOX = io.open(WEB / "inbox.html", encoding="utf-8").read()
+check("нить доказательства обрывается на последнем шаге",
+      ".ev-step:last-child::after" in DASH)
+check("нить приёма обрывается на последней стадии",
+      ".pipe-step:last-child::after" in INBOX)
+check("последняя стадия отмечена узлом — материал сейчас здесь",
+      ".pipe-step:last-child::before" in INBOX)
+check("цепочка раскрывается за 250 мс лесенкой",
+      "animation:evStep .25s" in DASH and "animation-delay:.04s" in DASH)
 
 print("\n== ДОКУМЕНТ ==")
 DOC = ROOT / "VELOR_DESIGN_SYSTEM.md"
@@ -415,8 +575,16 @@ if DOC.exists():
     d = io.open(DOC, encoding="utf-8").read()
     for part in ("Цвет", "Типографика", "Отступы", "Сетка", "Радиусы", "Тени",
                  "Компоненты", "Движение", "Доступность", "Запрещённые приёмы",
-                 "One Door", "Пустые состояния", "Ошибки"):
+                 "One Door", "Пустые состояния", "Ошибки",
+                 "Живое поле"):
         check(f"в документе есть раздел «{part}»", part in d)
+    # Документ — источник правды. Именной допуск к правилу «постоянного
+    # фонового движения нет» должен быть назван и ограничен прямо в нём,
+    # иначе через месяц исключение станет разрешением.
+    check("допуск живому полю назван и ограничен",
+          "Именной допуск — живое поле" in d and "71 / 53 / 37" in d)
+    check("состояния поля описаны таблицей",
+          all(w in d for w in ("waiting", "normal", "risk", "opportunity")))
 
 print(f"\nИТОГО: успешно {ok}, провалено {fail}")
 sys.exit(1 if fail else 0)

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>VELOR AI — Возможности</title>
+<title>VELOR AI — Интерес</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
   /* Возможности — не «ещё один список», а ответ на один вопрос: с кем прямо
@@ -201,14 +201,14 @@
   #toast.show{ opacity:1; transform:translate(-50%,0); }
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
-<link rel="stylesheet" href="velor.css?v=13">
+<link rel="stylesheet" href="velor.css?v=14">
 </head>
 <body>
 
 <main>
   <header class="v-head">
     <div>
-      <h1>Возможности</h1>
+      <h1>Интерес</h1>
       <p class="v-lead">Люди, которые проявили интерес, но ещё ничего не купили.
         VELOR замечает их сам — в боте и в директе, — а вы отмечаете, чем
         закончилось. Из этих отметок и складывается конверсия.</p>
@@ -271,6 +271,7 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
+<script src="velor-field.js?v=14"></script>
 <script>
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money = n => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽';

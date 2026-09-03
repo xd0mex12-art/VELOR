@@ -64,7 +64,7 @@ print("\n== ШЕСТЬ РАЗДЕЛОВ ==")
 check("разделов ровно шесть", len(SECS) == 6, [s["title"] for s in SECS])
 check("названия — вопросы владельца, а не сущности продукта",
       [s["title"] for s in SECS] ==
-      ["Обзор", "Входящие", "Продажи", "Финансы", "Работа VELOR", "Ещё"],
+      ["Брифинг", "Входящие", "Реестр", "Работа", "Знание", "Ещё"],
       [s["title"] for s in SECS])
 for s in SECS:
     check(f"«{s['title']}» ведёт на существующую страницу", s["href"] in PAGES, s["href"])
@@ -120,6 +120,47 @@ for old, new in (("tools.html", "results.html"), ("integrations.html", "connecti
     check(f"{old} ведёт на {new}", new in src, src[:200])
     check(f"{old} объясняет, что переехало и куда", "переехал" in src.lower()
           or "стали" in src.lower(), src[:400])
+
+print("\n== ЧТО VELOR ДУМАЕТ И ЧТО ЗНАЕТ — В СВОИХ РАЗДЕЛАХ ==")
+# Раньше разборы VELOR (совет директоров, риски, возможности, идеи, конкуренты)
+# лежали в «Ещё» — там, где их не ищут. Теперь у каждого есть своё место, и
+# место это должно быть определённым, а не «где-то в меню».
+WHERE = {s["href"]: s["title"] for s in SECS}
+OF = {}
+for s in SECS:
+    for k in s["kids"]:
+        OF[k["href"]] = s["title"]
+for page, sec in (("risks.html", "Брифинг"), ("opportunities.html", "Брифинг"),
+                  ("board.html", "Работа"), ("ideas.html", "Работа"),
+                  ("research.html", "Работа"),
+                  ("knowledge.html", "Знание"), ("memory.html", "Знание"),
+                  ("search.html", "Знание"), ("timeline.html", "Знание"),
+                  ("journal.html", "Знание"),
+                  ("clients.html", "Реестр"), ("leads.html", "Реестр"),
+                  ("orders.html", "Реестр"), ("finance.html", "Реестр")):
+    check(f"{page} живёт в разделе «{sec}»", OF.get(page) == sec, OF.get(page))
+
+check("«Реестр» собрал продажи и деньги в один раздел",
+      {"clients.html", "orders.html", "finance.html"} <=
+      {k["href"] for s in SECS if s["title"] == "Реестр" for k in s["kids"]})
+
+print("\n== ДВА РАЗНЫХ СМЫСЛА НЕ НОСЯТ ОДНО ИМЯ ==")
+# leads.html и opportunities.html обе назывались «Возможности»: одно — люди,
+# проявившие интерес, другое — вывод Директора о росте. Одно слово на два
+# смысла делает меню бесполезным.
+all_titles = [k["title"] for s in SECS for k in s["kids"]]
+check("в подразделах нет двух одинаковых названий",
+      len(all_titles) == len(set(all_titles)),
+      [t for t in all_titles if all_titles.count(t) > 1])
+
+print("\n== ЛИШНЕЕ УБРАНО ИЗ МЕНЮ, НО НЕ ИЗ ПРОДУКТА ==")
+# «Продвижение» — генерация контента; VELOR про разбор бизнеса, а не про посты.
+# Instagram — источник данных, его место в «Подключениях».
+check("«Продвижение» не занимает место в меню", "growth.html" not in NAV_HREFS)
+check("«Продвижение» всё ещё достижимо", "growth.html" in HOME_OF)
+check("Instagram не отдельный раздел меню", "instagram.html" not in NAV_HREFS)
+check("Instagram открывается из «Подключений»",
+      "instagram.html" in io.open(ROOT / "connections.py", encoding="utf-8").read())
 
 print("\n== НИ ОДНОЙ ССЫЛКИ В НИКУДА ==")
 dead = []

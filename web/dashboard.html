@@ -52,22 +52,26 @@
   .v-kpi-card .v.void{ font-size:var(--fs-body); color:var(--ash); font-weight:200;
     letter-spacing:0; }
 
-    border-radius:50%; background:var(--hairline-2); }
-
   /* ── 1. БРИФИНГ ──
      Не карточка. Смысл не нуждается в рамке: его выделяет размер, воздух и
      одна ирисовая полоса слева — та же, которой в системе помечено «здесь
      говорит VELOR». */
-  .brief{ border-left:2px solid var(--iris); padding:2px 0 2px var(--sp-6);
+  .brief{ position:relative; padding:2px 0 2px var(--sp-6);
     margin-bottom:var(--sp-10); }
+  /* Полоса «здесь говорит VELOR». Раньше это была ровная линия во всю высоту.
+     Теперь она гаснет к низу: утверждение начинается в полную силу и
+     растворяется — так же, как читается сам блок. */
+  .brief::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:2px;
+    background:linear-gradient(to bottom, var(--iris) 0%, var(--iris) 42%,
+      rgba(128,82,255,.12) 100%); }
   /* Единственное место в кабинете, где текст крупнее заголовка страницы:
      ответ важнее названия вкладки. */
-  .brief-head{ font-weight:var(--fw-reg); font-size:clamp(26px,3.4vw,40px);
+  .brief-head{ font-weight:var(--fw-reg); font-size:clamp(28px,3.9vw,46px);
     letter-spacing:-.03em; line-height:1.16; margin:var(--sp-3) 0 0;
     max-width:20ch; text-wrap:balance; }
-  .brief-why{ margin-top:var(--sp-4); font-size:var(--fs-base); font-weight:var(--fw-thin);
-    color:var(--silver); line-height:1.5; max-width:var(--measure); }
-  .brief-why b{ font-weight:var(--fw-reg); color:var(--bone); }
+  .brief-why{ margin-top:var(--sp-5); font-size:var(--fs-base); font-weight:var(--fw-thin);
+    color:var(--ash); line-height:1.5; max-width:var(--measure); }
+  .brief-why b{ font-weight:var(--fw-reg); color:var(--silver); }
   /* Рекомендация — не «ещё один блок», а следующий шаг того же рассуждения.
      Поэтому она стоит под выводом, а не в отдельной колонке. */
   .brief-do{ margin-top:var(--sp-5); display:flex; align-items:flex-start;
@@ -115,10 +119,24 @@
   /* Сама цепочка. Вертикальная нить слева связывает шаги: видно, что это один
      путь, а не четыре независимых абзаца. */
   .ev-chain{ position:relative; padding:2px 0 var(--sp-5) var(--sp-6);
-    margin-left:3px; border-left:1px solid var(--hairline-2); }
+    margin-left:3px; }
   .ev-step{ position:relative; padding:var(--sp-3) 0; }
+  /* вертикальный отрезок нити */
+  .ev-step::after{ content:""; position:absolute; left:calc(var(--sp-6) * -1 - 1px);
+    top:0; bottom:0; width:1px; background:var(--hairline-2); }
+  /* последний шаг обрывает нить на своей засечке — путь дошёл до конца */
+  .ev-step:last-child::after{ bottom:auto; height:calc(var(--sp-3) + 8px); }
+  /* горизонтальная засечка */
   .ev-step::before{ content:""; position:absolute; left:calc(var(--sp-6) * -1 - 1px);
-    top:calc(var(--sp-3) + 8px); width:11px; height:1px; background:var(--hairline-2); }
+    top:calc(var(--sp-3) + 8px); width:11px; height:1px; background:var(--hairline-2);
+    z-index:1; }
+  /* Раскрытие цепочки — 250 мс с лесенкой по 40 мс. Не украшение: шаги
+     проявляются в том же порядке, в каком VELOR их прошёл. */
+  .ev[open] .ev-step{ animation:evStep .25s var(--ease) both; }
+  .ev[open] .ev-step:nth-child(2){ animation-delay:.04s; }
+  .ev[open] .ev-step:nth-child(3){ animation-delay:.08s; }
+  .ev[open] .ev-step:nth-child(4){ animation-delay:.12s; }
+  @keyframes evStep{ from{ opacity:0; transform:translateY(5px); } }
   .ev-step .k{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-micro);
     letter-spacing:var(--track-micro); text-transform:uppercase; color:var(--ash);
     margin-bottom:5px; }
@@ -143,6 +161,13 @@
   .fig{ padding:var(--sp-5) var(--sp-6) var(--sp-5) 0;
     border-bottom:1px solid var(--hairline); display:flex; flex-direction:column;
     min-height:132px; transition:background var(--dur); }
+  /* Шесть равных по весу чисел — это шесть чисел, ни одно из которых не
+     главное. Деньги (пришло → ушло → результат) читаются первой строкой в
+     полную величину; доля, клиенты и заявки — вторым планом. Ни одно число
+     не спрятано: изменилась только громкость. */
+  .fig.minor{ min-height:104px; padding-top:var(--sp-4); padding-bottom:var(--sp-4); }
+  .fig.minor .v{ font-size:clamp(20px,1.9vw,25px); }
+  .fig.minor .src{ opacity:.72; }
   .fig + .fig{ border-left:1px solid var(--hairline); padding-left:var(--sp-6); }
   .figs .fig:nth-child(3n+1){ border-left:none; padding-left:0; }
   a.fig:hover{ background:var(--surface); }
@@ -158,8 +183,12 @@
   .fig .v.void{ font-size:var(--fs-body); font-weight:var(--fw-thin); letter-spacing:0; }
   /* Число, которое только что пересчиталось: одна отметка на две секунды.
      Не мигание — доказательство, что VELOR продолжает считать сам. */
-  .fig .v.moved{ animation:moved 2s var(--ease); }
-  @keyframes moved{ 0%{ color:var(--lilac-2); } 60%{ color:var(--lilac-2); } }
+  /* Число, которое только что пересчиталось: за 400 мс новое значение
+     всплывает на место старого, потом ещё полторы секунды гаснет отметка.
+     Не мигание — доказательство, что VELOR продолжает считать сам. */
+  .fig .v.moved{ animation:figSwap .4s var(--ease), figMark 1.6s var(--ease) .4s; }
+  @keyframes figSwap{ from{ opacity:0; transform:translateY(7px); } }
+  @keyframes figMark{ from{ color:var(--lilac-2); } }
   .fig .s{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-3); }
   .fig .s.up{ color:var(--ink-verdant); } .fig .s.down{ color:var(--ink-coral); }
   .fig .src{ margin-top:auto; padding-top:var(--sp-3); font-size:var(--fs-caption);
@@ -307,7 +336,7 @@
   @media(max-width:600px){ .onedoor .od-row{ flex-direction:column; align-items:stretch; }
     .onedoor .od-row .v-btn{ width:100%; } }
 </style>
-<link rel="stylesheet" href="velor.css?v=13">
+<link rel="stylesheet" href="velor.css?v=14">
 </head>
 <body>
 
@@ -434,7 +463,8 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="velor-state.js?v=13"></script>
+<script src="velor-field.js?v=14"></script>
+<script src="velor-state.js?v=14"></script>
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
@@ -684,9 +714,15 @@ function figTone(m){
 
 let _prevFigs = {};
 
+// Деньги — первая строка и полная величина: пришло, ушло, результат. Доля,
+// клиенты и заявки — вторая строка и вполголоса. Порядок приходит с сервера,
+// фронт только расставляет громкость.
+const MAJOR = { revenue:1, expenses:1, profit:1 };
+
 function figsHTML(dir, series){
   return (dir.metrics || []).map(m => {
     const tone = figTone(m);
+    const rank = MAJOR[m.key] ? '' : ' minor';
     const key = SERIES_OF[m.key];
     const spark = (key && series && series.length)
       ? sparkline(series.map(r => r[key] || 0), tone) : '';
@@ -698,8 +734,8 @@ function figsHTML(dir, series){
        <span class="val"><span class="v num ${tone}${moved}">${esc(m.display)}</span>${spark}</span>
        ${deltaHTML(m)}
        <span class="src">${esc(m.source)}</span>`;
-    return m.href ? `<a class="fig" href="${esc(m.href)}">${body}</a>`
-                  : `<div class="fig">${body}</div>`;
+    return m.href ? `<a class="fig${rank}" href="${esc(m.href)}">${body}</a>`
+                  : `<div class="fig${rank}">${body}</div>`;
   }).join('');
 }
 
@@ -956,6 +992,30 @@ function showFail(){
   };
 }
 
+// ── СОСТОЯНИЕ ЖИВОГО ПОЛЯ ──
+// Фон показывает то же, что написано словами в брифинге. Ни одно состояние не
+// поднимается «для ощущения AI»: риск — это риск уровня urgent у Директора,
+// возможность — непустой список возможностей, ожидание — Директор, которому
+// пока не из чего считать. Нечего сказать — поле остаётся в покое.
+function fieldState(dir){
+  if (!dir || !dir.ready) return 'waiting';
+  if ((dir.risks || []).some(r => r.level === 'urgent')) return 'risk';
+  if ((dir.opportunities || []).length) return 'opportunity';
+  return 'normal';
+}
+
+// Новый вывод — это новый набор рекомендаций, а не просто новый опрос.
+// Ключи Директор проставляет сам ("do_" + ключ факта), поэтому сравнение
+// честное: изменился состав выводов, а не порядок строк.
+let _prevRecs = null;
+function newDecision(dir){
+  const keys = ((dir && dir.recommendations) || [])
+    .map(r => r.key || r.title).sort().join('|');
+  const changed = _prevRecs !== null && keys !== '' && keys !== _prevRecs;
+  _prevRecs = keys;
+  return changed;
+}
+
 let _lastAiId = null;
 let _series = [];
 
@@ -967,6 +1027,7 @@ async function load(){
     d = await r.json();
   }catch{
     showFail();
+    if (window.VELOR_FIELD) window.VELOR_FIELD.state('waiting');
     return;
   }
   document.getElementById('failZone').innerHTML = '';
@@ -976,6 +1037,7 @@ async function load(){
   // показываем прежние показатели, но не выдумываем разбор.
   const dir = d.director;
   paintBrief(dir);
+  if (window.VELOR_FIELD) window.VELOR_FIELD.state(fieldState(dir));
 
   // Ряд — отдельным запросом: он нужен спарклайнам и не должен задерживать
   // ни брифинг, ни числа. Не пришёл — числа просто останутся без линий.
@@ -993,6 +1055,12 @@ async function load(){
     put('kpi', figsHTML(dir, series), true);
     _prevFigs = nowFigs;
     markFresh(changed);
+    // Поле отвечает на то, что произошло. Новый вывод весомее нового числа,
+    // поэтому при совпадении побеждает он: данные приходят и расходятся,
+    // вывод — сходится к центру.
+    const decided = newDecision(dir);
+    if (window.VELOR_FIELD && (decided || changed))
+      window.VELOR_FIELD.pulse(decided ? 'decision' : 'data');
   } else {
     put('kpi', kpiHTML(d), true);
   }

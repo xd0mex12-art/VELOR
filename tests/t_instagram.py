@@ -250,7 +250,9 @@ check("лишних прав не просим",
 
 state = url.split("state=")[1].split("&")[0]
 check("state разворачивается в свой бизнес", instagram.read_state(state) == bid)
-check("подделанный state не проходит", instagram.read_state(state[:-2] + "xy") is None)
+forged = state[:-1] + ("A" if state[-1] != "A" else "B")
+check("подделка отличается от оригинала", forged != state)
+check("подделанный state не проходит", instagram.read_state(forged) is None)
 check("пустой state не проходит", instagram.read_state("") is None)
 old = instagram._sign_state(bid, int(time.time()) - instagram.STATE_TTL - 10)
 check("просроченный state не проходит", instagram.read_state(old) is None)
