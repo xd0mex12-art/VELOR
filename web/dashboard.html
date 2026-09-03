@@ -44,37 +44,6 @@
 
 
 
-  /* ── «Что говорит VELOR» — интеллектуальное ядро экрана ── */
-  /* Раздел, где говорит VELOR. Раньше он был залит сиреневым градиентом —
-     приём, по которому интерфейс и опознаётся как собранный ИИ. Смысл «здесь
-     говорит сотрудник» несёт не заливка, а одна ирисовая полоса слева. */
-  .says{ border:1px solid var(--hairline); border-left:2px solid var(--iris);
-    border-radius:var(--r-lg); background:var(--surface); padding:var(--sp-6); }
-  .says-head{ display:flex; align-items:center; gap:var(--sp-4); margin-bottom:var(--sp-5); }
-  .says-head h2{ font-weight:500; font-size:var(--fs-h3); letter-spacing:-.02em; }
-  .says-head .sub{ color:var(--ash); font-size:var(--fs-sm); font-weight:200; margin-top:3px; }
-
-  .slots{ display:grid; grid-template-columns:repeat(2,1fr); gap:var(--sp-3); }
-  .slot{ border:1px solid var(--hairline); border-radius:var(--r-lg); padding:var(--sp-5);
-    background:var(--surface-up); display:flex; flex-direction:column; min-height:126px;
-    transition:border-color .25s, background .25s; }
-  a.slot:hover{ border-color:rgba(128,82,255,.45); background:var(--tint-iris); }
-  .slot .tag{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start;
-    font-weight:600; font-size:var(--fs-micro); letter-spacing:.15em; text-transform:uppercase;
-    padding:4px 10px; border-radius:var(--r-md); margin-bottom:var(--sp-3); }
-  .tag.obs{ background:rgba(255,255,255,.07); color:var(--silver); }
-  .tag.prob{ background:rgba(255,107,107,.16); color:var(--ink-coral); }
-  .tag.rec{ background:rgba(128,82,255,.18); color:var(--ink-iris); }
-  .tag.opp{ background:rgba(47,212,178,.14); color:var(--ink-verdant); }
-  .slot .line{ font-weight:400; font-size:var(--fs-lead); letter-spacing:-.02em; line-height:1.3; }
-  .slot .why{ color:var(--ash); font-weight:200; font-size:var(--fs-body); line-height:1.5;
-    margin-top:var(--sp-2);
-    display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-  .slot.void{ background:transparent; border-style:dashed; border-color:rgba(255,255,255,.10); }
-  /* скелет слота повторяет его высоту точь-в-точь — иначе контент прыгнет */
-  .slots .v-sk{ min-height:126px; }
-  .slot.void .line{ font-size:var(--fs-body); color:var(--ash); font-weight:200; }
-
   /* Источник расчёта — не мелкий шрифт ради красоты, а часть цифры: без него
      число нечем проверить. Поэтому он стоит в самой карточке, а не в подсказке. */
   .v-kpi-card .src{ margin-top:var(--sp-2); font-size:var(--fs-caption); color:var(--ash);
@@ -83,27 +52,149 @@
   .v-kpi-card .v.void{ font-size:var(--fs-body); color:var(--ash); font-weight:200;
     letter-spacing:0; }
 
-  /* находка Директора внутри раздела */
-  .fnd + .fnd{ margin-top:var(--sp-4); padding-top:var(--sp-4);
-    border-top:1px solid var(--hairline); }
-  .fnd .t{ font-weight:400; font-size:var(--fs-lead); letter-spacing:-.02em; line-height:1.3; }
-  .fnd .t .lv{ display:inline-block; width:7px; height:7px; border-radius:50%;
-    margin-right:8px; vertical-align:middle; background:var(--ash); }
-  .fnd .t .lv.urgent{ background:var(--coral); }
-  .fnd .t .lv.warn{ background:var(--saffron); }
-  .fnd .t .lv.good{ background:var(--verdant); }
-  .fnd .why{ color:var(--silver); font-weight:200; font-size:var(--fs-body);
-    line-height:1.5; margin-top:var(--sp-2); }
-  .fnd .src{ color:var(--ash); font-size:var(--fs-caption); line-height:1.45;
-    margin-top:var(--sp-2); }
-  .slot{ min-height:126px; }
-  .basis{ margin-top:var(--sp-4); font-size:var(--fs-caption); color:var(--ash); line-height:1.5; }
-  .basis b{ font-weight:400; color:var(--silver); }
-  .gaps{ margin-top:var(--sp-3); display:grid; gap:6px; }
+    border-radius:50%; background:var(--hairline-2); }
+
+  /* ── 1. БРИФИНГ ──
+     Не карточка. Смысл не нуждается в рамке: его выделяет размер, воздух и
+     одна ирисовая полоса слева — та же, которой в системе помечено «здесь
+     говорит VELOR». */
+  .brief{ border-left:2px solid var(--iris); padding:2px 0 2px var(--sp-6);
+    margin-bottom:var(--sp-10); }
+  /* Единственное место в кабинете, где текст крупнее заголовка страницы:
+     ответ важнее названия вкладки. */
+  .brief-head{ font-weight:var(--fw-reg); font-size:clamp(26px,3.4vw,40px);
+    letter-spacing:-.03em; line-height:1.16; margin:var(--sp-3) 0 0;
+    max-width:20ch; text-wrap:balance; }
+  .brief-why{ margin-top:var(--sp-4); font-size:var(--fs-base); font-weight:var(--fw-thin);
+    color:var(--silver); line-height:1.5; max-width:var(--measure); }
+  .brief-why b{ font-weight:var(--fw-reg); color:var(--bone); }
+  /* Рекомендация — не «ещё один блок», а следующий шаг того же рассуждения.
+     Поэтому она стоит под выводом, а не в отдельной колонке. */
+  .brief-do{ margin-top:var(--sp-5); display:flex; align-items:flex-start;
+    gap:var(--sp-3); flex-wrap:wrap; }
+  .brief-do[hidden]{ display:none; }
+  .brief-do .t{ font-size:var(--fs-lead); font-weight:var(--fw-reg); line-height:1.35;
+    letter-spacing:-.02em; }
+  .brief-do .d{ margin-top:4px; font-size:var(--fs-body); font-weight:var(--fw-thin);
+    color:var(--ash); line-height:1.5; }
+  .brief-do .body{ flex:1 1 320px; min-width:0; }
+  .gaps{ margin-top:var(--sp-5); display:grid; gap:6px; }
   .gaps .g{ font-size:var(--fs-caption); color:var(--ash); line-height:1.45;
-    padding-left:14px; position:relative; }
+    padding-left:14px; position:relative; max-width:var(--measure); }
   .gaps .g::before{ content:""; position:absolute; left:0; top:7px; width:5px; height:5px;
     border-radius:50%; background:var(--hairline-2); }
+
+  /* ── 2. ДОКАЗАТЕЛЬСТВО ──
+     Строка вывода, которую можно развернуть и увидеть путь: какие записи взяты,
+     что с чем сравнивалось, что из этого следует, что предлагается. Не карточки:
+     список, разделённый волосяной линией. */
+  #evidenceZone{ margin-bottom:var(--sp-10); }
+  .ev{ border-top:1px solid var(--hairline); }
+  .ev:last-of-type{ border-bottom:1px solid var(--hairline); }
+  .ev > summary{ display:flex; align-items:baseline; gap:var(--sp-3);
+    padding:var(--sp-4) 0; cursor:pointer; list-style:none; min-height:44px;
+    transition:background var(--dur); }
+  .ev > summary::-webkit-details-marker{ display:none; }
+  .ev > summary:hover{ background:var(--surface); }
+  .ev-lv{ width:7px; height:7px; border-radius:50%; flex:none; background:var(--ash);
+    align-self:center; }
+  .ev-lv.warn{ background:var(--saffron); } .ev-lv.bad{ background:var(--coral); }
+  .ev-lv.good{ background:var(--verdant); }
+  .ev-t{ flex:1 1 auto; min-width:0; font-size:var(--fs-lead); font-weight:var(--fw-reg);
+    letter-spacing:-.02em; line-height:1.3; }
+  .ev-n{ font-variant-numeric:tabular-nums; font-size:var(--fs-body); color:var(--ash);
+    white-space:nowrap; }
+  .ev-n.up{ color:var(--ink-verdant); } .ev-n.down{ color:var(--ink-coral); }
+  /* Стрелка — единственный значок в блоке. Поворачивается, а не подпрыгивает. */
+  .ev-x{ flex:none; width:9px; height:9px; border-right:1.5px solid var(--ash);
+    border-bottom:1.5px solid var(--ash); transform:rotate(45deg); align-self:center;
+    transition:transform var(--dur) var(--ease); margin-left:2px; }
+  .ev[open] > summary .ev-x{ transform:rotate(-135deg); }
+  .ev[open] > summary{ background:var(--surface); }
+
+  /* Сама цепочка. Вертикальная нить слева связывает шаги: видно, что это один
+     путь, а не четыре независимых абзаца. */
+  .ev-chain{ position:relative; padding:2px 0 var(--sp-5) var(--sp-6);
+    margin-left:3px; border-left:1px solid var(--hairline-2); }
+  .ev-step{ position:relative; padding:var(--sp-3) 0; }
+  .ev-step::before{ content:""; position:absolute; left:calc(var(--sp-6) * -1 - 1px);
+    top:calc(var(--sp-3) + 8px); width:11px; height:1px; background:var(--hairline-2); }
+  .ev-step .k{ display:block; font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:var(--track-micro); text-transform:uppercase; color:var(--ash);
+    margin-bottom:5px; }
+  .ev-step .v{ font-size:var(--fs-body); color:var(--silver); line-height:1.5;
+    font-weight:var(--fw-thin); }
+  .ev-step .v b{ color:var(--bone); font-weight:var(--fw-reg);
+    font-variant-numeric:tabular-nums; }
+  .ev-step.decide .k{ color:var(--ink-iris); }
+  .ev-step.decide .v{ color:var(--bone); font-weight:var(--fw-reg); }
+  .ev-step a{ color:var(--lilac); }
+
+  /* ── 3. СОСТОЯНИЕ ДЕЛ ──
+     Открытая сетка вместо шести одинаковых карточек: числа делит воздух и
+     волосяная линия, а не рамка вокруг каждого. */
+  .st-head{ display:flex; align-items:baseline; justify-content:space-between;
+    gap:var(--sp-4); margin-bottom:var(--sp-5); }
+  .fresh{ font-size:var(--fs-caption); color:var(--ash); white-space:nowrap;
+    transition:opacity var(--dur); }
+  .fresh.on{ color:var(--ink-verdant); }
+  .figs{ display:grid; grid-template-columns:repeat(3,1fr); gap:0;
+    border-top:1px solid var(--hairline); }
+  .fig{ padding:var(--sp-5) var(--sp-6) var(--sp-5) 0;
+    border-bottom:1px solid var(--hairline); display:flex; flex-direction:column;
+    min-height:132px; transition:background var(--dur); }
+  .fig + .fig{ border-left:1px solid var(--hairline); padding-left:var(--sp-6); }
+  .figs .fig:nth-child(3n+1){ border-left:none; padding-left:0; }
+  a.fig:hover{ background:var(--surface); }
+  .fig .k{ font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:var(--track-micro); text-transform:uppercase; color:var(--ash); }
+  .fig .val{ display:flex; align-items:flex-end; justify-content:space-between;
+    gap:var(--sp-3); margin-top:var(--sp-3); }
+  .fig .v{ font-weight:var(--fw-reg); font-size:clamp(26px,2.7vw,34px);
+    letter-spacing:-.03em; line-height:1.02; font-variant-numeric:tabular-nums; }
+  .fig .v.money{ color:var(--ink-saffron); } .fig .v.ok{ color:var(--ink-verdant); }
+  .fig .v.bad{ color:var(--ink-coral); } .fig .v.info{ color:var(--lilac); }
+  .fig .v.zero, .fig .v.void{ color:var(--ash); }
+  .fig .v.void{ font-size:var(--fs-body); font-weight:var(--fw-thin); letter-spacing:0; }
+  /* Число, которое только что пересчиталось: одна отметка на две секунды.
+     Не мигание — доказательство, что VELOR продолжает считать сам. */
+  .fig .v.moved{ animation:moved 2s var(--ease); }
+  @keyframes moved{ 0%{ color:var(--lilac-2); } 60%{ color:var(--lilac-2); } }
+  .fig .s{ font-size:var(--fs-sm); color:var(--ash); margin-top:var(--sp-3); }
+  .fig .s.up{ color:var(--ink-verdant); } .fig .s.down{ color:var(--ink-coral); }
+  .fig .src{ margin-top:auto; padding-top:var(--sp-3); font-size:var(--fs-caption);
+    color:var(--ash); line-height:1.4;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+
+  /* Спарклайн — доказательство, а не украшение: он показывает те же дни, из
+     которых сложилось число над ним. Осей нет намеренно: на 30 точках
+     шириной 72px ось врёт о точности, которой здесь нет. Форма отвечает на
+     один вопрос — «ровно или рывками». */
+  .spark{ width:72px; height:26px; flex:none; overflow:visible; }
+  .spark path{ fill:none; stroke:var(--ash); stroke-width:1.4; stroke-linejoin:round;
+    stroke-linecap:round; opacity:.75; }
+  .spark .fill{ stroke:none; opacity:.10; }
+  .spark .dot{ fill:currentColor; stroke:none; opacity:1; }
+  .fig .v.money + .spark, .spark.money{ color:var(--ink-saffron); }
+  .spark.money path{ stroke:var(--ink-saffron); } .spark.money .fill{ fill:var(--ink-saffron); }
+  .spark.ok path{ stroke:var(--ink-verdant); } .spark.ok .fill{ fill:var(--ink-verdant); }
+  .spark.bad path{ stroke:var(--ink-coral); } .spark.bad .fill{ fill:var(--ink-coral); }
+  .spark.info path{ stroke:var(--lilac); } .spark.info .fill{ fill:var(--lilac); }
+
+  .sec-gap{ margin-top:var(--sp-12); margin-bottom:var(--sp-5); }
+
+  @media(max-width:900px){
+    .figs{ grid-template-columns:repeat(2,1fr); }
+    .figs .fig:nth-child(3n+1){ border-left:1px solid var(--hairline); padding-left:var(--sp-6); }
+    .figs .fig:nth-child(2n+1){ border-left:none; padding-left:0; }
+  }
+  @media(max-width:560px){
+    .figs{ grid-template-columns:1fr; }
+    .figs .fig, .figs .fig:nth-child(3n+1), .figs .fig:nth-child(2n+1){
+      border-left:none; padding-left:0; min-height:0; }
+    .brief{ padding-left:var(--sp-4); }
+    .ev-chain{ padding-left:var(--sp-5); }
+  }
 
   /* ── «Продажи сегодня» ──
      Одна полоса по ходу цепочки: пришло → в работе → готово написать →
@@ -191,8 +282,6 @@
     .cols{ grid-template-columns:1fr; }
   }
   @media(max-width:720px){
-    .says{ padding:var(--sp-5); }
-    .slots{ grid-template-columns:1fr; }
   }
   @media (prefers-reduced-motion: reduce){
     *{ animation:none !important; transition:none !important; }
@@ -251,12 +340,50 @@
   <div id="trialZone"></div>
   <div id="failZone" role="alert"></div>
 
-  <!-- 1.5. Дверь внутрь. Ход к «Входящим» стоит здесь, а не только в меню:
+  <!-- 1. БРИФИНГ. Первое на экране — не число и не кнопка, а ответ: что
+       происходит с бизнесом, почему и что с этим делать. Числа идут ПОСЛЕ
+       смысла, потому что владелец открывает главную не за цифрами, а за
+       ответом. Всё здесь приходит из director.briefing() — ни одной фразы,
+       собранной на фронте. -->
+  <section class="brief" id="briefZone" aria-labelledby="briefHead">
+    <p class="v-cap">Что происходит</p>
+    <h2 class="brief-head" id="briefHead">Смотрю, что у вас происходит…</h2>
+    <p class="brief-why" id="briefWhy"></p>
+    <div class="brief-do" id="briefDo" hidden></div>
+    <div class="gaps" id="gaps"></div>
+  </section>
+
+  <!-- 2. ДОКАЗАТЕЛЬСТВО. Главный элемент нового VELOR: каждый вывод можно
+       развернуть и увидеть путь, которым он получен — какие записи взяты, что
+       с чем сравнивалось, что из этого следует и что предлагается сделать.
+       Ни одного шага не рисуется «для вида»: если основания в данных нет,
+       шага нет на экране. -->
+  <section id="evidenceZone" aria-labelledby="evTitle" hidden>
+    <p class="v-cap" id="evTitle">Доказательство</p>
+    <div id="evidence" aria-live="polite"></div>
+  </section>
+
+  <!-- 3. СОСТОЯНИЕ ДЕЛ. Шесть чисел открытой вёрсткой, а не шестью
+       одинаковыми плитками: у числа есть метка, динамика за период,
+       и строка «как посчитано». -->
+  <section id="stateZone" aria-labelledby="stTitle">
+    <div class="st-head">
+      <p class="v-cap" id="stTitle">Состояние дел</p>
+      <span class="fresh" id="fresh" aria-live="polite"></span>
+    </div>
+    <div class="figs" id="kpi" aria-live="polite">
+      <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
+      <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
+    </div>
+  </section>
+
+  <!-- 4. ПОДРОБНОСТИ -->
+  <p class="v-cap sec-gap">Подробности</p>
+
+  <!-- Дверь внутрь. Ход к «Входящим» стоит здесь, а не только в меню:
        передать VELOR прайс или чек человек хочет ровно в тот момент, когда
-       смотрит, как идут дела, — и лишний переход по вкладкам этот момент
-       съедает. Полное окно приёма (файлы, буфер, перетаскивание) остаётся
-       одно, на «Входящих»: второй приёмник означал бы вторую очередь и
-       второй набор состояний. -->
+       смотрит, как идут дела. Полное окно приёма (файлы, буфер, перетаскивание)
+       остаётся одно, на «Входящих». -->
   <section class="onedoor v-door" data-state="empty" aria-labelledby="odTitle">
     <label class="lbl" id="odTitle" for="odText">Передать VELOR</label>
     <div class="od-row">
@@ -270,27 +397,6 @@
     <div class="v-door-say" id="odSay" role="status" aria-live="polite" hidden></div>
   </section>
 
-  <!-- 2. Исполнительная сводка: шесть чисел о состоянии дел -->
-  <section class="v-kpi six" id="kpi" aria-label="Исполнительная сводка" aria-live="polite">
-    <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
-    <div class="v-sk"></div><div class="v-sk"></div><div class="v-sk"></div>
-  </section>
-
-  <!-- 3. Что об этом думает VELOR -->
-  <section class="says v-in" aria-labelledby="saysTitle">
-    <div class="says-head">
-      <div>
-        <h2 id="saysTitle">Что происходит с бизнесом</h2>
-        <p class="sub" id="saysSub">Смотрю на ваши цифры…</p>
-      </div>
-    </div>
-    <div class="slots" id="slots" aria-live="polite">
-      <div class="v-sk"></div><div class="v-sk"></div>
-      <div class="v-sk"></div><div class="v-sk"></div>
-    </div>
-    <p class="basis" id="basis"></p>
-    <div class="gaps" id="gaps"></div>
-  </section>
 
   <!-- 4. Продажи сегодня: вся цепочка одной полосой -->
   <section id="flowZone" aria-labelledby="flowTitle" hidden>
@@ -403,10 +509,11 @@ function statusLine(d){
   if (cl.active) bits.push(num(cl.active) + ' ' + plural(cl.active, 'активный клиент', 'активных клиента', 'активных клиентов'));
   const tail = bits.length ? bits.join(' · ') : 'данных пока мало — я коплю их с каждым днём';
 
-  // Первым делом — прямой ответ на вопрос страницы. Оценка состояния и факты
-  // идут после него: сначала «что происходит», потом «насколько это хорошо».
+  // Ответ на вопрос «что происходит» переехал в брифинг и набран крупно.
+  // Здесь остаётся оценка состояния и факты — повторять headline в двух
+  // местах значит заставлять читать одно и то же дважды.
   return `<span class="v-badge" style="color:${color}"><i></i>${esc(lvl)}</span>
-          <span class="tail">${esc(head || tail)}</span>`;
+          <span class="tail">${esc(tail)}</span>`;
 }
 
 // ── Исполнительная сводка ──
@@ -445,50 +552,177 @@ function kpiTone(m){
   }
 }
 
-function briefHTML(dir){
-  return dir.metrics.map(m => {
-    const body = `<span class="k">${esc(m.label)}</span>
-       <span class="v num${kpiTone(m)}">${esc(m.display)}</span>
+// ── БРИФИНГ: смысл раньше данных ──
+// Ни одна фраза здесь не собрана на фронте. headline, why и рекомендация
+// приходят из director.briefing(), который считает по базе и молчит, когда
+// данных мало. Фронт умеет только показать то, что ему дали, и не показать
+// того, чего не дали.
+function paintBrief(dir){
+  const head = document.getElementById('briefHead');
+  const why  = document.getElementById('briefWhy');
+  const doEl = document.getElementById('briefDo');
+  const gaps = document.getElementById('gaps');
+  if (!dir){
+    softText(head, 'Смотрю, что у вас происходит…');
+    why.textContent = ''; doEl.hidden = true; gaps.innerHTML = '';
+    return;
+  }
+  softText(head, dir.headline || '');
+  why.innerHTML = `<b>${esc(dir.why || '')}</b>` +
+    (dir.ready && dir.days
+      ? ` Период: последние ${dir.days} дней, сравнение с предыдущими ${dir.days}.` : '');
+
+  // Одна рекомендация, и только настоящая. Нет — блока нет: выдуманный совет
+  // хуже отсутствующего, потому что по нему тоже действуют.
+  const rec = (dir.recommendations || [])[0];
+  if (rec){
+    doEl.hidden = false;
+    doEl.innerHTML =
+      `<div class="body"><div class="t">${esc(rec.title)}</div>` +
+      (rec.detail ? `<div class="d">${esc(rec.detail)}</div>` : '') + `</div>` +
+      (rec.href ? `<a class="v-btn ghost sm" href="${esc(rec.href)}">Открыть</a>` : '');
+  } else {
+    doEl.hidden = true; doEl.innerHTML = '';
+  }
+  gaps.innerHTML = (dir.gaps || []).slice(0, 3)
+    .map(g => `<div class="g">${esc(g)}</div>`).join('');
+}
+
+// ── ДОКАЗАТЕЛЬСТВО: как VELOR пришёл к выводу ──
+// Каждый вывод разворачивается в путь: какие записи взяты → что с чем
+// сравнивалось → что из этого следует → что предлагается сделать.
+// Шаг, для которого в данных нет основания, не рисуется вовсе.
+// Рекомендация привязана к своему факту ключом (director кладёт "do_" + key),
+// поэтому «решение» под выводом — то самое, а не соседнее.
+function evidenceHTML(dir){
+  if (!dir || !dir.ready) return '';
+  const recs = {};
+  (dir.recommendations || []).forEach(r => {
+    if (r.key && r.key.indexOf('do_') === 0) recs[r.key.slice(3)] = r;
+  });
+  const KIND = { changed:'Изменение', risks:'Риск', opportunities:'Возможность' };
+  const rows = [];
+  ['changed', 'risks', 'opportunities'].forEach(sec => {
+    (dir[sec] || []).forEach(f => rows.push([sec, f]));
+  });
+  if (!rows.length) return '';
+
+  return rows.slice(0, 6).map(([sec, f]) => {
+    const n = f.numbers || {};
+    const rec = recs[f.key];
+    const ch = (typeof n.change === 'number')
+      ? `<span class="ev-n ${n.change > 0 ? 'up' : 'down'}">${n.change > 0 ? '+' : ''}${n.change}%</span>`
+      : '';
+    const steps = [];
+    if (f.source)
+      steps.push(`<div class="ev-step"><span class="k">Данные</span>
+        <div class="v">${esc(f.source)}</div></div>`);
+    if (f.detail)
+      steps.push(`<div class="ev-step"><span class="k">Расчёт</span>
+        <div class="v">${esc(f.detail)}</div></div>`);
+    steps.push(`<div class="ev-step"><span class="k">Вывод</span>
+      <div class="v"><b>${esc(f.title)}</b></div></div>`);
+    if (rec)
+      steps.push(`<div class="ev-step decide"><span class="k">Решение</span>
+        <div class="v">${esc(rec.title)}${rec.detail ? ' — ' + esc(rec.detail) : ''}
+        ${rec.href ? ` <a href="${esc(rec.href)}">Открыть →</a>` : ''}</div></div>`);
+    else if (f.href)
+      steps.push(`<div class="ev-step"><span class="k">Проверить</span>
+        <div class="v"><a href="${esc(f.href)}">Открыть записи, из которых это посчитано →</a></div></div>`);
+
+    return `<details class="ev" data-key="${esc(sec + ':' + (f.key || f.title))}">
+      <summary><span class="ev-lv ${esc(f.level || 'info')}"></span>
+        <span class="ev-t">${esc(f.title)}</span>${ch}<span class="ev-x"></span></summary>
+      <div class="ev-chain">${steps.join('')}</div>
+    </details>`;
+  }).join('');
+}
+
+// ── СОСТОЯНИЕ ДЕЛ: число, его динамика и его доказательство ──
+// Спарклайн строится из тех же дней, из которых сложилось число над ним:
+// /api/series считает ряд теми же выражениями, что и сводка. Осей нет
+// намеренно — на тридцати точках шириной 72px ось обещает точность, которой
+// здесь нет. Линия отвечает на один вопрос: ровно или рывками.
+function sparkline(vals, tone){
+  if (!vals || vals.length < 3) return '';
+  // Линия через три десятка нулей с одним всплеском — это не динамика, а одна
+  // операция, нарисованная как тренд. Продукт молчит, когда данных мало, и
+  // график обязан молчать по тому же правилу: меньше трёх дней с движением —
+  // линии нет. Сколько было операций, уже написано в строке «как посчитано».
+  if (vals.filter(v => v).length < 3) return '';
+  const n = vals.length, w = 72, h = 26, p = 2.5;
+  const max = Math.max.apply(null, vals), min = Math.min.apply(null, vals);
+  const span = (max - min) || 1;
+  const X = i => (p + i * (w - p * 2) / (n - 1)).toFixed(1);
+  const Y = v => (h - p - ((v - min) / span) * (h - p * 2)).toFixed(1);
+  let d = 'M' + X(0) + ' ' + Y(vals[0]);
+  for (let i = 1; i < n; i++) d += ' L' + X(i) + ' ' + Y(vals[i]);
+  const area = d + ' L' + X(n - 1) + ' ' + (h - p) + ' L' + X(0) + ' ' + (h - p) + ' Z';
+  return `<svg class="spark ${tone}" viewBox="0 0 ${w} ${h}" aria-hidden="true" focusable="false">
+    <path class="fill" d="${area}"/><path d="${d}"/>
+    <circle class="dot" cx="${X(n - 1)}" cy="${Y(vals[n - 1])}" r="1.9"/></svg>`;
+}
+
+// Какой ряд стоит за какой метрикой. Маржи здесь нет намеренно: дневная доля
+// прибыли в выручке при двух операциях — это шум, а не динамика.
+const SERIES_OF = { revenue:'income', expenses:'expense', profit:'profit',
+                    clients_new:'clients', orders_new:'orders' };
+
+function figTone(m){
+  if (!m.enough) return 'void';
+  const v = m.value;
+  switch (m.key){
+    case 'revenue':  return v ? 'money' : 'zero';
+    case 'expenses': return v ? 'bad' : 'zero';
+    case 'profit':
+    case 'margin':   return v === 0 ? 'zero' : (v > 0 ? 'ok' : 'bad');
+    case 'clients_new':
+    case 'orders_new': return v ? 'info' : 'zero';
+    default: return '';
+  }
+}
+
+let _prevFigs = {};
+
+function figsHTML(dir, series){
+  return (dir.metrics || []).map(m => {
+    const tone = figTone(m);
+    const key = SERIES_OF[m.key];
+    const spark = (key && series && series.length)
+      ? sparkline(series.map(r => r[key] || 0), tone) : '';
+    // Число, изменившееся с прошлого опроса, помечается на две секунды.
+    const moved = (_prevFigs[m.key] !== undefined && _prevFigs[m.key] !== m.display)
+      ? ' moved' : '';
+    const body =
+      `<span class="k">${esc(m.label)}</span>
+       <span class="val"><span class="v num ${tone}${moved}">${esc(m.display)}</span>${spark}</span>
        ${deltaHTML(m)}
        <span class="src">${esc(m.source)}</span>`;
-    return m.href ? `<a class="v-kpi-card" href="${esc(m.href)}">${body}</a>`
-                  : `<div class="v-kpi-card">${body}</div>`;
+    return m.href ? `<a class="fig" href="${esc(m.href)}">${body}</a>`
+                  : `<div class="fig">${body}</div>`;
   }).join('');
 }
 
-// ── Разбор: что изменилось, риски, возможности, рекомендации ──
-const DIR_SECTIONS = [
-  ['changed',         'obs',  'Что изменилось', 'Заметных изменений к прошлому периоду нет.'],
-  ['risks',           'prob', 'Риски',          'Рисков по этим данным не вижу.'],
-  ['opportunities',   'opp',  'Возможности',    'Возможности появятся, когда наберётся история.'],
-  ['recommendations', 'rec',  'Рекомендации',   'Отдельной рекомендации нет — всё идёт своим ходом.'],
-];
-
-function findingHTML(f){
-  return `<div class="fnd">
-    <div class="t"><span class="lv ${esc(f.level || 'info')}"></span>${esc(f.title)}</div>
-    ${f.detail ? `<div class="why">${esc(f.detail)}</div>` : ''}
-    ${f.source ? `<div class="src">Как посчитано: ${esc(f.source)}</div>` : ''}
-  </div>`;
+// «Обновлено только что» — не всплывающее окно и не мигание: одна строка,
+// которая гаснет до серого. Цель — чтобы владелец видел, что VELOR считает
+// сам, а не только когда его открыли.
+let _seenAt = 0, _freshTimer = 0;
+function markFresh(changed){
+  _seenAt = Date.now();
+  const el = document.getElementById('fresh');
+  if (!el) return;
+  el.textContent = changed ? 'обновлено только что' : 'проверено только что';
+  el.classList.toggle('on', !!changed);
+  clearTimeout(_freshTimer);
+  _freshTimer = setTimeout(() => el.classList.remove('on'), 4000);
 }
+setInterval(() => {
+  const el = document.getElementById('fresh');
+  if (!el || !_seenAt) return;
+  const min = Math.floor((Date.now() - _seenAt) / 60000);
+  if (min >= 1){ el.classList.remove('on'); el.textContent = `проверено ${min} мин назад`; }
+}, 30000);
 
-function dirHTML(dir){
-  return DIR_SECTIONS.map(([key, cls, label, blank]) => {
-    const items = (dir && dir[key]) || [];
-    const tag = `<span class="tag ${cls}">${label}</span>`;
-    if (!items.length){
-      // Пусто по двум разным причинам: данных мало (молчим честно) или
-      // выводов действительно нет (это тоже вывод). Путать их нельзя.
-      const line = dir && dir.ready ? blank : 'Недостаточно данных для вывода.';
-      return `<div class="slot void">${tag}<div class="line">${esc(line)}</div></div>`;
-    }
-    const rows = items.slice(0, 3).map(findingHTML).join('');
-    const rest = items.length > 3
-      ? `<a class="more" href="${esc(items[3].href || 'finance.html')}">ещё ${items.length - 3} →</a>`
-      : '';
-    return `<div class="slot">${tag}${rows}${rest}</div>`;
-  }).join('');
-}
 
 // ── KPI (запасной вид, если Директор не собрался) ──
 function kpiHTML(d){
@@ -520,30 +754,6 @@ function kpiHTML(d){
        <span class="v num ${cl.active ? 'info' : 'zero'}">${num(cl.active)}</span>
        ${clientsSub}</a>`,
   ].join('');
-}
-
-// ── «Что говорит VELOR»: четыре мысли. Пустой слот честно говорит, что пусто ──
-const SLOT_META = [
-  ['observation',    'obs',  'Наблюдение',   'Пока не за чем наблюдать — данных мало.'],
-  ['problem',        'prob', 'Проблема',     'Проблем не вижу. Это хорошая новость.'],
-  ['recommendation', 'rec',  'Рекомендация', 'Отдельной рекомендации нет — сейчас всё идёт своим ходом.'],
-  ['opportunity',    'opp',  'Возможность',  'Возможности появятся, когда наберётся история.'],
-];
-
-function slotsHTML(d){
-  const v = d.velor || {};
-  return SLOT_META.map(([key, cls, label, blank]) => {
-    const s = v[key];
-    if (!s) return `<div class="slot void">
-        <span class="tag ${cls}">${label}</span>
-        <div class="line">${esc(blank)}</div></div>`;
-    const tag = `<span class="tag ${cls}">${label}</span>`;
-    const body = `<div class="line">${esc(s.text)}</div>` +
-                 (s.note ? `<div class="why">${esc(s.note)}</div>` : '');
-    return s.href
-      ? `<a class="slot" href="${esc(s.href)}">${tag}${body}</a>`
-      : `<div class="slot">${tag}${body}</div>`;
-  }).join('');
 }
 
 // ── «Что требует внимания» ──
@@ -731,32 +941,6 @@ function softText(el, text){
   setTimeout(()=>{ el.textContent = text; el.style.opacity = '1'; }, 200);
 }
 
-// «Пока вас не было» — одна строка под заголовком блока VELOR.
-function saysSubText(aiEvents){
-  const since = Date.now() - 14 * 3600 * 1000;
-  const fresh = aiEvents.filter(e=>{
-    const t = new Date((e.created_at || '').replace(' ', 'T') + 'Z');
-    return !isNaN(t) && t.getTime() >= since;
-  }).length;
-  return fresh
-    ? `Пока вас не было, я ${fresh} ${plural(fresh,'раз','раза','раз')} пересматривал ваши цифры.`
-    : 'Смотрю на ваши цифры постоянно — вот что вижу сейчас.';
-}
-
-// На чём стоит вся сводка и чего посчитать не удалось. Это не мелкий шрифт
-// для приличия: границы выводов владелец должен видеть рядом с выводами.
-function paintBasis(dir){
-  const basis = document.getElementById('basis');
-  const gaps  = document.getElementById('gaps');
-  if (!dir){ basis.textContent = ''; gaps.innerHTML = ''; return; }
-  // Пока считать нечего, рассказывать про окна сравнения незачем.
-  basis.innerHTML = `<b>${esc(dir.why || '')}</b>` +
-    (dir.ready && dir.days
-      ? ` Период: последние ${dir.days} дней, сравнение с предыдущими ${dir.days}.` : '');
-  gaps.innerHTML = (dir.gaps || []).slice(0, 3)
-    .map(g => `<div class="g">${esc(g)}</div>`).join('');
-}
-
 function showFail(){
   document.getElementById('failZone').innerHTML = `
     <div class="v-fail">
@@ -773,6 +957,7 @@ function showFail(){
 }
 
 let _lastAiId = null;
+let _series = [];
 
 async function load(){
   let d;
@@ -786,15 +971,43 @@ async function load(){
   }
   document.getElementById('failZone').innerHTML = '';
 
-  if (d.business && d.business.ai_name)
-
   document.getElementById('status').innerHTML = statusLine(d);
   // Директор — основной вид главной. Не собрался (старый сервер, сбой) —
   // показываем прежние показатели, но не выдумываем разбор.
   const dir = d.director;
-  put('kpi', dir ? briefHTML(dir) : kpiHTML(d), true);
-  put('slots', dir ? dirHTML(dir) : slotsHTML(d), true);
-  paintBasis(dir);
+  paintBrief(dir);
+
+  // Ряд — отдельным запросом: он нужен спарклайнам и не должен задерживать
+  // ни брифинг, ни числа. Не пришёл — числа просто останутся без линий.
+  let series = _series;
+  try{
+    const sr = await fetch('/api/series?days=30');
+    if (sr.ok){ const sj = await sr.json(); series = _series = sj.series || []; }
+  }catch{ /* ряд не критичен */ }
+
+  if (dir){
+    const nowFigs = {};
+    (dir.metrics || []).forEach(m => { nowFigs[m.key] = m.display; });
+    const changed = Object.keys(_prevFigs).length
+      && Object.keys(nowFigs).some(k => _prevFigs[k] !== nowFigs[k]);
+    put('kpi', figsHTML(dir, series), true);
+    _prevFigs = nowFigs;
+    markFresh(changed);
+  } else {
+    put('kpi', kpiHTML(d), true);
+  }
+
+  // Доказательство: раскрытые цепочки не должны схлопываться при опросе —
+  // человек мог читать её ровно в эту секунду.
+  const opened = [].slice.call(document.querySelectorAll('.ev[open]'))
+                   .map(n => n.dataset.key);
+  const ev = evidenceHTML(dir);
+  document.getElementById('evidenceZone').hidden = !ev;
+  put('evidence', ev, true);
+  opened.forEach(k => {
+    const n = document.querySelector('.ev[data-key="' + (window.CSS && CSS.escape ? CSS.escape(k) : k) + '"]');
+    if (n) n.open = true;
+  });
   paintFlow(d);
   put('attnPanel', attnHTML(d), false);
 
@@ -813,7 +1026,6 @@ async function load(){
 
   const AI_KINDS = new Set(['reply','risk','opportunity','idea','board','content','memory','plan']);
   const aiEvents = events.filter(e => AI_KINDS.has(e.kind));
-  softText(document.getElementById('saysSub'), saysSubText(aiEvents));
   put('actsPanel', actsHTML(events, d), false);
 
   // Живое ядро реагирует только на настоящую новую работу AI, не на каждый опрос.

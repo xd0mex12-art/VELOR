@@ -1595,6 +1595,80 @@ def api_update_business(body: BusinessPatch, x_auth: str = Header(default="")):
     return {"ok": True, "webhook": webhook}
 
 
+@app.get("/api/series")
+def api_series(business_id: int = 0, days: int = 30, x_auth: str = Header(default="")):
+    """
+    Дневной ряд, средний чек и разделение клиентов на новых и вернувшихся.
+
+    Всё считает база, ни одного обращения к модели: график — это доказательство
+    числа, стоящего над ним, а доказательство не может быть предположением.
+    Поэтому ряд считается теми же выражениями, что и сводка Директора, и по
+    тем же правилам — иначе линия начнёт спорить с цифрой.
+
+    Там, где посчитать честно нельзя, число не выдумывается: вместо него в
+    gaps идёт объяснение, чего именно не хватает. Это тот же механизм, которым
+    молчит Директор.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    days = 7 if days <= 7 else (90 if days >= 90 else 30)
+    try:
+        series = database.daily_series(bid, days)
+        now = database.orders_period(bid, days, 0)
+        prev = database.orders_period(bid, days, days)
+        who_now = database.clients_split(bid, days, 0)
+        who_prev = database.clients_split(bid, days, days)
+        span = database.data_span(bid)
+    except Exception:
+        logging.exception("Ряд не собрался (biz %s)", bid)
+        raise HTTPException(status_code=502, detail="Не удалось собрать ряд.")
+
+    gaps = []
+
+    # Средний чек. База — только заявки с проставленной суммой и не отменённые:
+    # отменённая заявка денег не принесла, а заявка без суммы ничего не говорит
+    # о чеке. Сколько заявок осталось за бортом — пишем прямо.
+    avg_now, avg_prev = now["avg"], prev["avg"]
+    no_amount = now["count"] - now["cancelled"] - now["with_amount"]
+    aov = {
+        "value": avg_now,
+        "was": avg_prev,
+        "change": (round((avg_now - avg_prev) * 100 / avg_prev)
+                   if avg_now and avg_prev else None),
+        "counted": now["with_amount"], "orders": now["count"],
+        "cancelled": now["cancelled"], "no_amount": max(0, no_amount),
+        "source": (f"{now['with_amount']} из {now['count']} заявок за {days} дн. "
+                   "с проставленной суммой"),
+    }
+    if avg_now is None and now["count"]:
+        gaps.append(f"Средний чек не посчитан: у заявок за {days} дн. не проставлена "
+                    "сумма. Проставьте её в разделе «Заявки» — и чек появится сам.")
+    elif no_amount > 0 and avg_now is not None:
+        gaps.append(f"Средний чек посчитан не по всем заявкам: у {no_amount} из "
+                    f"{now['count']} сумма не проставлена.")
+    if now["cancelled"]:
+        gaps.append(f"Отменённые заявки ({now['cancelled']}) в деньгах не учтены: "
+                    "отмена не принесла выручки.")
+
+    # Новые и вернувшиеся. Вернувшийся — тот, у кого есть заказ раньше начала
+    # периода. Это расчёт по базе, а не мнение модели.
+    who = {
+        "new": who_now["new"], "returning": who_now["returning"],
+        "active": who_now["active"],
+        "was_new": who_prev["new"], "was_returning": who_prev["returning"],
+        "source": (f"{who_now['active']} клиентов с заявками за {days} дн.; "
+                   "вернувшийся — тот, у кого заказ был и раньше"),
+    }
+    if not who_now["active"] and now["count"]:
+        gaps.append("Разделить клиентов на новых и вернувшихся нельзя: заявки за "
+                    "период не привязаны к клиентам.")
+    if span["days"] < days and who_now["returning"] == 0 and who_now["active"]:
+        gaps.append(f"Вернувшихся пока нет и быть не может: данные в системе всего "
+                    f"{span['days']} дн. — раньше периода заказов ещё не было.")
+
+    return {"days": days, "series": series, "aov": aov, "clients": who,
+            "gaps": gaps, "span": span}
+
+
 @app.get("/api/director")
 def api_director(business_id: int = 0, days: int = 30, x_auth: str = Header(default="")):
     """
@@ -3746,6 +3820,81 @@ _inbox_understand = intake.understand
 _understand_safely = intake._understand_safely
 
 
+# Названия модулей аналитики по-человечески: владелец не обязан знать слова
+# «briefing» и «forecast», но обязан видеть, что именно пересчиталось.
+MODULE_RU = {"forecast": "прогноз", "board": "совет директоров",
+             "briefing": "утренний брифинг", "risks": "риски",
+             "opportunities": "возможности"}
+
+
+def _inbox_pipeline(item: dict, result: dict | None, history: list) -> list:
+    """
+    Путь материала внутри VELOR: принято → прочитано → понято → записано →
+    повлияло на выводы.
+
+    Ни одной придуманной стадии. Каждый шаг существует только если у него есть
+    подтверждение в базе: строка inbox_items, строка inbox_results, решение в
+    inbox_decisions, запись сущности. Последний шаг выводится не из фантазии, а
+    из signals.DEPENDENCIES — это тот самый список модулей, которые реально
+    помечаются на пересборку, когда такая запись появляется.
+
+    Стадия без подтверждения не рисуется вовсе: показать «понял» там, где
+    разбора не было, — значит соврать про работу, которой не делали.
+    """
+    out = []
+    kind = "заметка" if item.get("kind") == "text" else (item.get("mime") or "файл")
+    out.append({"key": "received", "label": "Принято",
+                "at": item.get("created_at"),
+                "detail": f"{kind} · источник: {item.get('source') or 'веб'}"})
+
+    if result:
+        engine = result.get("engine")
+        if engine:
+            how = ("разобрал модель " + (result.get("model") or "")) if engine == "llm" \
+                  else "разобрано правилами, без модели"
+            out.append({"key": "read", "label": "Прочитано",
+                        "at": result.get("created_at"), "detail": how.strip()})
+        if result.get("type") and result.get("type") != "UNKNOWN":
+            conf = result.get("confidence")
+            bits = [result.get("type_ru") or ""]
+            if result.get("level_ru"):
+                bits.append("уверенность " + result["level_ru"])
+            if isinstance(conf, (int, float)) and conf:
+                bits.append(f"{round(float(conf) * 100)}%")
+            out.append({"key": "understood", "label": "Понято",
+                        "at": result.get("created_at"),
+                        "detail": " · ".join(b for b in bits if b)})
+
+    # Записано — только по настоящим решениям, у которых есть сущность.
+    wrote = [h for h in (history or []) if h.get("entity_type")]
+    if wrote:
+        names = []
+        for h in wrote:
+            # Название вида записи берём из реестра entities: интерфейс не
+            # должен знать внутренние ключи вроде "expense".
+            meta = entities.ENTITIES.get(h["entity_type"]) or {}
+            names.append(str(meta.get("title") or h["entity_type"]))
+        last = wrote[-1]
+        out.append({"key": "recorded", "label": "Записано",
+                    "at": last.get("created_at"),
+                    "detail": ", ".join(dict.fromkeys(names)),
+                    "href": "memory.html"})
+
+        # Повлияло — список модулей, которые из-за этой записи считают заново.
+        mods = []
+        for h in wrote:
+            domain = REACT_DOMAIN.get(h["entity_type"])
+            for m in signals.DEPENDENCIES.get(domain, ()):
+                if m not in mods:
+                    mods.append(m)
+        if mods:
+            out.append({"key": "affected", "label": "Повлияло на выводы",
+                        "at": last.get("created_at"),
+                        "detail": ", ".join(MODULE_RU.get(m, m) for m in mods),
+                        "href": "dashboard.html"})
+    return out
+
+
 def _inbox_result_public(res: dict | None, item: dict | None = None) -> dict | None:
     """
     Разбор наружу: человеческие подписи и готовая форма подтверждения.
@@ -3969,9 +4118,11 @@ def api_inbox_item(item_id: int, business_id: int = 0, x_auth: str = Header(defa
     item = database.get_inbox_item(item_id, bid)
     if not item:
         raise HTTPException(status_code=404, detail="Материал не найден.")
-    return {"item": _inbox_public(item),
-            "result": _inbox_result_public(database.get_inbox_result(bid, item_id), item),
-            "history": database.list_inbox_decisions(bid, item_id)}
+    res = _inbox_result_public(database.get_inbox_result(bid, item_id), item)
+    hist = database.list_inbox_decisions(bid, item_id)
+    pub = _inbox_public(item)
+    return {"item": pub, "result": res, "history": hist,
+            "pipeline": _inbox_pipeline(pub, res, hist)}
 
 
 @app.get("/api/inbox/{item_id}/file")

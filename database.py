@@ -1636,22 +1636,126 @@ def counts_period(business_id, table, days=30, offset=0, extra=""):
     return int(row["n"] or 0)
 
 
+ORDER_CANCELLED = "отменён"
+
+
 def orders_period(business_id, days=30, offset=0):
-    """Заявки за окно: сколько, на какую сумму и у скольких сумма проставлена."""
+    """
+    Заявки за окно: сколько, на какую сумму и у скольких сумма проставлена.
+
+    Отменённые заявки считаются в count (они были, владелец их видел), но НЕ
+    участвуют в деньгах: отменённый заказ не принёс ни рубля, а в среднем чеке
+    он завышал цифру. Возвращаем cancelled отдельно, чтобы это было видно, а не
+    спрятано в разнице между count и with_amount.
+    """
     frm, to = _window(days, offset)
     with _connect() as conn:
         row = conn.execute(
-            """SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS total,
-                      SUM(CASE WHEN amount > 0 THEN 1 ELSE 0 END) AS with_amount
+            """SELECT COUNT(*) AS n,
+                      SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS cancelled,
+                      COALESCE(SUM(CASE WHEN status <> ? THEN amount END),0) AS total,
+                      SUM(CASE WHEN status <> ? AND amount > 0 THEN 1 ELSE 0 END) AS with_amount
                  FROM orders
                 WHERE business_id = ?
                   AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)""",
-            (business_id, frm, to)).fetchone()
+            (ORDER_CANCELLED, ORDER_CANCELLED, ORDER_CANCELLED,
+             business_id, frm, to)).fetchone()
     n = int(row["n"] or 0)
     with_amount = int(row["with_amount"] or 0)
     total = int(row["total"] or 0)
     return {"count": n, "amount": total, "with_amount": with_amount,
+            "cancelled": int(row["cancelled"] or 0),
             "avg": round(total / with_amount) if with_amount else None}
+
+
+def clients_split(business_id, days=30, offset=0):
+    """
+    Новые и вернувшиеся клиенты за окно — расчёт, а не догадка модели.
+
+    Вернувшийся — тот, у кого есть заказ РАНЬШЕ начала окна. Новый — тот, у
+    кого такого заказа нет. Определение детерминированное: один и тот же клиент
+    на одних и тех же данных всегда попадёт в ту же группу.
+
+    Считаем по клиентам, оформившим заказ в окне, а не по всем заведённым: у
+    клиента без заказов нет поведения, которое можно назвать возвратом.
+    Отменённые заказы не в счёт — отмена это не покупка.
+    """
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT
+                   COUNT(*) AS active,
+                   SUM(CASE WHEN prior > 0 THEN 1 ELSE 0 END) AS came_back
+                 FROM (
+                   SELECT o.client_id,
+                          (SELECT COUNT(*) FROM orders p
+                            WHERE p.business_id = o.business_id
+                              AND p.client_id = o.client_id
+                              AND p.status <> ?
+                              AND date(p.created_at) < date('now', ?)) AS prior
+                     FROM orders o
+                    WHERE o.business_id = ? AND o.client_id IS NOT NULL
+                      AND o.status <> ?
+                      AND date(o.created_at) >= date('now', ?)
+                      AND date(o.created_at) <  date('now', ?)
+                    GROUP BY o.client_id
+                 ) AS in_window""",
+            (ORDER_CANCELLED, frm, business_id, ORDER_CANCELLED, frm, to)).fetchone()
+    active = int(row["active"] or 0)
+    returning = int(row["came_back"] or 0)
+    return {"active": active, "returning": returning, "new": active - returning}
+
+
+def daily_series(business_id, days=30):
+    """
+    Дневной ряд за окно: по строке на каждый день, включая дни без движения.
+
+    Ряд обязан совпадать с числами сводки, иначе график будет спорить с цифрой
+    над ним. Поэтому день денег считается тем же выражением, что и в
+    money_period (COALESCE(op_date, дата записи)), а заявки и клиенты — по
+    дате появления записи, как в orders_period и counts_period.
+
+    Пустые дни заполняются нулями здесь, а не на фронте: пропуск в ряду
+    превращает линию в ложь о том, что между двумя точками ничего не было.
+    """
+    days = max(1, min(int(days or 30), 180))
+    frm, to = _window(days, 0)
+    money, orders, clients = {}, {}, {}
+    with _connect() as conn:
+        for r in conn.execute(
+            f"""SELECT {_OP_DAY} AS day,
+                       COALESCE(SUM(CASE WHEN f.kind='income'  THEN f.amount END),0) AS income,
+                       COALESCE(SUM(CASE WHEN f.kind='expense' THEN f.amount END),0) AS expense
+                  FROM finance_entries f
+                 WHERE f.business_id = ?
+                   AND {_OP_DAY} >= date('now', ?) AND {_OP_DAY} < date('now', ?)
+                 GROUP BY day""", (business_id, frm, to)):
+            money[r["day"]] = (int(r["income"] or 0), int(r["expense"] or 0))
+        for r in conn.execute(
+            """SELECT date(created_at) AS day, COUNT(*) AS n,
+                      COALESCE(SUM(CASE WHEN status <> ? THEN amount END),0) AS amount
+                 FROM orders
+                WHERE business_id = ?
+                  AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)
+                GROUP BY day""", (ORDER_CANCELLED, business_id, frm, to)):
+            orders[r["day"]] = (int(r["n"] or 0), int(r["amount"] or 0))
+        for r in conn.execute(
+            """SELECT date(created_at) AS day, COUNT(*) AS n FROM clients
+                WHERE business_id = ?
+                  AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)
+                GROUP BY day""", (business_id, frm, to)):
+            clients[r["day"]] = int(r["n"] or 0)
+
+    today = datetime.date.today()
+    out = []
+    for i in range(days - 1, -1, -1):
+        d = (today - datetime.timedelta(days=i)).isoformat()
+        income, expense = money.get(d, (0, 0))
+        o_n, o_sum = orders.get(d, (0, 0))
+        out.append({"day": d, "income": income, "expense": expense,
+                    "profit": income - expense, "orders": o_n,
+                    "order_amount": o_sum, "clients": clients.get(d, 0)})
+    return out
 
 
 def service_revenue(business_id, days=30):

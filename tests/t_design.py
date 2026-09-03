@@ -360,6 +360,54 @@ check("лестница поверхностей осталась лестниц
       _alpha("--surface:") < _alpha("--surface-2:") < _alpha("--surface-3:"),
       (_alpha("--surface:"), _alpha("--surface-2:"), _alpha("--surface-3:")))
 
+print("\n== ГЛАВНАЯ: СНАЧАЛА СМЫСЛ, ПОТОМ ДАННЫЕ ==")
+DASH = io.open(WEB / "dashboard.html", encoding="utf-8").read()
+order = ["briefZone", "evidenceZone", "stateZone", "onedoor"]
+pos = [DASH.index('id="%s"' % z) if ('id="%s"' % z) in DASH else DASH.index('class="%s' % z)
+       for z in order]
+check("порядок экрана: брифинг → доказательство → состояние → подробности",
+      pos == sorted(pos), list(zip(order, pos)))
+check("первым блоком идёт ответ, а не число",
+      DASH.index('id="briefHead"') < DASH.index('id="kpi"'))
+check("заголовок брифинга крупнее заголовка страницы",
+      ".brief-head{" in DASH.replace(" ", "") and "clamp(26px,3.4vw,40px)" in DASH.replace(" ", ""))
+
+# Сетки из шести одинаковых плиток больше нет: числа делит воздух и линия.
+check("шесть одинаковых карточек убраны", 'class="v-kpi six"' not in DASH)
+check("числа стоят открытой сеткой", ".figs{" in DASH.replace(" ", ""))
+cards = DASH.count("border-radius:var(--r-lg)") + DASH.count("border-radius:var(--r-xl)")
+check("карточек на главной стало меньше", cards <= 5, cards)
+
+print("\n== ДОКАЗАТЕЛЬСТВО СТРОИТСЯ ИЗ НАСТОЯЩИХ ПОЛЕЙ ==")
+# Цепочка не имеет права выдумывать шаги. Каждый её шаг берётся из поля,
+# которое директор действительно возвращает.
+for field in ("f.source", "f.detail", "f.title", "f.numbers", "f.href"):
+    check(f"шаг цепочки берётся из {field}", field in DASH)
+check("решение привязано к своему факту ключом, а не соседством",
+      "'do_'" in DASH and "r.key.slice(3)" in DASH)
+check("нет решения — шаг не рисуется", "else if (f.href)" in DASH)
+check("цепочка раскрывается разметкой, а не скриптом",
+      "<details class=\"ev\"" in DASH)
+
+print("\n== ГРАФИК — ДОКАЗАТЕЛЬСТВО, А НЕ УКРАШЕНИЕ ==")
+check("ряд запрашивается у сервера, а не рисуется из воздуха",
+      "/api/series" in DASH)
+check("линия молчит, когда движения меньше трёх дней",
+      "vals.filter(v => v).length < 3" in DASH)
+check("у маржи ряда нет намеренно",
+      "SERIES_OF" in DASH and "margin" not in DASH.split("SERIES_OF")[1][:220])
+check("спарклайн скрыт от скринридера: смысл несут число и источник",
+      'class="spark ${tone}" viewBox="0 0 ${w} ${h}" aria-hidden="true"' in DASH)
+check("у каждого числа осталась строка «как посчитано»",
+      'class="src">${esc(m.source)}' in DASH)
+
+print("\n== ОБНОВЛЕНИЕ ВИДНО, НО НЕ МЕШАЕТ ==")
+check("изменившееся число помечается", ".fig .v.moved{" in DASH.replace(" ", "")
+      or ".fig .v.moved{" in DASH)
+check("отметка гаснет сама, а не мигает", "@keyframes moved" in DASH)
+check("состояние обновления названо словом", "обновлено только что" in DASH)
+check("всплывающих окон при обновлении нет", "alert(" not in DASH)
+
 print("\n== ДОКУМЕНТ ==")
 DOC = ROOT / "VELOR_DESIGN_SYSTEM.md"
 check("VELOR_DESIGN_SYSTEM.md существует", DOC.exists())

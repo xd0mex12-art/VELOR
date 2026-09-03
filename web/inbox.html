@@ -249,6 +249,26 @@
      обводки. Раньше здесь стоял глиф из шрифта: он выглядит по-разному
      в каждой системе и не подчиняется токенам. */
   .open svg{ width:16px; height:16px; display:block; }
+  /* Путь материала: одна вертикальная нить, на ней стадии. Не блок-схема и не
+     анимация — список, у которого видно направление. Каждая стадия здесь
+     подтверждена записью в базе; недоказуемых стадий в нём не бывает. */
+  .pipe{ margin-top:var(--sp-5); padding-left:var(--sp-5); position:relative;
+    border-left:1px solid var(--hairline-2); }
+  .pipe-cap{ font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:var(--track-micro); text-transform:uppercase; color:var(--ash);
+    margin-bottom:var(--sp-3); }
+  .pipe-step{ position:relative; padding:var(--sp-2) 0; display:flex;
+    align-items:baseline; gap:var(--sp-3); flex-wrap:wrap; }
+  .pipe-step::before{ content:""; position:absolute; left:calc(var(--sp-5) * -1 - 1px);
+    top:13px; width:11px; height:1px; background:var(--hairline-2); }
+  .pipe-k{ font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:var(--track-micro); text-transform:uppercase; color:var(--lilac);
+    flex:none; min-width:9.5em; }
+  .pipe-v{ flex:1 1 220px; font-size:var(--fs-body); color:var(--silver);
+    font-weight:var(--fw-thin); line-height:1.5; }
+  .pipe-v a{ color:var(--lilac); }
+  .pipe-t{ font-size:var(--fs-caption); color:var(--ash); white-space:nowrap; }
+  @media(max-width:560px){ .pipe-k{ min-width:0; } }
 </style>
 <link rel="stylesheet" href="velor.css?v=13">
 </head>
@@ -1135,6 +1155,24 @@ function waitCard(box, it, attempt){
   }, 900 + attempt * 700);
 }
 
+
+// ── ПУТЬ МАТЕРИАЛА ВНУТРИ VELOR ──
+// Принято → прочитано → понято → записано → повлияло на выводы.
+// Список стадий приходит с сервера и содержит ТОЛЬКО те, у которых есть
+// подтверждение в базе: строка приёма, строка разбора, решение с сущностью,
+// список модулей, помеченных на пересборку. Стадию, которую нечем доказать,
+// сервер не присылает, а фронт не дорисовывает.
+function pipeHTML(steps){
+  if (!steps || steps.length < 2) return '';
+  return '<div class="pipe"><div class="pipe-cap">Что с этим произошло</div>' +
+    steps.map(st => `<div class="pipe-step">
+      <span class="pipe-k">${esc(st.label)}</span>
+      <span class="pipe-v">${esc(st.detail || '')}${
+        st.href ? ` <a href="${esc(st.href)}">Открыть →</a>` : ''}</span>
+      ${st.at ? `<span class="pipe-t">${esc(ago(st.at))}</span>` : ''}
+    </div>`).join('') + '</div>';
+}
+
 async function openItem(id){
   const body = document.getElementById('vBody');
   document.getElementById('vTitle').textContent = 'Загружаю…';
@@ -1173,6 +1211,8 @@ async function openItem(id){
     shell.innerHTML = gotCard(it, res);
     body.innerHTML = '';
     body.appendChild(shell.firstElementChild);
+    const pipe = pipeHTML(got.pipeline);
+    if (pipe) body.insertAdjacentHTML('beforeend', pipe);
     if (got.history && got.history.length)
       body.insertAdjacentHTML('beforeend', storyHTML(got.history));
     wireGot(body, it);

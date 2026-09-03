@@ -294,6 +294,56 @@ check("страницы не пересекаются",
 check("итог считает всё, а не строки страницы", p1["total"] > 5, p1["total"])
 check("новые сверху", p1["items"][0]["id"] > p1["items"][-1]["id"], [i["id"] for i in p1["items"]])
 
+print("\n== ПУТЬ МАТЕРИАЛА: НИ ОДНОЙ НЕДОКАЗАННОЙ СТАДИИ ==")
+# Конвейер разбора — не иллюстрация процесса, а список того, что уже случилось.
+# Стадия появляется только тогда, когда её есть чем подтвердить: строка приёма,
+# строка разбора, решение с сущностью. Нарисовать «понял» там, где разбора не
+# было, — соврать про работу, которой не делали.
+bid2, H2 = reg("inbox_pipe")
+r = c.post("/api/inbox", headers=H2, json={"text": "Поставщик поднял цену на пионы до 240 ₽"})
+pid = r.json()["item"]["id"]
+got = c.get(f"/api/inbox/{pid}", headers=H2).json()
+steps = {st["key"]: st for st in got.get("pipeline", [])}
+check("путь материала отдаётся вместе с записью", bool(got.get("pipeline")))
+check("первая стадия — приём", list(steps)[0] == "received", list(steps))
+check("у приёма назван источник", "источник" in steps["received"]["detail"],
+      steps["received"]["detail"])
+check("пока ничего не записано — стадии «записано» нет", "recorded" not in steps, list(steps))
+check("и стадии «повлияло» тоже нет", "affected" not in steps, list(steps))
+if "read" in steps:
+    check("у прочтения сказано, чем разобрано",
+          "модел" in steps["read"]["detail"] or "правил" in steps["read"]["detail"],
+          steps["read"]["detail"])
+
+# Подтверждаем предложенное действие — и только теперь достраиваются последние
+# две стадии. «Повлияло» берётся из signals.DEPENDENCIES: это настоящий список
+# модулей, которые из-за такой записи считаются заново.
+res = got.get("result") or {}
+acts = res.get("suggested_actions") or []
+if acts:
+    a = acts[0]
+    data = {f["name"]: (f.get("value") or "х") for f in a.get("fields", []) if f.get("required")}
+    done = c.post(f"/api/inbox/{pid}/action", headers=H2,
+                  json={"action": a["action"], "data": data})
+    check("запись подтверждена", done.status_code == 200, done.status_code)
+    steps2 = {st["key"]: st for st in c.get(f"/api/inbox/{pid}", headers=H2).json()["pipeline"]}
+    check("после подтверждения появилась стадия «записано»", "recorded" in steps2, list(steps2))
+    check("и стадия «повлияло на выводы»", "affected" in steps2, list(steps2))
+    if "affected" in steps2:
+        check("названы человеческие имена модулей, а не ключи",
+              "briefing" not in steps2["affected"]["detail"], steps2["affected"]["detail"])
+        check("сказано, что пересчитается",
+              len(steps2["affected"]["detail"]) > 3, steps2["affected"]["detail"])
+    if "recorded" in steps2:
+        check("у записи назван вид, а не внутренний ключ",
+              steps2["recorded"]["detail"] and "_" not in steps2["recorded"]["detail"],
+              steps2["recorded"]["detail"])
+
+# Чужой материал не отдаёт ни разбора, ни пути.
+bid3, H3 = reg("inbox_pipe_alien")
+check("чужой путь не отдаётся", c.get(f"/api/inbox/{pid}", headers=H3).status_code == 404)
+
+
 print("\n== read-only после триала ==")
 database.update_business(bid, trial_start="2020-01-01", trial_end="2020-01-15",
                          subscription_status="expired", trial_used=1)
