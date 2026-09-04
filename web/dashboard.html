@@ -339,7 +339,7 @@
   @media(max-width:600px){ .onedoor .od-row{ flex-direction:column; align-items:stretch; }
     .onedoor .od-row .v-btn{ width:100%; } }
 </style>
-<link rel="stylesheet" href="velor.css?v=17">
+<link rel="stylesheet" href="velor.css?v=18">
 </head>
 <body>
 
@@ -466,8 +466,8 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="velor-field.js?v=17"></script>
-<script src="velor-state.js?v=17"></script>
+<script src="velor-field.js?v=18"></script>
+<script src="velor-state.js?v=18"></script>
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
@@ -1029,6 +1029,23 @@ function fieldState(dir){
   return 'normal';
 }
 
+// Пришёл ли клиент. Не «изменилось ли число», а именно «стало больше»:
+// удаление клиента тоже меняет счётчик, но праздновать там нечего.
+// Сравниваем разобранное число, а не строку показа: «1» и «1 234» приходят
+// уже отформатированными, и на тысячах строковое сравнение врёт.
+function clientsCount(dir){
+  const m = (dir && dir.metrics || []).find(x => x.key === 'clients_new');
+  return m && typeof m.value === 'number' ? m.value : null;
+}
+
+let _prevClients = null;
+function clientArrived(dir){
+  const now = clientsCount(dir);
+  const grew = _prevClients !== null && now !== null && now > _prevClients;
+  _prevClients = now;
+  return grew;
+}
+
 // Новый вывод — это новый набор рекомендаций, а не просто новый опрос.
 // Ключи Директор проставляет сам ("do_" + ключ факта), поэтому сравнение
 // честное: изменился состав выводов, а не порядок строк.
@@ -1080,12 +1097,14 @@ async function load(){
     put('kpi', figsHTML(dir, series), true);
     _prevFigs = nowFigs;
     markFresh(changed);
-    // Поле отвечает на то, что произошло. Новый вывод весомее нового числа,
-    // поэтому при совпадении побеждает он: данные приходят и расходятся,
-    // вывод — сходится к центру.
+    // Поле отвечает на то, что произошло. Порядок старшинства — от самого
+    // конкретного к самому общему: пришёл человек → VELOR сделал вывод →
+    // просто пересчиталось число. Приход клиента впереди намеренно: это
+    // причина, а вывод — следствие, и показывать причину полезнее.
+    const arrived = clientArrived(dir);
     const decided = newDecision(dir);
-    if (window.VELOR_FIELD && (decided || changed))
-      window.VELOR_FIELD.pulse(decided ? 'decision' : 'data');
+    if (window.VELOR_FIELD && (arrived || decided || changed))
+      window.VELOR_FIELD.pulse(arrived ? 'client' : (decided ? 'decision' : 'data'));
   } else {
     put('kpi', kpiHTML(d), true);
   }

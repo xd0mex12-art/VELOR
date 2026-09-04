@@ -13,6 +13,9 @@ import secrets
 import json
 import logging
 import re
+# Модульный импорт вместо трёх локальных: потоки нужны и на уровне модуля
+# (замок на дописывание брифинга), а не только внутри функций.
+import threading
 
 import requests
 
@@ -2761,9 +2764,9 @@ def _briefing_numbers(bid):
             """SELECT SUM(amount) FROM finance_entries WHERE business_id = ?
                  AND kind='expense' AND date(created_at) >= date(?)""", bid, month_start)
         orders_open = one(
-            "SELECT COUNT(*) FROM orders WHERE business_id = ? AND status = 'new'", bid)
+            "SELECT COUNT(*) FROM orders WHERE business_id = ? AND status = 'новый'", bid)
         orders_stale = one(
-            """SELECT COUNT(*) FROM orders WHERE business_id = ? AND status = 'new'
+            """SELECT COUNT(*) FROM orders WHERE business_id = ? AND status = 'новый'
                  AND date(created_at) <= date('now','-3 day')""", bid)
 
     # что требует внимания — считаем кодом, не спрашивая модель
@@ -2820,12 +2823,28 @@ def _briefing_text(n):
     return "\n".join(lines)
 
 
-def _build_briefing(bid, day):
-    """Собрать брифинг за день и сохранить. Модель зовём один раз в сутки."""
+# Кого уже дописываем — чтобы два одновременных запроса не позвали модель дважды.
+_BRIEF_WORDS_RUNNING = set()
+_BRIEF_WORDS_LOCK = threading.Lock()
+
+
+def _build_briefing(bid, day, with_words=True):
+    """
+    Собрать брифинг за день и сохранить.
+
+    Делится на два приёма намеренно. Числа и список «требует внимания»
+    считает код — это мгновенно. Приветствие, строку «сегодня» и совет пишет
+    модель, и это десятки секунд. Пока они собирались в одном вызове внутри
+    запроса, окно брифинга всплывало через минуту после захода — то есть
+    тогда, когда владелец уже ушёл со страницы.
+
+    Поэтому with_words=False отдаёт готовое сразу, а слова дописываются
+    отдельным заходом и подставляются в уже открытое окно.
+    """
     import ai
     numbers = _briefing_numbers(bid)
     words = {}
-    if ai.ai_available():
+    if with_words and ai.ai_available():
         try:
             words = ai.morning_briefing(database.get_business(bid) or {}, _briefing_text(numbers))
         except Exception:
@@ -2839,8 +2858,22 @@ def _build_briefing(bid, day):
     # attention от модели намеренно не берём: список уже точный, а модель добавляет
     # к нему выдуманные числа («третья зависшая заявка») и противоречит сама себе.
     payload.setdefault("greeting", "Доброе утро.")
+    # Признак «слова ещё не пришли»: по нему кабинет знает, что стоит один раз
+    # переспросить и подставить их в открытое окно.
+    payload["words"] = bool(words)
     database.save_briefing(bid, day, json.dumps(payload, ensure_ascii=False))
     return payload
+
+
+def _briefing_words_later(bid, day):
+    """Дописать слова модели к уже отданному брифингу."""
+    try:
+        _build_briefing(bid, day, with_words=True)
+    except Exception:
+        pass
+    finally:
+        with _BRIEF_WORDS_LOCK:
+            _BRIEF_WORDS_RUNNING.discard((bid, day))
 
 
 def _load_briefing(bid, day, force=False):
@@ -2856,8 +2889,22 @@ def _load_briefing(bid, day, force=False):
             pass
     if _ai_locked(bid):
         return None, (row or {}).get("shown_on")   # триал завершён — новый не собираем
-    payload = _build_briefing(bid, day)
+
+    # Отдаём посчитанное немедленно, слова модели дописываем следом. Ждать
+    # модель внутри запроса значит показывать пустой экран, пока она думает.
+    payload = _build_briefing(bid, day, with_words=False)
     signals.settle(bid, "briefing")
+
+    import ai
+    if ai.ai_available():
+        key = (bid, day)
+        with _BRIEF_WORDS_LOCK:
+            start = key not in _BRIEF_WORDS_RUNNING
+            if start:
+                _BRIEF_WORDS_RUNNING.add(key)
+        if start:
+            threading.Thread(target=_briefing_words_later, args=(bid, day),
+                             name="velor-brief-words", daemon=True).start()
     return payload, (row or {}).get("shown_on")
 
 

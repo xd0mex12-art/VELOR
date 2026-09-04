@@ -484,54 +484,52 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 /* ============================================================
    ЖИВОЕ ПОЛЕ — состояние системы, а не обои
    ============================================================
-   Что это. Четыре широкие светящиеся ленты позади содержимого, идущие через
-   весь экран. Они всё время движутся — и движутся ПО-РАЗНОМУ в зависимости от
+   Что это. Одна сплошная светящаяся масса позади содержимого, во весь экран.
+   Она всё время течёт и переливается — и течёт ПО-РАЗНОМУ в зависимости от
    того, что VELOR знает о бизнесе. Поле не изображает данные: ни точек, ни
    линий, ни сетей, ни «нейронов». Оно показывает состояние — то же самое,
    которое словами написано в брифинге.
 
-   Почему ленты, а не пятна. Первые две редакции были мягкими круглыми
-   объёмами, и их движение не читалось совсем — ни на 2 px/с, ни на 28.
-   Причина не в скорости: у диффузного пятна нет края, а глаз замечает
-   движение по краю. Двигать нечего — значит, ничего и не движется, сколько
-   ни прибавляй. У ленты край есть: тугой градиент даёт видимую кромку,
-   которая проходит мимо неподвижного текста. Плюс поворот — самое заметное
-   из преобразований для вытянутой формы.
+   Три редакции, и каждая учила своему.
+   Первая — мягкие пятна, ход 2 px/с: движения не видно.
+   Вторая — те же пятна вчетверо быстрее: движения по-прежнему не видно.
+     У диффузного пятна нет края, а глаз ловит движение по краю. Ускорять
+     бескрайнее пятно можно бесконечно и без результата.
+   Третья — ленты с тугой кромкой: движение стало видно, но кромка выдала
+     форму, и поле начало читаться как полосы и пятна, то есть как рисунок,
+     а не как среда.
 
-   Почему CSS, а не canvas/WebGL. Ленты — это градиенты, которые двигает
-   матрица слоя. Композитор браузера делает это бесплатно: ни кадра на главном
-   потоке, ни перерисовки пикселей, ни библиотеки, ни бесконечного
-   requestAnimationFrame. WebGL дал бы ту же картинку дороже.
+   Отсюда нынешнее решение. Край для движения не обязателен — достаточно
+   ГРАНИЦЫ, а границей может быть не только контур, но и смена цвета. Пять
+   больших долей разного оттенка перекрываются так плотно, что ни одну нельзя
+   выделить глазом: контуров нет, масса сплошная. Зато там, где доли находят
+   друг на друга, цвет меняется — и эти цветовые границы ездят по экрану.
+   Движение видно, формы нет.
 
-   Как устроен слой — четыре вложенных элемента, и это принципиально:
-     .vf-l   — снос по осям,   свой период
-     .vf-t   — поворот,        свой период
-     .vf-s   — толщина ленты,  свой период
-     > i     — СОСТОЯНИЕ, через transition 1.8 с
-   Разделение по элементам позволяет каждому преобразованию идти в СВОЁМ
-   ритме — иначе три движения слились бы в одно и снова читались как цикл.
-   А состояние отделено от движения, чтобы переход втекал в идущий дрейф,
-   а не дёргал его.
+   Перелив. У каждой доли своя медленная волна прозрачности. Пока ирисовая
+   гаснет, а лиловая набирает, участок экрана уходит из фиолетового в розовый
+   и обратно. Это и есть «переливается»: не смена картинки, а дыхание оттенка.
 
-   Почему периоды простые. 23 / 29 / 31 / 37 / 41 / 43 / 47 / 53 / 59 / 61 /
-   67 — все простые, поэтому ни у одной пары нет общего делителя, и общий
-   период всей картины исчисляется годами. Это и есть «хаотично»: не
-   случайность (её в CSS нет и она не нужна), а движение, которое никогда
-   не повторяет само себя.
+   Почему CSS. Всё это — градиенты, которые двигает матрица слоя, и прозрачность.
+   Композитор браузера делает и то и другое бесплатно: ни кадра на главном
+   потоке, ни перерисовки пикселей, ни библиотеки, ни requestAnimationFrame.
 
-   Бюджет заметности — контраст, а не вкус. Считается не «сумма альф», а
-   настоящий максимум: сеткой по экрану, по всем фазам всех трёх периодов.
-   Под самой яркой точкой поля основной текст держит запас к норме, тихий —
-   у самой границы. Проверка живёт в tests/t_design.py и падает от любой
-   прибавки яркости.
+   Как устроена доля — три вложенных элемента, у каждого свой период:
+     .vf-l   — течение по осям
+     .vf-t   — размер доли
+     .vf-o   — волна прозрачности (перелив)
+       > i   — СОСТОЯНИЕ, через transition 1.8 с
+   Собрать их в один элемент нельзя: три движения слились бы в одно и снова
+   читались бы как цикл. Периоды — пятнадцать разных простых чисел, поэтому
+   у пары нет общего делителя и картина не повторяется годами. Это и есть
+   «хаотично»: не случайность (её в CSS нет и она не нужна), а движение,
+   которое никогда не повторяет само себя.
    ============================================================ */
 .v-field{
   position:fixed; inset:0; z-index:0; pointer-events:none;
   overflow:hidden;
-  /* layout/paint/style, но НЕ size: размер поля задан inset:0, и size-containment
-     здесь ничего не экономит, зато превращает элемент в ловушку при правках. */
   contain:layout paint style;
-  /* Общая яркость поля считается из двух независимых множителей:
+  /* Общая яркость поля — произведение двух независимых множителей:
      --vf-level  — что происходит с бизнесом (состояние),
      --vf-mob    — сколько поля уместно на этом экране.
      Разделение не косметическое: состояние задаётся селектором с атрибутом и
@@ -541,130 +539,162 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
   --vf-gain:calc(var(--vf-level) * var(--vf-mob));
 }
 .v-field .vf-l{ position:absolute; display:block; }
-.v-field .vf-t, .v-field .vf-s{ position:absolute; inset:0; display:block; }
-/* Внутренний элемент несёт состояние: концентрацию, наклон и яркость.
-   Всё, что меняется при смене состояния, меняется здесь и только плавно. */
-.v-field .vf-s > *{ position:absolute; inset:0; display:block;
+.v-field .vf-t, .v-field .vf-o{ position:absolute; inset:0; display:block; }
+/* Внутренний элемент несёт состояние. Всё, что меняется при смене состояния,
+   меняется здесь и только плавно — иначе переход дёргал бы идущее течение. */
+.v-field .vf-o > *{ position:absolute; inset:0; display:block;
   transition:opacity 1.8s var(--ease), transform 1.8s var(--ease); }
-.v-field .vf-s > i{ opacity:var(--vf-gain); }
+.v-field .vf-o > i{ opacity:var(--vf-gain); }
 /* Смысловая примесь: поднимается только настоящим выводом Директора. */
-.v-field .vf-s > u{ opacity:0; transition-duration:2.2s; }
+.v-field .vf-o > u{ opacity:0; transition-duration:2.2s; }
 
-/* — геометрия лент —
-   Каждая шире экрана и невысока: получается полоса, идущая насквозь. Четыре
-   штуки разложены по всей высоте, поэтому поле живёт не только под брифингом,
-   а по всему экрану. */
-.vf-l1{ left:-42vw; top:-20vh; width:186vw; height:62vh; }
-.vf-l2{ left:-30vw; top: 10vh; width:172vw; height:48vh; }
-.vf-l3{ left:-38vw; top: 38vh; width:180vw; height:54vh; }
-.vf-l4{ left:-26vw; top: 66vh; width:168vw; height:52vh; }
+/* — доли —
+   Каждая закрывает большую часть экрана, и все они лежат друг на друге:
+   отдельную долю выделить нельзя, видна одна сплошная масса. */
+.vf-l1{ left:-25vw; top:-30vh; width:120vw; height:115vh; }
+.vf-l2{ left: 10vw; top:-20vh; width:110vw; height:105vh; }
+.vf-l3{ left:-30vw; top:  5vh; width:115vw; height:110vh; }
+.vf-l4{ left: -5vw; top: 15vh; width:125vw; height:100vh; }
+.vf-l5{ left: 20vw; top:-10vh; width:105vw; height:120vh; }
 
-/* — цвет и кромка —
-   Тугая первая остановка (16-20%) — это и есть край ленты: за ним яркость
-   падает втрое, и кромку видно. У прежних пятен первая остановка стояла на
-   34-46%, отчего форма расплывалась в ровную дымку без границ. */
-.vf-l1 > .vf-t > .vf-s > i{ background:radial-gradient(closest-side,
-  rgba(128,82,255,.30) 0%, rgba(128,82,255,.145) 18%,
-  rgba(96,64,196,.035) 52%, rgba(128,82,255,0) 100%); }
-.vf-l2 > .vf-t > .vf-s > i{ background:radial-gradient(closest-side,
-  rgba(179,166,255,.26) 0%, rgba(146,104,255,.115) 20%,
-  rgba(120,80,240,.028) 55%, rgba(128,82,255,0) 100%); }
-.vf-l3 > .vf-t > .vf-s > i{ background:radial-gradient(closest-side,
-  rgba(128,82,255,.27) 0%, rgba(146,104,255,.12) 17%,
-  rgba(96,64,196,.03) 50%, rgba(128,82,255,0) 100%); }
-.vf-l4 > .vf-t > .vf-s > i{ background:radial-gradient(closest-side,
-  rgba(190,178,255,.21) 0%, rgba(150,140,220,.09) 19%,
-  rgba(128,82,255,.022) 52%, rgba(179,166,255,0) 100%); }
+/* — цвет: оттенки расходятся, чтобы на пересечениях был виден перелив —
+   Мягкая, широкая растяжка: край доли не должен читаться, иначе масса снова
+   распадётся на пятна. Границу здесь держит не контур, а смена оттенка. */
+.vf-l1 > .vf-t > .vf-o > i{ background:radial-gradient(closest-side,
+  rgba(128,82,255,.25) 0%, rgba(128,82,255,.123) 40%,
+  rgba(128,82,255,.025) 76%, rgba(128,82,255,0) 100%); }
+.vf-l2 > .vf-t > .vf-o > i{ background:radial-gradient(closest-side,
+  rgba(179,166,255,.215) 0%, rgba(179,166,255,.098) 42%,
+  rgba(179,166,255,.02) 78%, rgba(179,166,255,0) 100%); }
+.vf-l3 > .vf-t > .vf-o > i{ background:radial-gradient(closest-side,
+  rgba(86,58,190,.25) 0%, rgba(86,58,190,.115) 44%,
+  rgba(86,58,190,.025) 76%, rgba(86,58,190,0) 100%); }
+/* Магента — фирменный цвет VELOR, здесь она даёт розовый край перелива.
+   Доля намеренно самая тихая: магента громкая, и в полную силу она
+   превратила бы поле в неон. */
+.vf-l4 > .vf-t > .vf-o > i{ background:radial-gradient(closest-side,
+  rgba(255,79,216,.105) 0%, rgba(255,79,216,.045) 40%,
+  rgba(255,79,216,.01) 74%, rgba(255,79,216,0) 100%); }
+.vf-l5 > .vf-t > .vf-o > i{ background:radial-gradient(closest-side,
+  rgba(96,110,255,.18) 0%, rgba(96,110,255,.082) 42%,
+  rgba(96,110,255,.016) 76%, rgba(96,110,255,0) 100%); }
 
 /* Примеси риска и возможности. Цвета те же, что в языке продукта:
    коралл — риск, бирюза — получилось. Ни один не включается сам по себе:
    их поднимает только настоящий вывод Директора. */
-.v-field .vf-s > u.risk{ background:radial-gradient(closest-side,
-  rgba(255,107,107,.19) 0%, rgba(255,107,107,.075) 20%, rgba(255,107,107,0) 100%); }
-.v-field .vf-s > u.opp{ background:radial-gradient(closest-side,
-  rgba(47,212,178,.155) 0%, rgba(47,212,178,.06) 20%, rgba(47,212,178,0) 100%); }
+.v-field .vf-o > u.risk{ background:radial-gradient(closest-side,
+  rgba(255,107,107,.20) 0%, rgba(255,107,107,.085) 42%, rgba(255,107,107,0) 100%); }
+.v-field .vf-o > u.opp{ background:radial-gradient(closest-side,
+  rgba(47,212,178,.17) 0%, rgba(47,212,178,.07) 42%, rgba(47,212,178,0) 100%); }
 
-/* — движение: три независимых ритма на слой —
-   Снос идёт больше по вертикали, чем по горизонтали: лента, проходящая мимо
-   неподвижного текста сверху вниз, читается однозначно. Поворот — самое
-   заметное преобразование для вытянутой формы. Толщина (scaleY) даёт то
-   самое «дыхание» сияния. */
-.vf-l1{ animation:vf-move1 43s ease-in-out -11s infinite; }
-.vf-l2{ animation:vf-move2 31s ease-in-out -19s infinite; }
-.vf-l3{ animation:vf-move3 59s ease-in-out  -7s infinite; }
-.vf-l4{ animation:vf-move4 23s ease-in-out -13s infinite; }
+/* — три независимых ритма на долю —
+   Течение, размер и волна прозрачности. Перелив живёт в третьем: пока одна
+   доля гаснет, соседняя набирает, и участок экрана меняет оттенок. */
+.vf-l1{ animation:vf-flow1 43s ease-in-out -11s infinite; }
+.vf-l2{ animation:vf-flow2 31s ease-in-out -19s infinite; }
+.vf-l3{ animation:vf-flow3 59s ease-in-out  -7s infinite; }
+.vf-l4{ animation:vf-flow4 23s ease-in-out -13s infinite; }
+.vf-l5{ animation:vf-flow5 37s ease-in-out -29s infinite; }
 
-.vf-l1 > .vf-t{ animation:vf-turn1 61s ease-in-out  -5s infinite; }
-.vf-l2 > .vf-t{ animation:vf-turn2 47s ease-in-out -23s infinite; }
-.vf-l3 > .vf-t{ animation:vf-turn3 29s ease-in-out -17s infinite; }
-.vf-l4 > .vf-t{ animation:vf-turn4 67s ease-in-out -31s infinite; }
+.vf-l1 > .vf-t{ animation:vf-size1 61s ease-in-out  -5s infinite; }
+.vf-l2 > .vf-t{ animation:vf-size2 47s ease-in-out -23s infinite; }
+.vf-l3 > .vf-t{ animation:vf-size3 29s ease-in-out -17s infinite; }
+.vf-l4 > .vf-t{ animation:vf-size4 67s ease-in-out -31s infinite; }
+.vf-l5 > .vf-t{ animation:vf-size5 53s ease-in-out -41s infinite; }
 
-.vf-l1 > .vf-t > .vf-s{ animation:vf-swell1 37s ease-in-out  -3s infinite; }
-.vf-l2 > .vf-t > .vf-s{ animation:vf-swell2 53s ease-in-out -29s infinite; }
-.vf-l3 > .vf-t > .vf-s{ animation:vf-swell3 41s ease-in-out -13s infinite; }
-.vf-l4 > .vf-t > .vf-s{ animation:vf-swell4 71s ease-in-out  -7s infinite; }
+.vf-l1 > .vf-t > .vf-o{ animation:vf-glow1 19s ease-in-out  -3s infinite; }
+.vf-l2 > .vf-t > .vf-o{ animation:vf-glow2 41s ease-in-out -13s infinite; }
+.vf-l3 > .vf-t > .vf-o{ animation:vf-glow3 71s ease-in-out -37s infinite; }
+.vf-l4 > .vf-t > .vf-o{ animation:vf-glow4 17s ease-in-out  -8s infinite; }
+.vf-l5 > .vf-t > .vf-o{ animation:vf-glow5 73s ease-in-out -47s infinite; }
 
-@keyframes vf-move1{ 0%,100%{ transform:translate3d(-7vw,-9vh,0); }
-                     50%    { transform:translate3d( 7vw, 9vh,0); } }
-@keyframes vf-move2{ 0%,100%{ transform:translate3d( 9vw, 8vh,0); }
-                     50%    { transform:translate3d(-9vw,-8vh,0); } }
-@keyframes vf-move3{ 0%,100%{ transform:translate3d(-6vw, 10vh,0); }
-                     50%    { transform:translate3d( 8vw,-10vh,0); } }
-@keyframes vf-move4{ 0%,100%{ transform:translate3d( 5vw,-7vh,0); }
-                     50%    { transform:translate3d(-8vw, 7vh,0); } }
+@keyframes vf-flow1{ 0%,100%{ transform:translate3d(-9vw,-7vh,0); } 50%{ transform:translate3d( 9vw, 8vh,0); } }
+@keyframes vf-flow2{ 0%,100%{ transform:translate3d(10vw, 6vh,0); }  50%{ transform:translate3d(-10vw,-9vh,0); } }
+@keyframes vf-flow3{ 0%,100%{ transform:translate3d(-8vw, 9vh,0); }  50%{ transform:translate3d(11vw,-7vh,0); } }
+@keyframes vf-flow4{ 0%,100%{ transform:translate3d(12vw,-8vh,0); }  50%{ transform:translate3d(-9vw, 10vh,0); } }
+@keyframes vf-flow5{ 0%,100%{ transform:translate3d(-11vw,-6vh,0); } 50%{ transform:translate3d( 8vw, 11vh,0); } }
 
-@keyframes vf-turn1{ 0%,100%{ transform:rotate(-7deg); } 50%{ transform:rotate(5deg); } }
-@keyframes vf-turn2{ 0%,100%{ transform:rotate(6deg); }  50%{ transform:rotate(-8deg); } }
-@keyframes vf-turn3{ 0%,100%{ transform:rotate(-5deg); } 50%{ transform:rotate(7deg); } }
-@keyframes vf-turn4{ 0%,100%{ transform:rotate(8deg); }  50%{ transform:rotate(-6deg); } }
+@keyframes vf-size1{ 0%,100%{ transform:scale(.86,1.10); } 50%{ transform:scale(1.14,.90); } }
+@keyframes vf-size2{ 0%,100%{ transform:scale(1.12,.88); } 50%{ transform:scale(.88,1.16); } }
+@keyframes vf-size3{ 0%,100%{ transform:scale(.90,1.14); } 50%{ transform:scale(1.16,.86); } }
+@keyframes vf-size4{ 0%,100%{ transform:scale(1.08,.92); } 50%{ transform:scale(.84,1.18); } }
+@keyframes vf-size5{ 0%,100%{ transform:scale(.92,1.06); } 50%{ transform:scale(1.18,.88); } }
 
-@keyframes vf-swell1{ 0%,100%{ transform:scale(1.06,.78); } 50%{ transform:scale(.92,1.28); } }
-@keyframes vf-swell2{ 0%,100%{ transform:scale(.94,1.22); } 50%{ transform:scale(1.08,.82); } }
-@keyframes vf-swell3{ 0%,100%{ transform:scale(1.02,.84); } 50%{ transform:scale(.9,1.24); } }
-@keyframes vf-swell4{ 0%,100%{ transform:scale(.96,1.18); } 50%{ transform:scale(1.1,.8); } }
+/* Волна прозрачности — сам перелив. Глубина взята большой намеренно: мелкое
+   колебание даёт «мерцание», а не смену оттенка. */
+@keyframes vf-glow1{ 0%,100%{ opacity:1; }   50%{ opacity:.34; } }
+@keyframes vf-glow2{ 0%,100%{ opacity:.20; } 50%{ opacity:.72; } }
+@keyframes vf-glow3{ 0%,100%{ opacity:.84; } 50%{ opacity:.26; } }
+@keyframes vf-glow4{ 0%,100%{ opacity:.30; } 50%{ opacity:1; } }
+@keyframes vf-glow5{ 0%,100%{ opacity:.62; } 50%{ opacity:.10; } }
 
 /* ── СОСТОЯНИЯ ──
-   Каждое отличается прежде всего ФОРМОЙ поля, а не оттенком: разредилось,
-   стянулось, потянулось. Цветная примесь идёт вторым слоем поверх формы —
-   так состояние читается и на монохромном экране, и при дальтонизме. */
+   Каждое отличается прежде всего ФОРМОЙ массы, а не оттенком: разрежена,
+   стянута, вытянута. Цветная примесь идёт вторым слоем поверх формы — так
+   состояние читается и на монохромном экране, и при дальтонизме. */
 
-/* ЖДУ ДАННЫХ — Директор не собрался: считать нечего. Ленты растянуты и
-   разрежены. Это не «выключено»: глубина остаётся, обещания нет. */
+/* ЖДУ ДАННЫХ — Директор не собрался: считать нечего. Масса растянута и
+   разрежена. Это не «выключено»: глубина остаётся, обещания нет. */
 .v-field[data-field="waiting"]{ --vf-level:.44; }
-.v-field[data-field="waiting"] .vf-s > *{ transform:scale(1.2,.7); }
+.v-field[data-field="waiting"] .vf-o > *{ transform:scale(1.22); }
 
 /* НОРМА — базовое состояние, задано выше. Ничего добавлять не нужно. */
 
-/* РИСК — ленты стягиваются и уплотняются: появляется концентрация, кадр
+/* РИСК — масса стягивается и уплотняется: появляется концентрация, кадр
    делается плотнее и напряжённее. Плюс медленное сжатие — движение
    ускоряется, но не мигает и не краснеет целиком. */
 .v-field[data-field="risk"]{ --vf-level:1.06; }
-.v-field[data-field="risk"] .vf-s > *{ transform:scale(.72,1.16); }
-.v-field[data-field="risk"] .vf-l2 > .vf-t > .vf-s > *{
+.v-field[data-field="risk"] .vf-o > *{ transform:scale(.74); }
+.v-field[data-field="risk"] .vf-l3 > .vf-t > .vf-o > *{
   animation:vf-tense 8.5s ease-in-out infinite; }
-.v-field[data-field="risk"] .vf-s > u.risk{ opacity:1; }
-@keyframes vf-tense{ 0%,100%{ transform:scale(.72,1.16); } 50%{ transform:scale(.8,1.3); } }
+.v-field[data-field="risk"] .vf-o > u.risk{ opacity:1; }
+@keyframes vf-tense{ 0%,100%{ transform:scale(.74); } 50%{ transform:scale(.84); } }
 
-/* ВОЗМОЖНОСТЬ — поле становится направленным: ленты тянутся к одной стороне
-   и вытягиваются. Ощущение движения к чему-то, а не тревоги. */
+/* ВОЗМОЖНОСТЬ — масса становится направленной: тянется к одной стороне и
+   вытягивается. Ощущение движения к чему-то, а не тревоги. */
 .v-field[data-field="opportunity"]{ --vf-level:1.04; }
-.v-field[data-field="opportunity"] .vf-s > *{ transform:translateX(-7%) scale(1.14,.9); }
-.v-field[data-field="opportunity"] .vf-l3 > .vf-t > .vf-s > *{
+.v-field[data-field="opportunity"] .vf-o > *{ transform:translateX(-8%) scale(1.16,.92); }
+.v-field[data-field="opportunity"] .vf-l2 > .vf-t > .vf-o > *{
   animation:vf-lean 11s ease-in-out infinite; }
-.v-field[data-field="opportunity"] .vf-s > u.opp{ opacity:1; }
-@keyframes vf-lean{ 0%,100%{ transform:translateX(-7%) scale(1.14,.9); }
-                    50%    { transform:translateX(-12%) scale(1.24,.98); } }
+.v-field[data-field="opportunity"] .vf-o > u.opp{ opacity:1; }
+@keyframes vf-lean{ 0%,100%{ transform:translateX(-8%) scale(1.16,.92); }
+                    50%    { transform:translateX(-13%) scale(1.26,1.0); } }
 
 /* ── СОБЫТИЯ ──
    Разовый ответ поля на то, что действительно произошло. Ни одно из них не
-   запускается таймером: их поднимает изменившееся число, новый вывод или
-   раскрытая цепочка. */
-.vf-pulse{ position:absolute; left:46%; top:40vh;
-  width:min(170vw,1900px); height:min(120vh,1000px);
+   запускается таймером: их поднимает новый клиент, изменившееся число, новый
+   вывод или раскрытая цепочка. */
+.vf-pulse{ position:absolute; left:50%; top:42vh;
+  width:min(180vw,2000px); height:min(130vh,1100px);
   transform:translate(-50%,-50%) scale(.5); opacity:0; }
-.vf-pulse > i{ position:absolute; inset:0; display:block;
-  background:radial-gradient(closest-side,
+.vf-pulse > *{ position:absolute; inset:0; display:block; opacity:0; }
+.vf-pulse > i{ opacity:1; background:radial-gradient(closest-side,
   rgba(179,166,255,.24) 0%, rgba(128,82,255,.08) 45%, rgba(128,82,255,0) 100%); }
+/* Приход клиента — единственное событие со своим цветом. Бирюза в языке
+   продукта значит «получилось», и новый человек в базе — ровно это.
+
+   Кольцо, а не заливка, и на то две причины. Первая: движущаяся кромка
+   читается как движение, а ровное пятно — как вспышка; тот же урок, что и с
+   самим полем. Вторая — арифметика. Сплошная бирюзовая заливка в .40 поверх
+   массы даёт композит светлее 0.14 по яркости, и мелкие подписи проседают до
+   2.3:1 на всю волну. У кольца ярка только полоса: любая строка оказывается
+   под ней доли секунды, пока волна проходит мимо. Крупный текст — заголовок и
+   числа — держит 5:1 даже под самой полосой. */
+.vf-pulse > u.ok{ background:radial-gradient(closest-side,
+  rgba(47,212,178,0) 0%, rgba(47,212,178,.05) 46%,
+  rgba(47,212,178,.42) 74%, rgba(47,212,178,.12) 90%,
+  rgba(47,212,178,0) 100%); }
+.v-field[data-pulse="client"] .vf-pulse > i{ opacity:0; }
+.v-field[data-pulse="client"] .vf-pulse > u.ok{ opacity:1; }
+
+/* ПРИШЁЛ КЛИЕНТ — зелёное кольцо расходится от центра и уходит за край.
+   Самое заметное из событий и единственное цветное: у бизнеса появился
+   человек, и это стоит того, чтобы поднять глаза. */
+.v-field[data-pulse="client"] .vf-pulse{ animation:vf-arrive 2.6s var(--ease); }
+@keyframes vf-arrive{ 0%{ opacity:0; transform:translate(-50%,-50%) scale(.22); }
+                     12%{ opacity:1; }
+                     55%{ opacity:1; }
+                    100%{ opacity:0; transform:translate(-50%,-50%) scale(1.55); } }
 
 /* Пришли новые данные — сквозь поле проходит волна и уходит наружу.
    Ни всплывающего окна, ни вспышки: изменение чувствуется, а не бьёт. */
@@ -682,39 +712,38 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
                       100%{ opacity:0; transform:translate(-50%,-50%) scale(.72); } }
 
 /* Раскрыта цепочка доказательства — короткая мягкая концентрация: VELOR
-   показал ход рассуждения. Самое тихое из трёх событий: человек в этот момент
+   показал ход рассуждения. Самое тихое из событий: человек в этот момент
    читает, и отвлекать его нельзя. */
 .v-field[data-pulse="focus"] .vf-pulse{ animation:vf-focus 1.7s var(--ease); }
 @keyframes vf-focus{ 0%{ opacity:0; transform:translate(-50%,-50%) scale(1.05); }
                     40%{ opacity:.55; transform:translate(-50%,-50%) scale(.9); }
                    100%{ opacity:0; transform:translate(-50%,-50%) scale(.95); } }
 
-/* Узкий экран: одна лента снята, пик приглушён. Четыре полосы на 375px
-   перекрывают друг друга целиком и дают не глубину, а мутное пятно. */
+/* Узкий экран: две доли сняты, пик приглушён. Пять слоёв на 375px
+   перекрываются целиком и дают не глубину, а мутное пятно. */
 @media(max-width:700px){
-  .v-field{ --vf-mob:.6; }
+  .v-field{ --vf-mob:.62; }
   /* Селектор с двумя классами — ровно как у базового `.v-field .vf-l`,
      иначе «display:block» из базы перевесил бы. */
-  .v-field .vf-l4{ display:none; }
-  .vf-l1{ left:-60vw; width:220vw; }
-  .vf-l2{ left:-55vw; width:210vw; }
-  .vf-l3{ left:-58vw; width:216vw; }
+  .v-field .vf-l4, .v-field .vf-l5{ display:none; }
 }
 
-/* Меньше движения — не значит «плоско». Дрейф, поворот и события
-   выключаются, ленты остаются на своих местах: глубина кадра и разница между
+/* Меньше движения — не значит «плоско». Течение, размер и перелив
+   выключаются, доли остаются на местах: глубина кадра и разница между
    состояниями (разрежено / стянуто / направлено) сохраняются полностью,
    потому что заданы состоянием, а не анимацией. */
 @media(prefers-reduced-motion: reduce){
-  .v-field .vf-l, .v-field .vf-t, .v-field .vf-s,
-  .v-field .vf-s > *, .vf-pulse{ animation:none !important; }
+  .v-field .vf-l, .v-field .vf-t, .v-field .vf-o,
+  .v-field .vf-o > *, .vf-pulse{ animation:none !important; }
   .vf-pulse{ opacity:0 !important; }
-  /* Без анимации ленты легли бы строго горизонтально и одна на другую —
-     раздаём им статичный наклон, чтобы кадр остался кадром. */
-  .vf-l1 > .vf-t{ transform:rotate(-6deg); }
-  .vf-l2 > .vf-t{ transform:rotate(4deg); }
-  .vf-l3 > .vf-t{ transform:rotate(-3deg); }
-  .vf-l4 > .vf-t{ transform:rotate(5deg); }
+  /* Без волны прозрачности все доли светили бы в полную силу и перекрыли
+     друг друга — раздаём статичные веса, чтобы перелив остался хотя бы
+     как разнооттеночность кадра. */
+  .vf-l1 > .vf-t > .vf-o{ opacity:.9; }
+  .vf-l2 > .vf-t > .vf-o{ opacity:.55; }
+  .vf-l3 > .vf-t > .vf-o{ opacity:.8; }
+  .vf-l4 > .vf-t > .vf-o{ opacity:.7; }
+  .vf-l5 > .vf-t > .vf-o{ opacity:.5; }
 }
 
 /* Содержимое всегда выше поля. main это уже задаёт выше по файлу; подвал

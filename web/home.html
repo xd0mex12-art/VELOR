@@ -146,7 +146,7 @@
     .facts, .h-notes{ grid-template-columns:1fr; }
     .ring{ width:124px; height:124px; } .ring .num{ font-size:var(--fs-display); } }
 </style>
-<link rel="stylesheet" href="velor.css?v=17">
+<link rel="stylesheet" href="velor.css?v=18">
 </head>
 <body>
 
@@ -253,8 +253,8 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="velor-field.js?v=17"></script>
-<script src="velor-state.js?v=17"></script>
+<script src="velor-field.js?v=18"></script>
+<script src="velor-state.js?v=18"></script>
 <script>
 let toastT;
 function toast(msg){
@@ -289,6 +289,30 @@ function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<'
   document.getElementById('bAdvice').textContent = p.advice || '';
 
   document.getElementById('briefModal').classList.add('on');
+
+  // Слова модели могли не успеть к первому ответу. Тогда переспрашиваем пару
+  // раз и подставляем их в уже открытое окно — тихо, без подмены чисел и без
+  // индикатора: числа на месте с первой секунды, слова приходят к ним.
+  if (!p.words){
+    const modal = document.getElementById('briefModal');
+    let tries = 0;
+    const fill = async () => {
+      if (++tries > 6 || !modal.classList.contains('on')) return;
+      try{
+        const r = await (await fetch('/api/briefing')).json();
+        const q = r.payload || {};
+        if (q.words){
+          if (q.greeting) document.getElementById('bGreet').textContent = q.greeting;
+          if (q.today)    document.getElementById('bToday').textContent = q.today;
+          if (q.advice)   document.getElementById('bAdvice').textContent = q.advice;
+          return;
+        }
+      }catch{ /* нет связи — просто останемся с числами */ }
+      setTimeout(fill, 6000);
+    };
+    setTimeout(fill, 5000);
+  }
+
   document.getElementById('bOk').addEventListener('click', () => {
     document.getElementById('briefModal').classList.remove('on');
     localStorage.setItem('velor_brief_seen', today);

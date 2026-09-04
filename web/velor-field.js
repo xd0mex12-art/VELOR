@@ -12,6 +12,8 @@
 //
 // И три события — разовый ответ на то, что действительно произошло:
 //
+//   pulse('client')   — в базе появился новый клиент. Единственное цветное:
+//                       бирюза значит «получилось», и новый человек — ровно это.
 //   pulse('data')     — число пересчиталось и стало другим.
 //   pulse('decision') — появился вывод, которого в прошлом опросе не было.
 //   pulse('focus')    — человек раскрыл цепочку доказательства.
@@ -28,7 +30,7 @@
 (function () {
   var KEY = 'velor_field_state';
   var STATES = { waiting: 1, normal: 1, risk: 1, opportunity: 1 };
-  var PULSES = { data: 1, decision: 1, focus: 1 };
+  var PULSES = { client: 1, data: 1, decision: 1, focus: 1 };
   var el = null, pulseT = 0;
 
   function build() {
@@ -45,13 +47,16 @@
     // Четыре вложенных элемента на ленту — снос, поворот, толщина, состояние.
     // Каждое преобразование идёт в своём ритме; собрать их в один элемент
     // нельзя — они бы слились в одну анимацию и снова читались как цикл.
-    var band = function (n) {
-      return '<span class="vf-l vf-l' + n + '"><span class="vf-t"><span class="vf-s">' +
+    // Три вложенных элемента на долю — течение, размер, волна прозрачности.
+    // Каждое движение идёт в своём ритме; собрать их в один элемент нельзя,
+    // они слились бы в одну анимацию и снова читались как цикл.
+    var lobe = function (n) {
+      return '<span class="vf-l vf-l' + n + '"><span class="vf-t"><span class="vf-o">' +
              '<i></i><u class="risk"></u><u class="opp"></u>' +
              '</span></span></span>';
     };
-    el.innerHTML = band(1) + band(2) + band(3) + band(4) +
-      '<span class="vf-pulse"><i></i></span>';
+    el.innerHTML = lobe(1) + lobe(2) + lobe(3) + lobe(4) + lobe(5) +
+      '<span class="vf-pulse"><i></i><u class="ok"></u></span>';
     document.body.insertBefore(el, document.body.firstChild);
     return el;
   }
