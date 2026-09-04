@@ -29,6 +29,7 @@ MIN_ENTRIES_CATEGORY = 2  # у категории окно короче, но о
 MIN_BASE_MONEY = 1000     # рост с 300 до 600 ₽ — не событие, а шум
 MIN_DAYS_FOR_TREND = 14   # сравнивать периоды у бизнеса младше двух недель нечестно
 CHANGE_NOTABLE = 10       # % — с этого начинается «что изменилось»
+MIN_BASE_FOR_PCT = 5      # ниже этой базы процент врёт: 1 → 0 это не «−100%»
 CHANGE_CATEGORY = 30      # % — с этого начинается разговор про категорию
 DEPEND_CLIENT = 40        # % заказов у одного клиента — уже зависимость
 DEPEND_SOURCE = 60        # % выручки из одного источника
@@ -36,6 +37,9 @@ PAYROLL_HEAVY = 50        # % расходов, уходящих людям
 SLEEP_DAYS = 30           # сколько дней молчания делает клиента спящим
 
 NOT_ENOUGH = "Недостаточно данных для вывода."
+# Значение, которого нет. В слоте числа стоит знак, а не фраза: объяснение
+# живёт строкой ниже и не обязано повторяться в каждой ячейке.
+NO_VALUE = "—"
 
 
 def _money(n):
@@ -57,6 +61,17 @@ def _plural(n, one, few, many):
 
 def _ops(n):
     return f"{_num(n)} {_plural(n, 'операция', 'операции', 'операций')}"
+
+
+def _pct_ok(was):
+    """Можно ли вообще говорить процентами.
+
+    Процент — это отношение, и на маленькой базе он теряет смысл: переход
+    с одной заявки на ноль честнее назвать «был 1, стало 0», чем «−100%».
+    Порог не эстетический: под ним одна единица меняет показатель на десятки
+    процентов, и владелец принимает решение по шуму.
+    """
+    return (was or 0) >= MIN_BASE_FOR_PCT
 
 
 def _pct(now, was):
@@ -82,7 +97,7 @@ def _fact(title, detail, source, *, level="info", href="", numbers=None, key="")
 def _metric(key, label, value, unit, source, *, href="", delta=None,
             good_up=True, gap="", hint=""):
     return {"key": key, "label": label, "value": value, "unit": unit,
-            "display": (NOT_ENOUGH if value is None else
+            "display": (NO_VALUE if value is None else
                         (_money(value) if unit == "₽" else
                          (f"{value}%" if unit == "%" else _num(value)))),
             "delta": delta, "good_up": good_up, "source": source,
@@ -102,9 +117,9 @@ def _briefing_metrics(bid, days, now, prev, orders_now, orders_prev,
     period = f"за {days} дн."
 
     income_src = (f"Сумма доходов {period}: {_ops(now['income_n'])} в разделе «Финансы»"
-                  if now["income_n"] else f"Доходов {period} не записано")
+                  if now["income_n"] else "Появится, как только запишете первый доход в «Финансах»")
     expense_src = (f"Сумма расходов {period}: {_ops(now['expense_n'])} в разделе «Финансы»"
-                   if now["expense_n"] else f"Расходов {period} не записано")
+                   if now["expense_n"] else "Появится, как только запишете первый расход в «Финансах»")
 
     has_money = now["entries"] > 0
     income = now["income"] if has_money else None
@@ -125,25 +140,35 @@ def _briefing_metrics(bid, days, now, prev, orders_now, orders_prev,
         _metric("profit", "Прибыль", profit, "₽",
                 (f"Выручка минус расходы {period}: {_money(now['income'])} − "
                  f"{_money(now['expense'])}") if has_money else
-                f"Операций {period} нет — вычитать нечего", href="finance.html",
+                "Считается сама: доходы минус расходы", href="finance.html",
                 delta=_pct(now["profit"], prev["profit"]) if comparable and prev["profit"] > 0 else None,
                 gap="" if has_money else "Считать не из чего: операций нет."),
         _metric("margin", "Маржа", margin, "%",
                 (f"Прибыль делённая на выручку {period}: {_money(now['profit'])} / "
                  f"{_money(now['income'])}") if now["income"] else
-                f"Выручки {period} нет — делить не на что",
+                "Считается сама: прибыль делённая на выручку",
                 href="finance.html", hint="доля прибыли в выручке",
                 gap="" if now["income"] else
                     "Маржа считается от выручки. Выручки за период нет — процента не существует."),
+        # Счётчики людей и заявок сравниваем процентом только тогда, когда
+        # база достаточно велика. На единицах процент врёт: «−100%» под нулём
+        # клиентов означает «был один» — и выглядит катастрофой, которой нет.
+        # Ниже порога говорим прямо, сколько было.
         _metric("clients_new", "Новые клиенты", clients_now, "",
                 f"Клиенты, заведённые {period}: раздел «Клиенты»", href="clients.html",
-                delta=_pct(clients_now, clients_prev) if comparable else None),
+                delta=_pct(clients_now, clients_prev)
+                      if comparable and _pct_ok(clients_prev) else None,
+                hint=(f"за предыдущие {days} дн.: {_num(clients_prev)}"
+                      if comparable and not _pct_ok(clients_prev) else "")),
         _metric("orders_new", "Новые заказы", orders_now["count"], "",
                 f"Заявки, созданные {period}: раздел «Заявки»"
                 + (f", сумма проставлена у {orders_now['with_amount']} из "
                    f"{orders_now['count']}" if orders_now["count"] else ""),
                 href="orders.html",
-                delta=_pct(orders_now["count"], orders_prev["count"]) if comparable else None),
+                delta=_pct(orders_now["count"], orders_prev["count"])
+                      if comparable and _pct_ok(orders_prev["count"]) else None,
+                hint=(f"за предыдущие {days} дн.: {_num(orders_prev['count'])}"
+                      if comparable and not _pct_ok(orders_prev["count"]) else "")),
     ]
 
 

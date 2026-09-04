@@ -502,7 +502,7 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
    дёргался бы на каждом переключении. Разделив «движение» и «состояние», мы
    получаем переход, который втекает в уже идущее движение.
 
-   Бюджет заметности. Пик яркости ядра ~0.19 по альфе на #08080b — поле видно
+   Бюджет заметности. Пик яркости ядра ~0.17 по альфе на #08080b — поле видно
    как часть интерфейса, но текст поверх него держит контраст: содержимое
    лежит на z-index:1 и своей подложки не теряет. На узком экране пик снижен
    и верхний светлый слой снят: на 375px три объёма превращаются в кашу,
@@ -537,7 +537,7 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
   transform:translate3d(0,0,0) scale(1.03);
   animation:vf-d1 71s ease-in-out -12s infinite; }
 .vf-l1 > i{ background:radial-gradient(closest-side,
-  rgba(128,82,255,.23) 0%, rgba(128,82,255,.10) 34%,
+  rgba(128,82,255,.17) 0%, rgba(128,82,255,.075) 34%,
   rgba(96,64,196,.028) 68%, rgba(128,82,255,0) 100%); }
 
 /* Средний слой. Он и создаёт ощущение, что объёмы проходят друг сквозь друга. */
@@ -545,7 +545,7 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
   transform:translate3d(0,0,0) scale(1);
   animation:vf-d2 53s ease-in-out -29s infinite; }
 .vf-l2 > i{ background:radial-gradient(closest-side,
-  rgba(146,104,255,.175) 0%, rgba(120,80,240,.06) 40%, rgba(128,82,255,0) 100%); }
+  rgba(146,104,255,.13) 0%, rgba(120,80,240,.045) 40%, rgba(128,82,255,0) 100%); }
 /* Примеси на среднем слое: он достаточно велик, чтобы смысл читался кадром,
    а не пятном в углу. Цвета те же, что в языке продукта: коралл — риск,
    бирюза — получилось. */
@@ -560,7 +560,7 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
   transform:translate3d(0,0,0) scale(1);
   animation:vf-d3 37s ease-in-out -7s infinite; }
 .vf-l3 > i{ background:radial-gradient(closest-side,
-  rgba(190,178,255,.13) 0%, rgba(150,140,220,.04) 46%, rgba(179,166,255,0) 100%); }
+  rgba(190,178,255,.10) 0%, rgba(150,140,220,.03) 46%, rgba(179,166,255,0) 100%); }
 .vf-l3 > u.risk{ background:radial-gradient(closest-side,
   rgba(255,107,107,.13) 0%, rgba(255,107,107,.04) 48%, rgba(255,107,107,0) 100%); }
 .vf-l3 > u.opp{ background:radial-gradient(closest-side,

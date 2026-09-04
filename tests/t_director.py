@@ -128,13 +128,41 @@ check("прямо сказано, что данных нет", "Данных п�
 check("и что выдумывать их не станут", "придумывать" in b["headline"].lower(), b["headline"])
 for key in ("revenue", "expenses", "profit", "margin"):
     m = metric(b, key)
-    check(f"{key}: не ноль, а «недостаточно данных»",
-          m["value"] is None and m["display"] == director.NOT_ENOUGH, m["display"])
+    check(f"{key}: не ноль, а пусто",
+          m["value"] is None and m["display"] == director.NO_VALUE, m["display"])
+    check(f"{key}: в слоте числа стоит знак, а не фраза",
+          len(m["display"]) <= 2, m["display"])
 check("разделы пусты", not (b["changed"] or b["risks"] or b["opportunities"]
                             or b["recommendations"]))
 check("и объяснено почему", any(director.NOT_ENOUGH in g for g in b["gaps"]), b["gaps"])
 
 # ── БИЗНЕС С ИСТОРИЕЙ ──────────────────────────────────────────────────────
+print("\n== ПРОЦЕНТ ОТ ЕДИНИЦЫ — НЕ ДИНАМИКА ==")
+# «−100% к прошлому периоду» под нулём клиентов означает «был один». Формально
+# верно, по смыслу — шум: на таких величинах одна штука раздувается до
+# катастрофы, и владелец принимает решение по случайности.
+check("процент разрешён с базы 5 и выше", director._pct_ok(5) and director._pct_ok(9))
+check("на базе меньше пяти процент запрещён",
+      not any(director._pct_ok(n) for n in (0, 1, 2, 3, 4)))
+check("порог назван, а не спрятан в коде", director.MIN_BASE_FOR_PCT == 5)
+
+small_bid = biz("dir_small_base")[0]
+# Ровно один клиент и одна заявка — и оба в ПРОШЛОМ окне. В текущем ноль.
+# Прошлый период должен быть непустым, иначе сравнение вообще не начнётся
+# и проверка пройдёт вхолостую.
+client(small_bid, "Единственный", 40)
+order(small_bid, "Старая заявка", 0, 40, status="новый")
+money(small_bid, "income", 30000, "продажа", 40)
+sb = director.briefing(small_bid)
+check("прошлый период непустой — сравнение действительно началось",
+      sb["ready"], sb["headline"])
+for key in ("clients_new", "orders_new"):
+    m = metric(sb, key)
+    check(f"{key}: процента на единице нет", m["delta"] is None, m["delta"])
+    check(f"{key}: вместо процента сказано, сколько было",
+          "за предыдущие" in (m["hint"] or ""), m["hint"])
+
+
 print("\n== ИСПОЛНИТЕЛЬНАЯ СВОДКА ==")
 bid, H = reg("dir_main")
 bid2, H2 = reg("dir_other")
@@ -329,10 +357,16 @@ money(zero_bid, "expense", 9000, "реклама", 7)
 zb = director.briefing(zero_bid)
 check("при нулевой выручке маржи нет, а не 0%",
       metric(zb, "margin")["value"] is None
-      and metric(zb, "margin")["display"] == director.NOT_ENOUGH,
+      and metric(zb, "margin")["display"] == director.NO_VALUE,
       metric(zb, "margin"))
 check("и объяснено, почему её нет",
-      "делить не на что" in metric(zb, "margin")["source"], metric(zb, "margin")["source"])
+      "процента не существует" in metric(zb, "margin")["gap"], metric(zb, "margin")["gap"])
+# Источник отвечает на другой вопрос: откуда число возьмётся, когда появится.
+# Пока он повторял то же, что значение и пояснение, ячейка говорила одно
+# и то же тремя строками.
+check("источник не повторяет пояснение",
+      metric(zb, "margin")["source"] != metric(zb, "margin")["gap"],
+      metric(zb, "margin")["source"])
 check("расходы при этом показаны честно", metric(zb, "expenses")["value"] == 36000)
 check("и минус назван минусом", find(zb, "risks", "loss") is not None,
       [r["key"] for r in zb["risks"]])

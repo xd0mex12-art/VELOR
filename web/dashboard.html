@@ -180,7 +180,10 @@
   .fig .v.money{ color:var(--ink-saffron); } .fig .v.ok{ color:var(--ink-verdant); }
   .fig .v.bad{ color:var(--ink-coral); } .fig .v.info{ color:var(--lilac); }
   .fig .v.zero, .fig .v.void{ color:var(--ash); }
-  .fig .v.void{ font-size:var(--fs-body); font-weight:var(--fw-thin); letter-spacing:0; }
+  /* «Нет данных» — это прочерк в полную величину числа, а не мелкая фраза.
+     Ячейка должна выглядеть как ячейка с числом, которого пока нет: тогда
+     сетка читается как сетка, а не как четыре ошибки подряд. */
+  .fig .v.void{ color:var(--ash); opacity:.45; }
   /* Число, которое только что пересчиталось: одна отметка на две секунды.
      Не мигание — доказательство, что VELOR продолжает считать сам. */
   /* Число, которое только что пересчиталось: за 400 мс новое значение
@@ -336,7 +339,7 @@
   @media(max-width:600px){ .onedoor .od-row{ flex-direction:column; align-items:stretch; }
     .onedoor .od-row .v-btn{ width:100%; } }
 </style>
-<link rel="stylesheet" href="velor.css?v=14">
+<link rel="stylesheet" href="velor.css?v=15">
 </head>
 <body>
 
@@ -463,8 +466,8 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="velor-field.js?v=14"></script>
-<script src="velor-state.js?v=14"></script>
+<script src="velor-field.js?v=15"></script>
+<script src="velor-state.js?v=15"></script>
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
@@ -534,7 +537,11 @@ function statusLine(d){
 
   const o = d.orders || {}, cl = d.clients || {};
   const bits = [];
-  if (o.new)     bits.push(num(o.new) + ' ' + plural(o.new, 'новая заявка', 'новые заявки', 'новых заявок'));
+  // «Новая» здесь означало СТАТУС заявки, а рядом, в «Состоянии дел», ровно
+  // то же слово означало «созданная за period». Из-за этого на одном экране
+  // висело «1 новая заявка» и «Новых заказов: 0» — два утверждения, которые
+  // спорят друг с другом. Число было верным, врало слово.
+  if (o.new)     bits.push(num(o.new) + ' ' + plural(o.new, 'заявка ждёт разбора', 'заявки ждут разбора', 'заявок ждут разбора'));
   if (o.total)   bits.push('всего ' + num(o.total));
   if (cl.active) bits.push(num(cl.active) + ' ' + plural(cl.active, 'активный клиент', 'активных клиента', 'активных клиентов'));
   const tail = bits.length ? bits.join(' · ') : 'данных пока мало — я коплю их с каждым днём';
