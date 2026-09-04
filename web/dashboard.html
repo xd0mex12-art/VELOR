@@ -339,7 +339,7 @@
   @media(max-width:600px){ .onedoor .od-row{ flex-direction:column; align-items:stretch; }
     .onedoor .od-row .v-btn{ width:100%; } }
 </style>
-<link rel="stylesheet" href="velor.css?v=18">
+<link rel="stylesheet" href="velor.css?v=19">
 </head>
 <body>
 
@@ -466,8 +466,8 @@
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
-<script src="velor-field.js?v=18"></script>
-<script src="velor-state.js?v=18"></script>
+<script src="velor-field.js?v=19"></script>
+<script src="velor-state.js?v=19"></script>
 <script>
 function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 const money = n => (n || 0).toLocaleString('ru-RU') + ' ₽';
@@ -1029,21 +1029,29 @@ function fieldState(dir){
   return 'normal';
 }
 
-// Пришёл ли клиент. Не «изменилось ли число», а именно «стало больше»:
-// удаление клиента тоже меняет счётчик, но праздновать там нечего.
-// Сравниваем разобранное число, а не строку показа: «1» и «1 234» приходят
-// уже отформатированными, и на тысячах строковое сравнение врёт.
-function clientsCount(dir){
-  const m = (dir && dir.metrics || []).find(x => x.key === 'clients_new');
-  return m && typeof m.value === 'number' ? m.value : null;
+// СКОЛЬКО клиентов пришло с прошлого опроса — не «пришёл ли».
+//
+// Между опросами тридцать секунд, и за это окно человек может прийти не один.
+// Пока считалось «стало больше — да/нет», трое пришедших давали одну волну.
+// Возвращаем разницу, чтобы поле показало каждого.
+//
+// Берём общее число клиентов, а не «новых за 30 дней»: у окна есть задний
+// край, и клиент, выпавший из него в тот же опрос, погасил бы пришедшего.
+// Считаем число, а не строку показа: «1 234» приходит уже отформатированным,
+// и на тысячах строковое сравнение врёт.
+function clientsTotal(d){
+  const n = d && d.clients && d.clients.total;
+  return typeof n === 'number' ? n : null;
 }
 
 let _prevClients = null;
-function clientArrived(dir){
-  const now = clientsCount(dir);
-  const grew = _prevClients !== null && now !== null && now > _prevClients;
+function clientsArrived(d){
+  const now = clientsTotal(d);
+  // Убыль тоже бывает (клиента удалили) — праздновать там нечего.
+  const came = (_prevClients !== null && now !== null && now > _prevClients)
+    ? now - _prevClients : 0;
   _prevClients = now;
-  return grew;
+  return came;
 }
 
 // Новый вывод — это новый набор рекомендаций, а не просто новый опрос.
@@ -1101,10 +1109,13 @@ async function load(){
     // конкретного к самому общему: пришёл человек → VELOR сделал вывод →
     // просто пересчиталось число. Приход клиента впереди намеренно: это
     // причина, а вывод — следствие, и показывать причину полезнее.
-    const arrived = clientArrived(dir);
+    const arrived = clientsArrived(d);
     const decided = newDecision(dir);
-    if (window.VELOR_FIELD && (arrived || decided || changed))
-      window.VELOR_FIELD.pulse(arrived ? 'client' : (decided ? 'decision' : 'data'));
+    if (window.VELOR_FIELD){
+      if (arrived) window.VELOR_FIELD.arrivals(arrived);   // по волне на человека
+      else if (decided) window.VELOR_FIELD.pulse('decision');
+      else if (changed) window.VELOR_FIELD.pulse('data');
+    }
   } else {
     put('kpi', kpiHTML(d), true);
   }

@@ -574,9 +574,34 @@ check("событие не накладывается само на себя",
 check("клиент известен как событие поля", "client: 1" in FIELD_JS)
 # Приход человека — причина, вывод Директора — следствие. Показывать причину
 # полезнее, поэтому у неё старшинство.
+# Приход человека — причина, вывод Директора — следствие. Показывать причину
+# полезнее, поэтому у неё старшинство: клиент → вывод → просто новое число.
 check("приход клиента старше прочих событий",
-      "arrived ? 'client'" in DASH and "clientArrived" in DASH)
+      DASH.index("if (arrived)") < DASH.index("else if (decided)")
+      < DASH.index("else if (changed)"))
 check("считается рост, а не любое изменение", "now > _prevClients" in DASH)
+# Между опросами тридцать секунд, и за это окно человек может прийти не один.
+# Пока считалось «стало больше — да/нет», трое пришедших давали одну волну.
+check("считается СКОЛЬКО пришло, а не «пришёл ли»",
+      "now - _prevClients" in DASH and "function clientsArrived" in DASH)
+check("на каждого поднимается своя волна", "VELOR_FIELD.arrivals(arrived)" in DASH)
+check("очередь волн есть в поле", "function arrivals" in FIELD_JS and "function runWave" in FIELD_JS)
+# Волна должна успеть отыграть и исчезнуть, иначе браузер не перезапустит
+# анимацию и вторая волна просто не появится.
+_wave = int(re.search(r"var WAVE = (\d+)", FIELD_JS).group(1))
+_gap = int(re.search(r"GAP = (\d+)", FIELD_JS).group(1))
+_anim = float(re.search(r'data-pulse="client"\] \.vf-pulse\{ animation:vf-arrive ([\d.]+)s', FIELD_CSS).group(1))
+check("волна снимается позже, чем кончается её анимация",
+      _wave >= _anim * 1000, (_wave, _anim))
+check("между волнами есть пауза на перезапуск анимации", _gap >= 100, _gap)
+# Поток клиентов не должен превращать поле в мигалку: точное число всё равно
+# стоит числом на экране.
+check("у очереди есть потолок", re.search(r"MAX_WAVES = (\d)", FIELD_JS) is not None)
+check("потолок разумный", 3 <= int(re.search(r"MAX_WAVES = (\d)", FIELD_JS).group(1)) <= 6)
+# Общее число клиентов, а не «новые за 30 дней»: у окна есть задний край, и
+# выпавший из него клиент погасил бы пришедшего.
+check("берётся общее число клиентов, а не окно за 30 дней",
+      "d.clients.total" in DASH.replace(" ", "") or "clients && d.clients.total" in DASH)
 
 print("\n== ПОЛЕ НЕ МЕШАЕТ РАБОТАТЬ ==")
 check("поле не перехватывает нажатия", "pointer-events:none" in FIELD_CSS)
@@ -756,8 +781,9 @@ check("нет данных — поле ждёт, а не изображает �
       "if (!dir || !dir.ready) return 'waiting'" in DASH)
 check("сервер молчит — поле тоже",
       "VELOR_FIELD.state('waiting')" in DASH)
-check("импульс поднимает изменившееся число, а не таймер",
-      "decided || changed" in DASH)
+check("импульс поднимает событие, а не таймер",
+      "if (arrived)" in DASH and "else if (decided)" in DASH
+      and "else if (changed)" in DASH and "setInterval(() => window.VELOR_FIELD" not in DASH)
 check("новый вывод определяется по ключам рекомендаций",
       "function newDecision(dir)" in DASH and "r.key || r.title" in DASH)
 

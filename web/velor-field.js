@@ -80,7 +80,49 @@
     pulseT = setTimeout(function () { delete f.dataset.pulse; }, 3000);
   }
 
-  window.VELOR_FIELD = { state: state, pulse: pulse, mount: build };
+  // ── ПРИШЛИ КЛИЕНТЫ ──
+  // Кабинет опрашивает сервер раз в 30 секунд, и за это окно человек может
+  // прийти не один. Счётчик тогда прыгает сразу на несколько — а волна
+  // поднималась одна, и трое пришедших выглядели как один.
+  //
+  // Поэтому здесь очередь: одна волна на человека, друг за другом. Не «ярче,
+  // если больше» — сила события не про количество, а про факт: пришёл ещё
+  // один. Считать волны глазом естественно, читать яркость как число — нет.
+  //
+  // Потолок в пять: дальше это уже не события, а поток, и двадцать волн
+  // подряд превратили бы поле в мигалку. Точное число всё равно стоит
+  // числом на экране, волна его не заменяет.
+  var WAVE = 2700, GAP = 320, MAX_WAVES = 5;
+  var waveT = 0, waiting = 0;
+
+  function runWave() {
+    var f = build();
+    if (!f) return;
+    f.dataset.pulse = 'client';
+    clearTimeout(waveT);
+    waveT = setTimeout(function () {
+      delete f.dataset.pulse;
+      if (waiting > 0) {
+        waiting--;
+        // Пауза нужна не для красоты: чтобы браузер перезапустил анимацию,
+        // атрибут должен успеть исчезнуть и появиться снова.
+        waveT = setTimeout(runWave, GAP);
+      }
+    }, WAVE);
+  }
+
+  function arrivals(n) {
+    n = Math.max(1, Math.min(MAX_WAVES, n | 0));
+    var f = build();
+    if (!f) return;
+    if (f.dataset.pulse === 'client') { waiting = Math.min(MAX_WAVES, waiting + n); return; }
+    clearTimeout(pulseT);
+    clearTimeout(waveT);
+    waiting = n - 1;
+    runWave();
+  }
+
+  window.VELOR_FIELD = { state: state, pulse: pulse, arrivals: arrivals, mount: build };
 
   // Раскрытая цепочка доказательства — тоже настоящее событие: VELOR показал
   // ход рассуждения. Событие toggle не всплывает, поэтому слушаем на фазе
