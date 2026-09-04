@@ -42,10 +42,15 @@
     var saved = null;
     try { saved = sessionStorage.getItem(KEY); } catch (e) { /* приватный режим */ }
     el.dataset.field = STATES[saved] ? saved : 'normal';
-    el.innerHTML =
-      '<span class="vf-l vf-l1"><i></i></span>' +
-      '<span class="vf-l vf-l2"><i></i><u class="risk"></u><u class="opp"></u></span>' +
-      '<span class="vf-l vf-l3"><i></i><u class="risk"></u><u class="opp"></u></span>' +
+    // Четыре вложенных элемента на ленту — снос, поворот, толщина, состояние.
+    // Каждое преобразование идёт в своём ритме; собрать их в один элемент
+    // нельзя — они бы слились в одну анимацию и снова читались как цикл.
+    var band = function (n) {
+      return '<span class="vf-l vf-l' + n + '"><span class="vf-t"><span class="vf-s">' +
+             '<i></i><u class="risk"></u><u class="opp"></u>' +
+             '</span></span></span>';
+    };
+    el.innerHTML = band(1) + band(2) + band(3) + band(4) +
       '<span class="vf-pulse"><i></i></span>';
     document.body.insertBefore(el, document.body.firstChild);
     return el;

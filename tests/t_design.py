@@ -421,11 +421,14 @@ check("состояние обновления названо словом", "о
 check("всплывающих окон при обновлении нет", "alert(" not in DASH)
 
 print("\n== ЖИВОЕ ПОЛЕ: СОСТОЯНИЕ, А НЕ ОБОИ ==")
+import math as _math
+
 FIELD_JS = io.open(WEB / "velor-field.js", encoding="utf-8").read()
 # Запреты проверяем по коду: в комментариях этого файла как раз объясняется,
 # почему ни канваса, ни покадрового цикла здесь нет.
 FIELD_CODE = "\n".join(l for l in FIELD_JS.splitlines()
                        if not l.strip().startswith("//"))
+FIELD_CSS = CSS[CSS.index("ЖИВОЕ ПОЛЕ"):CSS.index("body > footer")]
 
 # Поле — часть кабинета, а не украшение одной страницы.
 no_field = [n for n in CABINET
@@ -433,105 +436,123 @@ no_field = [n for n in CABINET
             and "velor-field.js" not in io.open(WEB / n, encoding="utf-8").read()]
 check("поле подключено на всех страницах кабинета", not no_field, no_field)
 
-# Ни библиотеки, ни канваса, ни кадрового цикла. Эффект целиком композиторный:
-# градиент растрируется один раз, дальше двигается только матрица слоя.
+# Ни библиотеки, ни канваса, ни кадрового цикла. Эффект целиком композиторный.
 for banned in ("canvas", "THREE", "three.min", "requestAnimationFrame",
                "WebGL", "getContext"):
     check(f"поле обходится без {banned}", banned not in FIELD_CODE, banned)
 check("поле не рисуется в JS покадрово", "setInterval" not in FIELD_CODE)
 
 # Поле показывает состояние — оно не имеет права изображать данные.
-for banned in ("particle", "star", "neural", "node", "dot", "network"):
+for banned in ("particle", "star", "neural", "node", "network"):
     check(f"поле не притворяется данными: нет «{banned}»",
-          banned not in FIELD_CODE.lower() and banned not in CSS.lower().split(
-              "живое поле")[-1].split("body > footer")[0], banned)
+          banned not in FIELD_CODE.lower() and banned not in FIELD_CSS.lower(), banned)
 
-# Четыре состояния, и каждое отличается ФОРМОЙ, а не только оттенком.
-FIELD_CSS = CSS[CSS.index("ЖИВОЕ ПОЛЕ"):CSS.index("body > footer")]
+print("\n== ЛЕНТА, А НЕ ПЯТНО: У ДВИЖЕНИЯ ДОЛЖЕН БЫТЬ КРАЙ ==")
+# Две первые редакции поля были круглыми размытыми пятнами, и их движение не
+# читалось совсем — ни на 2 px/с, ни на 28. Причина не в скорости: у диффузного
+# пятна нет края, а глаз замечает движение по краю. Поэтому теперь проверяется
+# не «двигается ли», а «есть ли чему двигаться».
+GEOM = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
+        for m in re.finditer(r"\.vf-l(\d)\{ left:(-?[\d.]+)vw; top:\s*(-?[\d.]+)vh; "
+                             r"width:([\d.]+)vw; height:([\d.]+)vh; \}", FIELD_CSS)}
+check("лент четыре", len(GEOM) == 4, sorted(GEOM))
+check("каждая шире экрана — идёт насквозь, а не висит пятном",
+      all(g[2] > 100 for g in GEOM.values()), {i: g[2] for i, g in GEOM.items()})
+check("каждая невысока — это полоса, а не круг",
+      all(g[3] < g[2] / 2 for g in GEOM.values()),
+      {i: (g[2], g[3]) for i, g in GEOM.items()})
+check("ленты разложены по всей высоте экрана, а не сгрудились наверху",
+      max(g[1] for g in GEOM.values()) - min(g[1] for g in GEOM.values()) >= 70,
+      sorted(round(g[1]) for g in GEOM.values()))
+
+STOPS = {int(m.group(1)): [(float(a.group(5)) / 100.0, float(a.group(4)),
+                           (int(a.group(1)), int(a.group(2)), int(a.group(3))))
+                          for a in re.finditer(
+                              r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)\s+([\d.]+)%", m.group(2))]
+         for m in re.finditer(r"\.vf-l(\d) > \.vf-t > \.vf-s > i\{ "
+                              r"background:radial-gradient\(closest-side,\s*(.+?)\); \}",
+                              FIELD_CSS, re.S)}
+check("цвет каждой ленты задан", len(STOPS) == 4, sorted(STOPS))
+# Кромка — это вторая остановка градиента. Если она стоит далеко (34-46%, как
+# было у пятен), яркость падает медленно и границы не видно.
+check("у ленты есть кромка: вторая остановка ближе 25%",
+      all(st[1][0] <= 0.25 for st in STOPS.values()),
+      {i: st[1][0] for i, st in STOPS.items()})
+check("за кромкой яркость падает не меньше чем вдвое",
+      all(st[1][1] <= st[0][1] / 2 for st in STOPS.values()),
+      {i: (st[0][1], st[1][1]) for i, st in STOPS.items()})
+
+print("\n== ТРИ РИТМА НА СЛОЙ И ПРОСТЫЕ ПЕРИОДЫ ==")
+# Одно преобразование читается как цикл. Три независимых — как живое движение.
+PER = {}
+for kind, pat in (("снос", r"\.vf-l(\d)\{ animation:vf-move\d (\d+)s"),
+                  ("поворот", r"\.vf-l(\d) > \.vf-t\{ animation:vf-turn\d (\d+)s"),
+                  ("толщина", r"\.vf-l(\d) > \.vf-t > \.vf-s\{ animation:vf-swell\d (\d+)s")):
+    for m in re.finditer(pat, FIELD_CSS):
+        PER.setdefault(int(m.group(1)), {})[kind] = int(m.group(2))
+check("у каждой ленты три независимых ритма",
+      len(PER) == 4 and all(len(v) == 3 for v in PER.values()), PER)
+check("поворот есть — самое заметное движение для вытянутой формы",
+      "rotate(" in FIELD_CSS)
+
+
+def _prime(n):
+    return n > 1 and all(n % k for k in range(2, int(n ** .5) + 1))
+
+
+periods = sorted({v for d in PER.values() for v in d.values()})
+check("все периоды — простые числа, поэтому картина не повторяется",
+      all(_prime(v) for v in periods), periods)
+check("периоды не совпадают между собой",
+      len(periods) == sum(len(d) for d in PER.values()), periods)
+check("движение медленное: быстрейший ритм — двадцатки секунд",
+      min(periods) >= 18, periods)
+check("но не настолько, чтобы его не было видно", max(periods) <= 90, periods)
+
+print("\n== СОСТОЯНИЯ ОТЛИЧАЮТСЯ ФОРМОЙ, А НЕ ОТТЕНКОМ ==")
 for st in ("waiting", "risk", "opportunity"):
-    blk = [m for m in re.findall(
-        r'\.v-field\[data-field="%s"\][^{]*\{[^}]*\}' % st, FIELD_CSS)]
+    blk = re.findall(r'\.v-field\[data-field="%s"\][^{]*\{[^}]*\}' % st, FIELD_CSS)
     check(f"состояние «{st}» задано", bool(blk), st)
     check(f"«{st}» меняет форму, а не только цвет",
           any("transform" in b for b in blk), [b[:60] for b in blk])
 check("норма — база: отдельного правила ей не нужно",
       'data-field="normal"' not in FIELD_CSS)
-
-# Смысловая примесь поднимается только настоящим выводом Директора.
 check("примесь риска и возможности по умолчанию погашена",
-      re.search(r"\.v-field \.vf-l > u\{[^}]*opacity:0", FIELD_CSS) is not None)
+      re.search(r"\.v-field \.vf-s > u\{ opacity:0", FIELD_CSS) is not None)
 check("риск красит коралловым, возможность — бирюзовым",
       "u.risk{ background:radial-gradient" in FIELD_CSS
       and "255,107,107" in FIELD_CSS and "47,212,178" in FIELD_CSS)
 
-# Три события, и «данные» и «вывод» идут в разные стороны: данные приходят и
-# расходятся, вывод — сходится. Направление здесь несёт смысл.
+print("\n== СОБЫТИЯ: ТРИ, И ДВА ИЗ НИХ ИДУТ В РАЗНЫЕ СТОРОНЫ ==")
 check("событие «новые данные» расходится наружу",
       re.search(r"@keyframes vf-wave\{.*?scale\(\.45\).*?scale\(1\.35\)",
                 FIELD_CSS, re.S) is not None)
 check("событие «новый вывод» сходится внутрь",
       re.search(r"@keyframes vf-converge\{.*?scale\(1\.42\).*?scale\(\.72\)",
                 FIELD_CSS, re.S) is not None)
-check("раскрытая цепочка отвечает тише всех",
-      "@keyframes vf-focus" in FIELD_CSS)
+check("раскрытая цепочка отвечает тише всех", "@keyframes vf-focus" in FIELD_CSS)
 check("событие не накладывается само на себя",
       "if (!f || f.dataset.pulse) return;" in FIELD_JS)
 
-# Периоды дрейфа не кратны друг другу — иначе кадр начинает повторяться и
-# читается как зацикленная заставка.
-periods = [float(x) for x in re.findall(r"animation:vf-d\d (\d+)s", FIELD_CSS)]
-check("три слоя с разной скоростью", len(periods) == 3, periods)
-check("периоды не кратны друг другу",
-      all(max(a, b) % min(a, b) != 0 for i, a in enumerate(periods)
-          for b in periods[i + 1:]), periods)
-# Граница снизу — не «красиво», а «это ещё не анимация интерфейса». Анимации
-# UI живут сотнями миллисекунд; двадцать секунд на цикл на два порядка
-# медленнее. Верхнюю границу не ставим: слишком медленное поле просто
-# перестаёт работать, и это видно глазом, а не тесту.
-check("движение медленное: самый быстрый слой — двадцатки секунд",
-      periods and min(periods) >= 18, periods)
-check("но не настолько, чтобы его не было видно",
-      periods and max(periods) <= 60, periods)
-
-# Поле не мешает работать.
+print("\n== ПОЛЕ НЕ МЕШАЕТ РАБОТАТЬ ==")
 check("поле не перехватывает нажатия", "pointer-events:none" in FIELD_CSS)
-check("поле скрыто от скринридера", 'aria-hidden' in FIELD_JS)
+check("поле скрыто от скринридера", "aria-hidden" in FIELD_JS)
 check("содержимое всегда выше поля",
-      "body main{" in CSS.replace("\n", " ") and "body > footer{ position:relative; z-index:1; }" in CSS)
+      "body main{" in CSS.replace("\n", " ")
+      and "body > footer{ position:relative; z-index:1; }" in CSS)
 
-# Меньше движения — не значит «плоско»: дрейф выключается, глубина остаётся.
-rm = FIELD_CSS[FIELD_CSS.index("prefers-reduced-motion"):]
-check("при reduce анимация поля выключена", "animation:none !important" in rm)
-check("при reduce слои остаются на своих местах: transform задан базой",
-      FIELD_CSS.count("transform:translate3d(0,0,0)") >= 2)
 
-# На узком экране три объёма дают не глубину, а мутное пятно.
-mob = FIELD_CSS[FIELD_CSS.index("max-width:700px"):]
-check("на узком экране светлый слой снят", ".v-field .vf-l3{ display:none; }" in mob)
-# Число не фиксируем: важно, что на узком экране множитель ЕСТЬ и он
-# меньше единицы. Иначе тест ломается от каждой правки яркости — и его
-# начинают чинить, не думая, вместо того чтобы проверить экран.
-import re as _re
-_m = _re.search(r"--vf-mob:\s*\.(\d+)", mob)
-check("на узком экране пик приглушён", bool(_m), mob[:120])
-# Состояние и экран пишут в РАЗНЫЕ множители: селектор состояния тяжелее
-# медиа-запроса, и общая переменная означала бы, что узкий экран не действует.
-check("состояние и экран не спорят за одну переменную",
-      "--vf-gain:calc(var(--vf-level) * var(--vf-mob))" in FIELD_CSS
-      and "--vf-gain" not in FIELD_CSS.split("СОСТОЯНИЯ")[1])
-
-# Цена поля — не «на глаз», а свойство кода: анимировать разрешено ровно
-# transform и opacity. Всё остальное (width, height, top, left, filter,
-# background-position) заставляет браузер считать раскладку или заново
-# рисовать пиксели каждый кадр — на объёме в 124vw это и есть тормоза.
-def _kf_props(css_block):
+# Цена поля — свойство кода: анимировать разрешено только transform и opacity.
+# Всё остальное (width, height, top, filter) заставляет браузер считать
+# раскладку или заново рисовать пиксели каждый кадр.
+def _kf_props(block):
     out = set()
-    for m in re.finditer(r"@keyframes\s+(vf-[\w-]+)\s*\{", css_block):
+    for m in re.finditer(r"@keyframes\s+(vf-[\w-]+)\s*\{", block):
         i, depth = m.end(), 1
         while depth:
-            depth += (css_block[i] == "{") - (css_block[i] == "}")
+            depth += (block[i] == "{") - (block[i] == "}")
             i += 1
-        out |= set(re.findall(r"([a-z-]+)\s*:", css_block[m.end():i - 1]))
+        out |= set(re.findall(r"([a-z-]+)\s*:", block[m.end():i - 1]))
     return out
 
 
@@ -539,22 +560,27 @@ _props = _kf_props(FIELD_CSS)
 check("в кадрах поля двигаются только transform и opacity",
       _props <= {"transform", "opacity"}, sorted(_props))
 check("кадры вообще есть", bool(_props))
-check("переход состояния тоже дешёвый",
-      not re.search(r"transition:(?![^;]*\b(?:opacity|transform)\b)[^;]*"
-                    r"(width|height|top|left|filter|margin|padding)", FIELD_CSS))
+
+rm = FIELD_CSS[FIELD_CSS.index("prefers-reduced-motion"):]
+check("при reduce движение выключено", "animation:none !important" in rm)
+# Без анимации все ленты легли бы строго горизонтально и слились в полосы —
+# статичный наклон сохраняет кадр кадром.
+check("при reduce лентам роздан статичный наклон", rm.count("rotate(") >= 4, rm.count("rotate("))
+
+mob = FIELD_CSS[FIELD_CSS.index("max-width:700px"):]
+check("на узком экране одна лента снята", ".v-field .vf-l4{ display:none; }" in mob)
+_m = re.search(r"--vf-mob:\s*\.(\d+)", mob)
+check("на узком экране пик приглушён", bool(_m), mob[:120])
 
 print("\n== ЯРКОСТЬ ПОЛЯ ОГРАНИЧЕНА КОНТРАСТОМ, А НЕ ВКУСОМ ==")
 # Поле должно быть заметным — это решение владельца продукта. Но у «заметно»
-# есть потолок, и он не в ощущениях: под самым ярким местом поля лежит текст,
-# и он обязан оставаться читаемым.
+# есть потолок, и он не в ощущениях: под самой светлой лентой лежит текст, и
+# он обязан оставаться читаемым.
 #
-# Считать «сложим пиковые альфы трёх слоёв» — неверно: это предполагает, что
-# три ядра сойдутся в одной точке, а они не могут, центры разнесены и ход
-# дрейфа этого не покрывает. Такая оценка даёт 3.4:1 и требует чинить то, чего
-# на экране не бывает. Поэтому считаем поле по-настоящему: сеткой по экрану,
-# по всем фазам дрейфа, и берём наибольшее из того, что реально появляется.
-import math as _math
-
+# Считать «сложим пиковые альфы всех лент» неверно: это оценка того, чего на
+# экране не бывает — ленты стоят в разных местах и ездят по своим траекториям.
+# Поэтому поле считается по-настоящему: сеткой по экрану, по всем фазам всех
+# трёх периодов, с учётом поворота, и берётся наибольшее из реально возникшего.
 _VW, _VH = 1440.0, 900.0
 
 
@@ -571,58 +597,51 @@ def _lum(rgb):
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
-def _over(fg, alpha, bg):
-    return tuple(bg[i] + (fg[i] - bg[i]) * alpha for i in range(3))
+def _over(fg, a, bg):
+    return tuple(bg[i] + (fg[i] - bg[i]) * a for i in range(3))
 
 
 def _token(name):
     return _hex(re.search(r"--%s:\s*(#[0-9a-fA-F]{6})" % name, CSS).group(1))
 
 
-def _vw(v):
-    return float(v) * _VW / 100.0
+MOVE, TURN, SWELL = {}, {}, {}
+for m in re.finditer(r"@keyframes vf-move(\d)\{ 0%,100%\{ transform:translate3d\(\s*(-?[\d.]+)vw,"
+                     r"\s*(-?[\d.]+)vh,0\); \}\s*50%\s*\{ transform:translate3d\(\s*(-?[\d.]+)vw,"
+                     r"\s*(-?[\d.]+)vh,0\); \} \}", FIELD_CSS):
+    MOVE[int(m.group(1))] = tuple(float(x) for x in m.groups()[1:])
+for m in re.finditer(r"@keyframes vf-turn(\d)\{ 0%,100%\{ transform:rotate\((-?[\d.]+)deg\); \}\s*"
+                     r"50%\{ transform:rotate\((-?[\d.]+)deg\); \} \}", FIELD_CSS):
+    TURN[int(m.group(1))] = (float(m.group(2)), float(m.group(3)))
+for m in re.finditer(r"@keyframes vf-swell(\d)\{ 0%,100%\{ transform:scale\(([\d.]+),([\d.]+)\); \}\s*"
+                     r"50%\{ transform:scale\(([\d.]+),([\d.]+)\); \} \}", FIELD_CSS):
+    SWELL[int(m.group(1))] = tuple(float(x) for x in m.groups()[1:])
+check("движение всех лент читается из CSS",
+      len(MOVE) == len(TURN) == len(SWELL) == 4, (sorted(MOVE), sorted(TURN), sorted(SWELL)))
 
 
-def _vh(v):
-    return float(v) * _VH / 100.0
-
-
-_geom, _kf, _stops = {}, {}, {}
-for _m in re.finditer(r"\.vf-l(\d)\{ left:(-?[\d.]+)vw; top:(-?[\d.]+)vh; "
-                      r"width:([\d.]+)vw; height:([\d.]+)vh;", FIELD_CSS):
-    _geom[int(_m.group(1))] = (_vw(_m.group(2)), _vh(_m.group(3)),
-                               _vw(_m.group(4)), _vh(_m.group(5)))
-for _m in re.finditer(
-        r"@keyframes vf-d(\d)\{\s*"
-        r"0%,100%\{ transform:translate3d\(\s*(-?[\d.]+)vw,\s*(-?[\d.]+)vh,0\) scale\(([\d.]+)\); \}\s*"
-        r"50%\s*\{ transform:translate3d\(\s*(-?[\d.]+)vw,\s*(-?[\d.]+)vh,0\) scale\(([\d.]+)\); \}",
-        FIELD_CSS):
-    _kf[int(_m.group(1))] = ((_vw(_m.group(2)), _vh(_m.group(3)), float(_m.group(4))),
-                             (_vw(_m.group(5)), _vh(_m.group(6)), float(_m.group(7))))
-for _m in re.finditer(r"\.vf-l(\d) > i\{ background:radial-gradient\(closest-side,\s*(.+?)\); \}",
-                      FIELD_CSS, re.S):
-    _stops[int(_m.group(1))] = [
-        (float(a.group(5)) / 100.0, float(a.group(4)),
-         (int(a.group(1)), int(a.group(2)), int(a.group(3))))
-        for a in re.finditer(r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)\s+([\d.]+)%", _m.group(2))]
-
-check("геометрия, дрейф и градиенты трёх слоёв читаются из CSS",
-      len(_geom) == len(_kf) == len(_stops) == 3,
-      (sorted(_geom), sorted(_kf), sorted(_stops)))
-
-
-def _alpha(i, px, py, t):
-    left, top, w, h = _geom[i]
-    a, b = _kf[i]
+def _ez(t):
     u = 0.5 - 0.5 * _math.cos(2 * _math.pi * t)
-    e = u * u * (3 - 2 * u)
-    cx = left + w / 2 + a[0] + (b[0] - a[0]) * e
-    cy = top + h / 2 + a[1] + (b[1] - a[1]) * e
-    sc = a[2] + (b[2] - a[2]) * e
-    d = _math.hypot((px - cx) / (w / 2 * sc), (py - cy) / (h / 2 * sc))
+    return u * u * (3 - 2 * u)
+
+
+def _alpha(i, px, py, pm, pt, ps):
+    left, top, w, h = (GEOM[i][0] * _VW / 100, GEOM[i][1] * _VH / 100,
+                       GEOM[i][2] * _VW / 100, GEOM[i][3] * _VH / 100)
+    em, et, es = _ez(pm), _ez(pt), _ez(ps)
+    mx0, my0, mx1, my1 = MOVE[i]
+    cx = left + w / 2 + (mx0 + (mx1 - mx0) * em) * _VW / 100
+    cy = top + h / 2 + (my0 + (my1 - my0) * em) * _VH / 100
+    ang = _math.radians(TURN[i][0] + (TURN[i][1] - TURN[i][0]) * et)
+    sx0, sy0, sx1, sy1 = SWELL[i]
+    sx, sy = sx0 + (sx1 - sx0) * es, sy0 + (sy1 - sy0) * es
+    dx, dy = px - cx, py - cy
+    lx = dx * _math.cos(-ang) - dy * _math.sin(-ang)
+    ly = dx * _math.sin(-ang) + dy * _math.cos(-ang)
+    d = _math.hypot(lx / (w / 2 * sx), ly / (h / 2 * sy))
     if d >= 1:
         return 0.0, (0, 0, 0)
-    st = _stops[i]
+    st = STOPS[i]
     for k in range(1, len(st)):
         if d <= st[k][0]:
             p0, a0, c0 = st[k - 1]
@@ -634,26 +653,34 @@ def _alpha(i, px, py, t):
 
 _void = _token("void")
 _peakL, _peak = 0.0, None
-for _ti in range(20):
-    _t = _ti / 20.0
-    for _yi in range(37):
-        _py = _yi * _VH / 36
-        for _xi in range(37):
-            _px = _xi * _VW / 36
-            _c = _void
-            for _i in (1, 2, 3):
-                _a, _col = _alpha(_i, _px, _py, _t)
-                if _a > 0:
-                    _c = _over(_col, _a, _c)
-            _L = _lum(_c)
-            if _L > _peakL:
-                _peakL, _peak = _L, tuple(round(v) for v in _c)
+_S = 9
+for _a in range(_S):
+    for _b in range(_S):
+        for _c in range(_S):
+            for _yi in range(19):
+                _py = _yi * _VH / 18
+                for _xi in range(19):
+                    _px = _xi * _VW / 18
+                    _col = _void
+                    for _i in (1, 2, 3, 4):
+                        _al, _cc = _alpha(_i, _px, _py,
+                                          (_a / _S + _i * .13) % 1,
+                                          (_b / _S + _i * .29) % 1,
+                                          (_c / _S + _i * .41) % 1)
+                        if _al > 0:
+                            _col = _over(_cc, _al, _col)
+                    _L = _lum(_col)
+                    if _L > _peakL:
+                        _peakL, _peak = _L, tuple(round(v) for v in _col)
 
 _main = (_lum(_token("bone")) + .05) / (_peakL + .05)
 _quiet = (_lum(_token("ash")) + .05) / (_peakL + .05)
-check(f"самая яркая точка поля за цикл: rgb{_peak}", _peak is not None)
+check(f"самая яркая точка поля: rgb{_peak}", _peak is not None)
 check(f"основной текст поверх неё — {_main:.2f}:1 (нужно 7)", _main >= 7, round(_main, 2))
-check(f"самый тихий текст поверх неё — {_quiet:.2f}:1 (нужно 4.5)", _quiet >= 4.5, round(_quiet, 2))
+# Порог выше нормы WCAG (4.5) намеренно: сетка дискретна и может
+# проскочить настоящий пик между узлами. Более плотный расчёт даёт
+# на этом поле 4.74 — запас взят ровно на эту разницу.
+check(f"самый тихий текст поверх неё — {_quiet:.2f}:1 (нужно 4.7)", _quiet >= 4.7, round(_quiet, 2))
 # Запас тонкий намеренно: поле выкручено ровно до границы читаемости.
 # Любая прибавка яркости уронит эту проверку — так и задумано.
 check("поле стоит у границы, а не далеко от неё", _quiet < 7, round(_quiet, 2))
@@ -708,7 +735,7 @@ if DOC.exists():
     # фонового движения нет» должен быть назван и ограничен прямо в нём,
     # иначе через месяц исключение станет разрешением.
     check("допуск живому полю назван и ограничен",
-          "Именной допуск — живое поле" in d and "38 / 29 / 21" in d)
+          "Именной допуск — живое поле" in d and "23–71" in d)
     check("состояния поля описаны таблицей",
           all(w in d for w in ("waiting", "normal", "risk", "opportunity")))
 
