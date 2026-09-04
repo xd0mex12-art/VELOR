@@ -111,8 +111,23 @@ PASSPORT = ("provider", "status", "connected_at", "permissions",
 print("== ЕДИНЫЙ ИНТЕРФЕЙС ==")
 d = catalog()
 items = all_items(d)
-check("категории ровно две", [x["key"] for x in d["categories"]] == ["communication", "data"],
+# «Разум» идёт первым намеренно: без модели VELOR считает числа, но не делает
+# выводов, а выводы и есть продукт. Пока этой категории не было, у владельца не
+# было ни одного места в кабинете, где видно — отвечает модель или нет.
+check("категории: разум, общение, данные",
+      [x["key"] for x in d["categories"]] == ["mind", "communication", "data"],
       [x["key"] for x in d["categories"]])
+check("модель — самое важное подключение и стоит первой",
+      d["categories"][0]["items"][0]["provider"] == "model",
+      [i["provider"] for i in d["categories"][0]["items"]])
+# Ключ модели общий для всей установки и живёт в .env рядом с сервером.
+# В браузер он не передаётся и через кабинет не вводится.
+_model = d["categories"][0]["items"][0]
+check("ключ модели не вводится через кабинет", not _model.get("fields"), _model.get("fields"))
+check("карточка говорит, куда класть ключ",
+      ".env" in (_model.get("howto") or ""), _model.get("howto"))
+check("состояние модели — не «есть ключ», а живой ответ",
+      "_probe" in open(os.path.join(ROOT, "connections.py"), encoding="utf-8").read())
 for want, cat in (("telegram", "communication"), ("instagram", "communication"),
                   ("website", "communication"), ("whatsapp", "communication"),
                   ("bank", "data"), ("google_drive", "data"), ("google_sheets", "data"),

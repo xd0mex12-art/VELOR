@@ -60,8 +60,16 @@ STATUSES = {
 
 COMMUNICATION = "communication"
 DATA = "data"
+MIND = "mind"
 
 CATEGORIES = {
+    # «Разум» идёт первым намеренно. Без модели VELOR продолжает считать числа
+    # и вести записи, но перестаёт делать выводы — а выводы и есть продукт.
+    # Пока этой категории не было, владелец не имел ни одного места в кабинете,
+    # где видно, отвечает модель или нет.
+    MIND:          {"title": "Разум",
+                    "note": "Модель, которая думает за VELOR. Без неё числа "
+                            "считаются, а выводы не собираются."},
     COMMUNICATION: {"title": "Общение",
                     "note": "Каналы, по которым с вами говорят клиенты."},
     DATA:          {"title": "Данные",
@@ -415,8 +423,86 @@ def _api(module_id, category, group, permissions, note=""):
     return ApiAdapter(module, category, group, permissions, note) if module else None
 
 
+class ModelAdapter(Adapter):
+    """
+    Модель, которая думает за VELOR.
+
+    Состояние проверяется живым запросом, а не наличием ключа: «ключ в файле
+    лежит» и «модель отвечает» — разные вещи, и разница как раз та, из-за
+    которой продукт молча переставал думать. Ответ сервиса переводится на
+    человеческий: 401 — это не «ошибка сети», а «ключ больше не действует».
+
+    Ключ через кабинет не вводится и правильно: он общий для всей установки,
+    живёт в .env рядом с сервером и в браузер попадать не должен. Карточка
+    говорит, что и куда положить, — вводит человек сам.
+    """
+    kind = "model"
+
+    def can_connect(self):
+        return False
+
+    def can_disconnect(self):
+        return False
+
+    def can_sync(self):
+        return True          # «Проверить» — это и есть синхронизация состояния
+
+    def _probe(self):
+        """Спросить модель коротко и вернуть (статус, объяснение)."""
+        import ai
+        if not ai.ai_available():
+            return DISCONNECTED, None
+        # Проваливаются все — значит, назвать надо всех. Пока сообщение
+        # показывало последнего опрошенного, владелец шёл чинить не тот ключ.
+        bad = []
+        for name, fn in ai._all_providers():
+            try:
+                fn("Отвечай одним словом.", [{"role": "user", "content": "привет"}],
+                   max_tokens=8)
+                return CONNECTED, None
+            except Exception as e:
+                bad.append((name, str(e)))
+        name = ", ".join(n for n, _ in bad)
+        text = " ".join(t for _, t in bad)
+        if "401" in text or "Unauthorized" in text or "invalid" in text.lower() \
+                or "credentials" in text.lower():
+            return REQUIRES_AUTH, (
+                f"Ключ не принимают: {name}. Он отозван, истёк или выдан другому "
+                "аккаунту — нужен новый в .env, потом перезапуск сервера.")
+        if "429" in text or "quota" in text.lower() or "limit" in text.lower():
+            return ERROR, f"Отказ по лимиту ({name}): запросы кончились или превышена квота."
+        return ERROR, f"Не отвечают: {name}. {text[:140]}"
+
+    def live(self, business_id: int) -> dict:
+        try:
+            status, err = self._probe()
+        except Exception as e:
+            status, err = ERROR, str(e)[:160]
+        import ai
+        conf = {"провайдеры": ", ".join(n for n, _ in ai._all_providers()) or "не настроено"}
+        return {"status": status, "connected_at": None, "last_sync": None,
+                "error": err, "configuration": conf, "items_total": 0}
+
+    def sync(self, business_id: int) -> dict:
+        status, err = self._probe()
+        if status != CONNECTED:
+            raise NotAvailable(err or "Модель не отвечает.")
+        return {"ok": True}
+
+
 def _build():
     items = [
+        ModelAdapter(
+            "model", "Модель", MIND, "Разум",
+            "Читает ваши цифры и превращает их в выводы: брифинг, риски, "
+            "возможности, разбор входящих. Числа и записи считаются без неё, "
+            "выводы — нет.",
+            ["отправлять текст ваших данных в модель"],
+            howto="Ключ общий для всей установки и живёт в файле .env рядом с "
+                  "сервером: GIGACHAT_AUTH_KEY или ANTHROPIC_API_KEY. В браузер "
+                  "он не передаётся и здесь не вводится — впишите его в файл и "
+                  "перезапустите сервер.",
+            manage_href="errors.html"),
         TelegramAdapter(
             "telegram", "Telegram", COMMUNICATION, "Мессенджеры",
             "Клиенты пишут боту — VELOR отвечает, заводит заявки и помнит историю.",

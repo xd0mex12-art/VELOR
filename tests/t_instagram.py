@@ -13,6 +13,7 @@ Instagram как настоящий канал VELOR.
      приложения Instagram;
   7) Telegram от всего этого не изменился.
 """
+import base64
 import os, sys, json, time, hmac, hashlib, datetime, tempfile, pathlib, sqlite3
 
 TMP = pathlib.Path(tempfile.mkdtemp())
@@ -250,8 +251,24 @@ check("лишних прав не просим",
 
 state = url.split("state=")[1].split("&")[0]
 check("state разворачивается в свой бизнес", instagram.read_state(state) == bid)
-forged = state[:-1] + ("A" if state[-1] != "A" else "B")
-check("подделка отличается от оригинала", forged != state)
+# Подделываем ПОДПИСЬ, а не символ строки.
+#
+# Прошлые две редакции этой проверки правили последний символ base64 — и обе
+# оказались негодными. У base64 длина в байтах не всегда делится на 3, и тогда
+# последний символ несёт «неважные» биты: несколько разных символов
+# декодируются в одни и те же байты. Изменённая строка иногда оказывалась тем
+# же самым state, проверка падала без всякой дыры, а причину было не видно.
+#
+# Правим байт подписи после декодирования — тогда подделка отличается от
+# оригинала всегда, и проверяется ровно то, что хотели: несовпадение подписи.
+_pad = "=" * (-len(state) % 4)
+_blob = bytearray(base64.urlsafe_b64decode(state + _pad))
+_blob[-1] ^= 0x5A
+forged = base64.urlsafe_b64encode(bytes(_blob)).decode().rstrip("=")
+check("подделка действительно другая", forged != state, (state, forged))
+check("подделан именно байт подписи",
+      base64.urlsafe_b64decode(forged + "=" * (-len(forged) % 4))[:-instagram.MAC_LEN]
+      == base64.urlsafe_b64decode(state + _pad)[:-instagram.MAC_LEN])
 check("подделанный state не проходит", instagram.read_state(forged) is None)
 check("пустой state не проходит", instagram.read_state("") is None)
 old = instagram._sign_state(bid, int(time.time()) - instagram.STATE_TTL - 10)

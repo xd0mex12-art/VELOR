@@ -5246,6 +5246,23 @@ def _biz_snapshot(bid: int) -> str:
     return ", ".join(parts)
 
 
+def _ai_failure_reason(err) -> str:
+    """Перевести отказ провайдера на человеческий, ничего не разглашая."""
+    t = str(err)
+    low = t.lower()
+    if "401" in t or "unauthorized" in low or "credentials" in low \
+            or "api key is invalid" in low:
+        return ("Модель не приняла ключ — он отозван, истёк или выдан другому "
+                "аккаунту. Нужен новый ключ в .env.")
+    if "429" in t or "quota" in low or "rate limit" in low or "insufficient" in low:
+        return "У модели кончился лимит запросов или баланс."
+    if "timeout" in low or "timed out" in low:
+        return "Модель не ответила вовремя."
+    if "connection" in low or "resolve" in low or "network" in low:
+        return "До модели нет связи с этого сервера."
+    return "Модель сейчас не отвечает."
+
+
 @app.post("/api/ask")
 def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
     """Вопрос ядру — отвечает ИИ (если ключ настроен).
@@ -5263,7 +5280,8 @@ def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
             "Слишком много запросов подряд. Подождите " + ratelimit.human_wait(wait)
             + " и попробуйте снова."))
     if not ai.ai_available():
-        return {"ok": False, "answer": None}   # сайт покажет заготовленную фразу
+        return {"ok": False, "answer": None,
+                "detail": "Модель не настроена: в .env нет ни одного ключа."}
 
     payload = _auth_payload(x_auth)
     # Токен передан, но не распознан (истёк/битый) → отдаём 401, чтобы panel-auth.js
@@ -5319,8 +5337,14 @@ def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
             business = database.get_business(body.business_id)
         business = business or {"name": "VELOR AI"}
         return {"ok": True, "answer": ai.site_answer(business, body.question)}
-    except Exception:
-        return {"ok": False, "answer": None}
+    except Exception as e:
+        # Причину надо назвать. «Не могу ответить» лечится по-разному: отозванный
+        # ключ, кончившаяся квота и упавшая сеть — три разные беды, и владелец
+        # должен знать, какая у него. Текст ошибки провайдера сюда не тащим
+        # целиком: в нём бывает эхо запроса, а сам ключ в сообщениях 401 не
+        # приходит — но полагаться на это не будем.
+        logging.exception("Вопрос к модели не прошёл (biz %s)", bid)
+        return {"ok": False, "answer": None, "detail": _ai_failure_reason(e)}
 
 
 # ---------- Отдаём сайт ----------
