@@ -484,8 +484,14 @@ check("три слоя с разной скоростью", len(periods) == 3, p
 check("периоды не кратны друг другу",
       all(max(a, b) % min(a, b) != 0 for i, a in enumerate(periods)
           for b in periods[i + 1:]), periods)
-check("движение медленное: самый быстрый слой — десятки секунд",
-      periods and min(periods) >= 30, periods)
+# Граница снизу — не «красиво», а «это ещё не анимация интерфейса». Анимации
+# UI живут сотнями миллисекунд; двадцать секунд на цикл на два порядка
+# медленнее. Верхнюю границу не ставим: слишком медленное поле просто
+# перестаёт работать, и это видно глазом, а не тесту.
+check("движение медленное: самый быстрый слой — двадцатки секунд",
+      periods and min(periods) >= 18, periods)
+check("но не настолько, чтобы его не было видно",
+      periods and max(periods) <= 60, periods)
 
 # Поле не мешает работать.
 check("поле не перехватывает нажатия", "pointer-events:none" in FIELD_CSS)
@@ -502,7 +508,12 @@ check("при reduce слои остаются на своих местах: tra
 # На узком экране три объёма дают не глубину, а мутное пятно.
 mob = FIELD_CSS[FIELD_CSS.index("max-width:700px"):]
 check("на узком экране светлый слой снят", ".v-field .vf-l3{ display:none; }" in mob)
-check("на узком экране пик приглушён", "--vf-mob:.72" in mob)
+# Число не фиксируем: важно, что на узком экране множитель ЕСТЬ и он
+# меньше единицы. Иначе тест ломается от каждой правки яркости — и его
+# начинают чинить, не думая, вместо того чтобы проверить экран.
+import re as _re
+_m = _re.search(r"--vf-mob:\s*\.(\d+)", mob)
+check("на узком экране пик приглушён", bool(_m), mob[:120])
 # Состояние и экран пишут в РАЗНЫЕ множители: селектор состояния тяжелее
 # медиа-запроса, и общая переменная означала бы, что узкий экран не действует.
 check("состояние и экран не спорят за одну переменную",
@@ -531,6 +542,121 @@ check("кадры вообще есть", bool(_props))
 check("переход состояния тоже дешёвый",
       not re.search(r"transition:(?![^;]*\b(?:opacity|transform)\b)[^;]*"
                     r"(width|height|top|left|filter|margin|padding)", FIELD_CSS))
+
+print("\n== ЯРКОСТЬ ПОЛЯ ОГРАНИЧЕНА КОНТРАСТОМ, А НЕ ВКУСОМ ==")
+# Поле должно быть заметным — это решение владельца продукта. Но у «заметно»
+# есть потолок, и он не в ощущениях: под самым ярким местом поля лежит текст,
+# и он обязан оставаться читаемым.
+#
+# Считать «сложим пиковые альфы трёх слоёв» — неверно: это предполагает, что
+# три ядра сойдутся в одной точке, а они не могут, центры разнесены и ход
+# дрейфа этого не покрывает. Такая оценка даёт 3.4:1 и требует чинить то, чего
+# на экране не бывает. Поэтому считаем поле по-настоящему: сеткой по экрану,
+# по всем фазам дрейфа, и берём наибольшее из того, что реально появляется.
+import math as _math
+
+_VW, _VH = 1440.0, 900.0
+
+
+def _hex(c):
+    c = c.lstrip("#")
+    return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _lum(rgb):
+    def ch(v):
+        v /= 255.0
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = (ch(x) for x in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def _over(fg, alpha, bg):
+    return tuple(bg[i] + (fg[i] - bg[i]) * alpha for i in range(3))
+
+
+def _token(name):
+    return _hex(re.search(r"--%s:\s*(#[0-9a-fA-F]{6})" % name, CSS).group(1))
+
+
+def _vw(v):
+    return float(v) * _VW / 100.0
+
+
+def _vh(v):
+    return float(v) * _VH / 100.0
+
+
+_geom, _kf, _stops = {}, {}, {}
+for _m in re.finditer(r"\.vf-l(\d)\{ left:(-?[\d.]+)vw; top:(-?[\d.]+)vh; "
+                      r"width:([\d.]+)vw; height:([\d.]+)vh;", FIELD_CSS):
+    _geom[int(_m.group(1))] = (_vw(_m.group(2)), _vh(_m.group(3)),
+                               _vw(_m.group(4)), _vh(_m.group(5)))
+for _m in re.finditer(
+        r"@keyframes vf-d(\d)\{\s*"
+        r"0%,100%\{ transform:translate3d\(\s*(-?[\d.]+)vw,\s*(-?[\d.]+)vh,0\) scale\(([\d.]+)\); \}\s*"
+        r"50%\s*\{ transform:translate3d\(\s*(-?[\d.]+)vw,\s*(-?[\d.]+)vh,0\) scale\(([\d.]+)\); \}",
+        FIELD_CSS):
+    _kf[int(_m.group(1))] = ((_vw(_m.group(2)), _vh(_m.group(3)), float(_m.group(4))),
+                             (_vw(_m.group(5)), _vh(_m.group(6)), float(_m.group(7))))
+for _m in re.finditer(r"\.vf-l(\d) > i\{ background:radial-gradient\(closest-side,\s*(.+?)\); \}",
+                      FIELD_CSS, re.S):
+    _stops[int(_m.group(1))] = [
+        (float(a.group(5)) / 100.0, float(a.group(4)),
+         (int(a.group(1)), int(a.group(2)), int(a.group(3))))
+        for a in re.finditer(r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)\s+([\d.]+)%", _m.group(2))]
+
+check("геометрия, дрейф и градиенты трёх слоёв читаются из CSS",
+      len(_geom) == len(_kf) == len(_stops) == 3,
+      (sorted(_geom), sorted(_kf), sorted(_stops)))
+
+
+def _alpha(i, px, py, t):
+    left, top, w, h = _geom[i]
+    a, b = _kf[i]
+    u = 0.5 - 0.5 * _math.cos(2 * _math.pi * t)
+    e = u * u * (3 - 2 * u)
+    cx = left + w / 2 + a[0] + (b[0] - a[0]) * e
+    cy = top + h / 2 + a[1] + (b[1] - a[1]) * e
+    sc = a[2] + (b[2] - a[2]) * e
+    d = _math.hypot((px - cx) / (w / 2 * sc), (py - cy) / (h / 2 * sc))
+    if d >= 1:
+        return 0.0, (0, 0, 0)
+    st = _stops[i]
+    for k in range(1, len(st)):
+        if d <= st[k][0]:
+            p0, a0, c0 = st[k - 1]
+            p1, a1, c1 = st[k]
+            f = 0 if p1 == p0 else (d - p0) / (p1 - p0)
+            return a0 + (a1 - a0) * f, tuple(c0[j] + (c1[j] - c0[j]) * f for j in range(3))
+    return 0.0, (0, 0, 0)
+
+
+_void = _token("void")
+_peakL, _peak = 0.0, None
+for _ti in range(20):
+    _t = _ti / 20.0
+    for _yi in range(37):
+        _py = _yi * _VH / 36
+        for _xi in range(37):
+            _px = _xi * _VW / 36
+            _c = _void
+            for _i in (1, 2, 3):
+                _a, _col = _alpha(_i, _px, _py, _t)
+                if _a > 0:
+                    _c = _over(_col, _a, _c)
+            _L = _lum(_c)
+            if _L > _peakL:
+                _peakL, _peak = _L, tuple(round(v) for v in _c)
+
+_main = (_lum(_token("bone")) + .05) / (_peakL + .05)
+_quiet = (_lum(_token("ash")) + .05) / (_peakL + .05)
+check(f"самая яркая точка поля за цикл: rgb{_peak}", _peak is not None)
+check(f"основной текст поверх неё — {_main:.2f}:1 (нужно 7)", _main >= 7, round(_main, 2))
+check(f"самый тихий текст поверх неё — {_quiet:.2f}:1 (нужно 4.5)", _quiet >= 4.5, round(_quiet, 2))
+# Запас тонкий намеренно: поле выкручено ровно до границы читаемости.
+# Любая прибавка яркости уронит эту проверку — так и задумано.
+check("поле стоит у границы, а не далеко от неё", _quiet < 7, round(_quiet, 2))
 
 print("\n== ПОЛЕ ГОВОРИТ ТО ЖЕ, ЧТО БРИФИНГ ==")
 # Состояние поля выводится из настоящего разбора Директора: срочный риск,
@@ -582,7 +708,7 @@ if DOC.exists():
     # фонового движения нет» должен быть назван и ограничен прямо в нём,
     # иначе через месяц исключение станет разрешением.
     check("допуск живому полю назван и ограничен",
-          "Именной допуск — живое поле" in d and "71 / 53 / 37" in d)
+          "Именной допуск — живое поле" in d and "38 / 29 / 21" in d)
     check("состояния поля описаны таблицей",
           all(w in d for w in ("waiting", "normal", "risk", "opportunity")))
 
