@@ -18,6 +18,8 @@ import json
 import re
 import time
 import uuid
+import contextvars
+import functools
 
 import requests
 
@@ -728,8 +730,22 @@ def _system_site(business: dict) -> str:
 #  Провайдер 1: Claude
 # ============================================================
 
-def _claude_chat(system: str, messages: list[dict], max_tokens=1024) -> str:
-    r = _claude.messages.create(
+# Клиент на каждый ключ: у платформы свой, у бизнеса — свой. Держим их
+# рядом, чтобы не собирать заново на каждый запрос.
+_claude_clients: dict[str, object] = {}
+
+
+def _claude_for(key: str | None):
+    if not key:
+        return _claude
+    if key not in _claude_clients:
+        import anthropic
+        _claude_clients[key] = anthropic.Anthropic(api_key=key)
+    return _claude_clients[key]
+
+
+def _claude_chat(system: str, messages: list[dict], max_tokens=1024, key=None) -> str:
+    r = _claude_for(key).messages.create(
         model=CLAUDE_MODEL,
         max_tokens=max_tokens,
         system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
@@ -742,16 +758,21 @@ def _claude_chat(system: str, messages: list[dict], max_tokens=1024) -> str:
 #  Провайдер 2: GigaChat (Сбер)
 # ============================================================
 
-_giga_token = {"value": None, "exp": 0}
+# Токен на каждый ключ, а не один на всех: у платформы и у бизнеса ключи
+# разные, и общий кеш выдавал бы чужой токен.
+_giga_tokens: dict[str, dict] = {}
 
-def _giga_access_token() -> str:
+
+def _giga_access_token(auth_key: str | None = None) -> str:
     """Получить/обновить токен доступа (живёт 30 минут)."""
+    auth_key = auth_key or GIGACHAT_AUTH_KEY
+    _giga_token = _giga_tokens.setdefault(auth_key or "", {"value": None, "exp": 0})
     if _giga_token["value"] and time.time() < _giga_token["exp"] - 60:
         return _giga_token["value"]
     r = requests.post(
         "https://ngw.devices.sberbank.ru:9443/api/v2/oauth",
         headers={
-            "Authorization": f"Basic {GIGACHAT_AUTH_KEY}",
+            "Authorization": f"Basic {auth_key}",
             "RqUID": str(uuid.uuid4()),
             "Content-Type": "application/x-www-form-urlencoded",
         },
@@ -766,8 +787,8 @@ def _giga_access_token() -> str:
     return _giga_token["value"]
 
 
-def _giga_chat(system: str, messages: list[dict], max_tokens=1024) -> str:
-    token = _giga_access_token()
+def _giga_chat(system: str, messages: list[dict], max_tokens=1024, key=None) -> str:
+    token = _giga_access_token(key)
     r = requests.post(
         "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
@@ -792,10 +813,10 @@ def _giga_chat(system: str, messages: list[dict], max_tokens=1024) -> str:
 # получает одинаково качественный контекст, поэтому отдельного промпта под
 # Gemini нет и не нужно.
 
-def _gemini_chat(system: str, messages: list[dict], max_tokens=1024) -> str:
+def _gemini_chat(system: str, messages: list[dict], max_tokens=1024, key=None) -> str:
     r = requests.post(
         f"{GEMINI_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {GEMINI_API_KEY}",
+        headers={"Authorization": f"Bearer {key or GEMINI_API_KEY}",
                  "Content-Type": "application/json"},
         json={
             "model": GEMINI_MODEL,
@@ -820,9 +841,59 @@ except Exception:
 #  Общий вход: выбор провайдера + запасной вариант
 # ============================================================
 
-# Приоритет провайдеров: Gemini — ОСНОВА, GigaChat — СТРАХОВКА, Claude — крайний
-# запасной (если кто-то задал ключ). Каждый включается только при своём ключе.
-def _all_providers():
+# ── ЧЕЙ КЛЮЧ ──────────────────────────────────────────────────────────────
+# У VELOR есть БАЗОВЫЙ ключ: он общий, лежит в .env рядом с сервером и работает
+# у всех сразу — бизнесу не нужно ничего настраивать, чтобы ИИ отвечал.
+#
+# Сверх этого бизнес может подключить СВОЙ ключ. Тогда его запросы идут через
+# него: свой лимит, свой счёт, своя модель. Если свой ключ перестал отвечать,
+# работа не встаёт — подхватывает базовый, но карточка в «Подключениях» об
+# этом говорит прямо. Молча платить за чужой сломанный ключ нельзя, но и
+# останавливать бизнес из-за истёкшей карты — тоже.
+#
+# Бизнес передаётся не аргументом, а контекстом: зовущих модель мест больше
+# сорока, и протаскивать business_id через каждую сигнатуру значило бы
+# переписать половину продукта ради одного признака.
+_BIZ = contextvars.ContextVar("velor_ai_business", default=None)
+
+
+class for_business:
+    """Пока открыт — модель отвечает ключом этого бизнеса, если он свой."""
+
+    def __init__(self, business_id):
+        self.bid = business_id
+        self._token = None
+
+    def __enter__(self):
+        self._token = _BIZ.set(self.bid)
+        return self
+
+    def __exit__(self, *exc):
+        _BIZ.reset(self._token)
+        return False
+
+
+_MODEL_FNS = {"gemini": _gemini_chat, "gigachat": _giga_chat, "claude": _claude_chat}
+
+
+def own_key(business_id) -> tuple[str, str] | None:
+    """Свой ключ бизнеса: (провайдер, ключ) или None. Наружу не отдаётся."""
+    if not business_id:
+        return None
+    try:
+        import database, secretbox, json as _json
+        row = database.get_connection(business_id, "model", with_secrets=True)
+        if not row or not row.get("credentials"):
+            return None
+        creds = _json.loads(secretbox.open_(row["credentials"]) or "{}")
+        prov, key = creds.get("provider"), creds.get("key")
+        return (prov, key) if prov in _MODEL_FNS and key else None
+    except Exception:
+        return None
+
+
+def _platform_providers():
+    """Базовый ключ VELOR — общий для всех."""
     order = []
     if GEMINI_API_KEY:
         order.append(("gemini", _gemini_chat))
@@ -831,6 +902,17 @@ def _all_providers():
     if _claude:
         order.append(("claude", _claude_chat))
     return order
+
+
+def _all_providers(business_id=None):
+    """Свой ключ бизнеса первым, базовый — страховкой за ним."""
+    bid = business_id if business_id is not None else _BIZ.get()
+    own = own_key(bid)
+    if not own:
+        return _platform_providers()
+    prov, key = own
+    mine = ("свой " + prov, functools.partial(_MODEL_FNS[prov], key=key))
+    return [mine] + _platform_providers()
 
 
 # Кулдаун после сбоя: чтобы не долбить упавшего провайдера каждым запросом, но и
@@ -845,8 +927,9 @@ def _providers():
     return live or _all_providers()   # все в кулдауне — не сдаёмся, пробуем всех
 
 
-def ai_available() -> bool:
-    return bool(GEMINI_API_KEY or _claude or GIGACHAT_AUTH_KEY)
+def ai_available(business_id=None) -> bool:
+    """Есть ли кому отвечать: свой ключ бизнеса или базовый ключ VELOR."""
+    return bool(_all_providers(business_id))
 
 
 def ping() -> str | None:
@@ -1232,3 +1315,49 @@ def write_document(business: dict, kind: str, facts_text: str) -> str:
         )
     return _ask(system, [{"role": "user", "content": facts_text[:2000]}],
                 max_tokens=500).strip()
+
+
+# ============================================================
+#  Чей ключ: связывание без правки вызовов
+# ============================================================
+# Почти каждая публичная функция здесь и так принимает первым аргументом
+# `business` — строку компании из базы, где есть id. Значит, ничего протаскивать
+# не нужно: достаточно один раз обернуть эти функции и брать бизнес оттуда.
+#
+# Список функций не выписан руками намеренно. Руками его забудут пополнить при
+# следующей добавленной функции, и она молча пойдёт на базовый ключ, пока
+# бизнес платит за свой. Поэтому обёртка ставится по СИГНАТУРЕ: первый
+# аргумент называется business — значит, знаем чей ключ.
+
+def _bind_business(fn):
+    @functools.wraps(fn)
+    def wrapper(business=None, *a, **kw):
+        bid = business.get("id") if isinstance(business, dict) else None
+        # Контекст уже установлен снаружи (например, фоновой задачей) — не
+        # перебиваем: внешний знает больше, чем переданный словарь.
+        if bid is None or _BIZ.get() is not None:
+            return fn(business, *a, **kw)
+        with for_business(bid):
+            return fn(business, *a, **kw)
+    return wrapper
+
+
+def _wrap_business_functions():
+    import inspect
+    wrapped = []
+    for name, fn in list(globals().items()):
+        if name.startswith("_") or not inspect.isfunction(fn):
+            continue
+        if getattr(fn, "__module__", None) != __name__:
+            continue
+        try:
+            params = list(inspect.signature(fn).parameters)
+        except (TypeError, ValueError):
+            continue
+        if params and params[0] == "business":
+            globals()[name] = _bind_business(fn)
+            wrapped.append(name)
+    return wrapped
+
+
+AI_BUSINESS_FUNCTIONS = _wrap_business_functions()

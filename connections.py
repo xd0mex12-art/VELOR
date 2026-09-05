@@ -439,23 +439,23 @@ class ModelAdapter(Adapter):
     kind = "model"
 
     def can_connect(self):
-        return False
+        return True          # свой ключ — по желанию, поверх базового
 
     def can_disconnect(self):
-        return False
+        return True          # отключить свой ключ = вернуться на базовый
 
     def can_sync(self):
         return True          # «Проверить» — это и есть синхронизация состояния
 
-    def _probe(self):
+    def _probe(self, business_id=None):
         """Спросить модель коротко и вернуть (статус, объяснение)."""
         import ai
-        if not ai.ai_available():
+        if not ai.ai_available(business_id):
             return DISCONNECTED, None
         # Проваливаются все — значит, назвать надо всех. Пока сообщение
         # показывало последнего опрошенного, владелец шёл чинить не тот ключ.
         bad = []
-        for name, fn in ai._all_providers():
+        for name, fn in ai._all_providers(business_id):
             try:
                 fn("Отвечай одним словом.", [{"role": "user", "content": "привет"}],
                    max_tokens=8)
@@ -466,25 +466,78 @@ class ModelAdapter(Adapter):
         text = " ".join(t for _, t in bad)
         if "401" in text or "Unauthorized" in text or "invalid" in text.lower() \
                 or "credentials" in text.lower():
+            # Куда идти чинить — зависит от того, ЧЕЙ ключ сломан. Свой ключ
+            # бизнеса лежит в базе и меняется здесь же; базовый ключ VELOR
+            # живёт в .env на сервере, и владелец компании до него не дотянется.
+            if ai.own_key(business_id):
+                return REQUIRES_AUTH, (
+                    f"Ключ не принимают: {name}. Замените свой ключ здесь же — "
+                    "или отключите его, и VELOR вернётся на базовый.")
             return REQUIRES_AUTH, (
-                f"Ключ не принимают: {name}. Он отозван, истёк или выдан другому "
-                "аккаунту — нужен новый в .env, потом перезапуск сервера.")
+                f"Базовый ключ не принимают: {name}. Он отозван, истёк или выдан "
+                "другому аккаунту — нужен новый в .env на сервере. Свой ключ можно "
+                "подключить здесь, тогда ИИ заработает сразу.")
         if "429" in text or "quota" in text.lower() or "limit" in text.lower():
             return ERROR, f"Отказ по лимиту ({name}): запросы кончились или превышена квота."
         return ERROR, f"Не отвечают: {name}. {text[:140]}"
 
     def live(self, business_id: int) -> dict:
+        import ai, secretbox
+        own = ai.own_key(business_id)
         try:
-            status, err = self._probe()
+            status, err = self._probe(business_id)
         except Exception as e:
             status, err = ERROR, str(e)[:160]
-        import ai
-        conf = {"провайдеры": ", ".join(n for n, _ in ai._all_providers()) or "не настроено"}
-        return {"status": status, "connected_at": None, "last_sync": None,
-                "error": err, "configuration": conf, "items_total": 0}
+
+        # Чей ключ отвечает — половина смысла этой карточки. «Работает» и
+        # «работает на вашем ключе» это разные новости, и вторую владелец
+        # должен видеть без догадок.
+        conf = {"ключ": ("свой (" + own[0] + ", " + secretbox.mask(own[1]) + ")")
+                        if own else "базовый ключ VELOR"}
+        base = ", ".join(n for n, _ in ai._platform_providers()) or "не настроен"
+        conf["базовый"] = base
+
+        if own and status == CONNECTED:
+            # Свой ключ мог упасть, а ответить базовый — тогда это не «всё
+            # хорошо». Спрашиваем свой отдельно и говорим правду.
+            try:
+                prov, key = own
+                ai._MODEL_FNS[prov]("Отвечай одним словом.",
+                                    [{"role": "user", "content": "привет"}],
+                                    max_tokens=8, key=key)
+            except Exception as e:
+                err = ("Ваш ключ не отвечает (" + str(e)[:90] + ") — "
+                       "работаем на базовом ключе VELOR.")
+                status = REQUIRES_AUTH
+        row = database.get_connection(business_id, self.id) or {}
+        return {"status": status, "connected_at": row.get("connected_at"),
+                "last_sync": None, "error": err, "configuration": conf,
+                "items_total": 0}
+
+    def connect(self, business_id: int, config: dict) -> None:
+        import ai, secretbox, json as _json
+        prov = (config.get("provider") or "").strip().lower()
+        key = (config.get("key") or "").strip()
+        if prov not in ai._MODEL_FNS:
+            raise NotAvailable("Выберите модель: " + ", ".join(sorted(ai._MODEL_FNS)) + ".")
+        if not key:
+            raise NotAvailable("Вставьте ключ.")
+        # Проверяем ДО сохранения: принять ключ, который не работает, значит
+        # выключить бизнесу ИИ и не сказать об этом.
+        try:
+            ai._MODEL_FNS[prov]("Отвечай одним словом.",
+                                [{"role": "user", "content": "привет"}],
+                                max_tokens=8, key=key)
+        except Exception as e:
+            raise NotAvailable("Модель не приняла этот ключ: " + str(e)[:160])
+        database.save_connection(
+            business_id, self.id,
+            credentials_blob=secretbox.seal(_json.dumps({"provider": prov, "key": key})),
+            status="connected", permissions=self.permissions,
+            config={"провайдер": prov})
 
     def sync(self, business_id: int) -> dict:
-        status, err = self._probe()
+        status, err = self._probe(business_id)
         if status != CONNECTED:
             raise NotAvailable(err or "Модель не отвечает.")
         return {"ok": True}
@@ -498,11 +551,19 @@ def _build():
             "возможности, разбор входящих. Числа и записи считаются без неё, "
             "выводы — нет.",
             ["отправлять текст ваших данных в модель"],
-            howto="Ключ общий для всей установки и живёт в файле .env рядом с "
-                  "сервером: GIGACHAT_AUTH_KEY или ANTHROPIC_API_KEY. В браузер "
-                  "он не передаётся и здесь не вводится — впишите его в файл и "
-                  "перезапустите сервер.",
-            manage_href="errors.html"),
+            fields=[
+                {"key": "provider", "label": "Модель", "required": True,
+                 "placeholder": "gigachat / claude / gemini",
+                 "hint": "Чей ключ вы вставляете."},
+                {"key": "key", "label": "Ключ", "required": True, "secret": True,
+                 "placeholder": "вставьте ключ",
+                 "hint": "Хранится зашифрованным и обратно в браузер не отдаётся."},
+            ],
+            howto="ИИ уже работает на базовом ключе VELOR — подключать ничего не "
+                  "нужно. Свой ключ имеет смысл, если хотите свой лимит, свой "
+                  "счёт или другую модель. Ключ проверяется живым запросом перед "
+                  "сохранением и хранится зашифрованным.",
+            note="Свой ключ отключить можно в любой момент — вернётесь на базовый."),
         TelegramAdapter(
             "telegram", "Telegram", COMMUNICATION, "Мессенджеры",
             "Клиенты пишут боту — VELOR отвечает, заводит заявки и помнит историю.",

@@ -120,14 +120,75 @@ check("категории: разум, общение, данные",
 check("модель — самое важное подключение и стоит первой",
       d["categories"][0]["items"][0]["provider"] == "model",
       [i["provider"] for i in d["categories"][0]["items"]])
-# Ключ модели общий для всей установки и живёт в .env рядом с сервером.
-# В браузер он не передаётся и через кабинет не вводится.
 _model = d["categories"][0]["items"][0]
-check("ключ модели не вводится через кабинет", not _model.get("fields"), _model.get("fields"))
-check("карточка говорит, куда класть ключ",
-      ".env" in (_model.get("howto") or ""), _model.get("howto"))
 check("состояние модели — не «есть ключ», а живой ответ",
       "_probe" in open(os.path.join(ROOT, "connections.py"), encoding="utf-8").read())
+
+print("\n== БАЗОВЫЙ ИИ РАБОТАЕТ СРАЗУ, СВОЙ КЛЮЧ — ПО ЖЕЛАНИЮ ==")
+import ai as _ai, secretbox as _sb, json as _json2
+# Смысл всей конструкции: чтобы ИИ отвечал, бизнесу не нужно ничего вводить.
+# Базовый ключ VELOR общий и лежит в .env на сервере.
+# В тестовом окружении .env не загружается, и базового ключа тут нет — так и
+# должно быть: проверки не имеют права зависеть от ключей рабочей машины.
+# Поэтому проверяем УСТРОЙСТВО, а не наличие ключа.
+_base = [n for n, _ in _ai._platform_providers()]
+check("базовый ключ — понятие продукта, а не бизнеса",
+      callable(_ai._platform_providers))
+check("без своего ключа бизнес пользуется базовым",
+      _ai.own_key(bid) is None
+      and [n for n, _ in _ai._all_providers(bid)] == _base)
+check("карточка объясняет, что настраивать ничего не надо",
+      "базовом ключе" in (_model.get("howto") or ""), _model.get("howto"))
+check("свой ключ можно подключить", bool(_model.get("fields")))
+check("ключ в форме помечен секретным",
+      any(f.get("secret") for f in _model["fields"] if f["key"] == "key"), _model["fields"])
+
+# Негодный ключ не должен сохраняться: принять его — значит выключить бизнесу
+# ИИ и не сказать об этом.
+try:
+    connections.connect(bid, "model", {"provider": "claude", "key": "sk-ant-api03-broken"})
+    check("негодный ключ не принимается", False, "приняли")
+except Exception:
+    check("негодный ключ не принимается", True)
+check("и в базе после отказа ничего не осталось",
+      database.get_connection(bid, "model") is None)
+
+# Дальше — с заведомо «рабочим» ключом в обход проверки: живого ключа в тестах
+# нет, а проверить надо предпочтение и изоляцию, а не сеть.
+database.save_connection(
+    bid, "model",
+    credentials_blob=_sb.seal(_json2.dumps({"provider": "gigachat", "key": "TESTKEY"})),
+    status="connected", permissions=[], config={})
+check("свой ключ читается обратно", _ai.own_key(bid) == ("gigachat", "TESTKEY"))
+_mine = [n for n, _ in _ai._all_providers(bid)]
+check("свой ключ идёт первым", _mine and _mine[0].startswith("свой"), _mine)
+check("базовые остаются страховкой за ним", _mine[1:] == _base, (_mine, _base))
+# Бизнес передаётся контекстом: зовущих модель мест больше сорока, и
+# протаскивать business_id через каждую сигнатуру не стали.
+with _ai.for_business(bid):
+    check("контекст бизнеса подхватывается без аргументов",
+          [n for n, _ in _ai._all_providers()][0].startswith("свой"))
+check("вне контекста чужой ключ не подхватывается",
+      [n for n, _ in _ai._all_providers()] == _base)
+
+# Секрет наружу не отдаётся никогда — ни в каталоге, ни в состоянии.
+_blob = _json2.dumps(connections.catalog(bid), ensure_ascii=False)
+check("ключ не утекает в каталог", "TESTKEY" not in _blob)
+_row = database.get_connection(bid, "model")
+check("ключ не отдаётся вместе с записью подключения", "credentials" not in (_row or {}))
+_card = connections.catalog(bid)["categories"][0]["items"][0]
+check("владельцу показан только хвост ключа",
+      "…TKEY" in _json2.dumps(_card.get("configuration"), ensure_ascii=False),
+      _card.get("configuration"))
+
+# Соседу чужой ключ не достаётся.
+check("свой ключ не виден соседу", _ai.own_key(bid2) is None)
+
+# Отключение возвращает на базовый — бизнес не остаётся без ИИ.
+connections.disconnect(bid, "model")
+check("после отключения бизнес возвращается на базовый",
+      _ai.own_key(bid) is None
+      and [n for n, _ in _ai._all_providers(bid)] == _base)
 for want, cat in (("telegram", "communication"), ("instagram", "communication"),
                   ("website", "communication"), ("whatsapp", "communication"),
                   ("bank", "data"), ("google_drive", "data"), ("google_sheets", "data"),

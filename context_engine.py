@@ -392,8 +392,11 @@ def respond(business_id: int, question: str, *, role: str | None = None,
 
     system = build_system(business, question, role=role, client_id=client_id,
                           snapshot=snapshot, persona=persona)
-    answer = ai._ask(system, [{"role": "user", "content": (question or "")[:800]}],
-                     max_tokens=max_tokens).strip()
+    # Ключ бизнеса, если он свой: context_engine зовёт модель напрямую, минуя
+    # публичные функции ai, и сам по себе бизнес до неё не доносит.
+    with ai.for_business(business_id):
+        answer = ai._ask(system, [{"role": "user", "content": (question or "")[:800]}],
+                         max_tokens=max_tokens).strip()
     return check_and_improve(answer, business)
 
 
@@ -419,7 +422,8 @@ def respond_chat(business_id: int, history: list[dict], *, client_info: dict | N
     system = ai._system_chat(business, client_info, docs)
     system += _client_block(business_id, client_id, with_messages=False)
 
-    raw = ai._ask(system, history)
+    with ai.for_business(business_id):
+        raw = ai._ask(system, history)
 
     # Извлечение заказа — та же логика, что в ai.chat_reply (бизнес-логику не меняем).
     order = None
