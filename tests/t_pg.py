@@ -85,7 +85,8 @@ def sql_literals(path):
 
 # Тесты и папка agents работают со своими локальными файлами SQLite и на
 # боевой сервер не ходят — их диалект никому не мешает.
-FILES = sorted(ROOT.glob("*.py")) + sorted((ROOT / "connectors").glob("*.py"))
+FILES = (sorted(ROOT.glob("*.py")) + sorted((ROOT / "connectors").glob("*.py"))
+         + sorted((ROOT / "tools").glob("*.py")))
 
 # Единственное исключение. PRAGMA стоит внутри ветки _connect(), которая
 # работает только с SQLite: до Postgres этот оператор не доходит физически —
