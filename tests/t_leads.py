@@ -296,6 +296,21 @@ r = c.get("/api/leads?status=won", headers=H)
 check("а срез «купили» — только купивших",
       all(i["status"] == "won" for i in r.json()["items"]), r.json()["items"])
 
+# «Ждут ответа» — канонический счётчик: клиент написал последним, ответа нет.
+# На него опирается не только эта страница, но и живое поле кабинета, поэтому
+# он обязан считаться по ВСЕМУ срезу открытых, а не по показанной странице:
+# главная просит одну строку и берёт из ответа только цифры.
+one = c.get("/api/leads?status=open&limit=1", headers=H).json()
+allp = c.get("/api/leads?status=open&limit=200", headers=H).json()
+check("«ждут ответа» приезжает числом",
+      isinstance(one["stats"].get("waiting"), int), one["stats"])
+check("и считается по всему срезу, а не по странице",
+      len(one["items"]) == 1 and one["stats"]["waiting"] == allp["stats"]["waiting"],
+      (len(one["items"]), one["stats"]["waiting"], allp["stats"]["waiting"]))
+check("считается только среди открытых",
+      one["stats"]["waiting"] <= len(allp["items"]),
+      (one["stats"]["waiting"], len(allp["items"])))
+
 r = c.get(f"/api/leads/{lid}", headers=H)
 card = r.json()
 check("карточка открывается", r.status_code == 200, r.text)

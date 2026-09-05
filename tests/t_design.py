@@ -420,7 +420,7 @@ check("отметка гаснет сама, а не мигает", "@keyframes 
 check("состояние обновления названо словом", "обновлено только что" in DASH)
 check("всплывающих окон при обновлении нет", "alert(" not in DASH)
 
-print("\n== ЖИВОЕ ПОЛЕ: СОСТОЯНИЕ, А НЕ ОБОИ ==")
+print("\n== ЖИВОЕ ПОЛЕ: ПРОСТРАНСТВО, А НЕ ОБОИ ==")
 import math as _math
 
 FIELD_JS = io.open(WEB / "velor-field.js", encoding="utf-8").read()
@@ -428,7 +428,9 @@ FIELD_JS = io.open(WEB / "velor-field.js", encoding="utf-8").read()
 # почему ни канваса, ни покадрового цикла здесь нет.
 FIELD_CODE = "\n".join(l for l in FIELD_JS.splitlines()
                        if not l.strip().startswith("//"))
-FIELD_CSS = CSS[CSS.index("ЖИВОЕ ПОЛЕ"):CSS.index("body > footer")]
+FIELD_ALL = CSS[CSS.index("ЖИВОЕ ПОЛЕ"):CSS.index("body > footer")]
+FIELD_MOB = FIELD_ALL[FIELD_ALL.index("@media(max-width:700px)"):]
+FIELD_CSS = FIELD_ALL[:FIELD_ALL.index("@media(max-width:700px)")]
 
 # Поле — часть кабинета, а не украшение одной страницы.
 no_field = [n for n in CABINET
@@ -443,83 +445,159 @@ for banned in ("canvas", "THREE", "three.min", "requestAnimationFrame",
 check("поле не рисуется в JS покадрово", "setInterval" not in FIELD_CODE)
 
 # Поле показывает состояние — оно не имеет права изображать данные.
-for banned in ("particle", "star", "neural", "node", "network"):
+for banned in ("particle", "star", "neural", "network"):
     check(f"поле не притворяется данными: нет «{banned}»",
           banned not in FIELD_CODE.lower() and banned not in FIELD_CSS.lower(), banned)
 
-print("\n== СПЛОШНАЯ МАССА, А НЕ ПЯТНА И НЕ ПОЛОСЫ ==")
-# История приёма: пятна (движения не видно) → быстрые пятна (по-прежнему не
-# видно) → ленты с тугой кромкой (видно, но кромка выдала форму, и поле стало
-# читаться как полосы). Вывод: границей может быть не только контур, но и
-# смена оттенка. Пять долей перекрываются так плотно, что контуров нет, а
-# движение видно по цветовым переходам между ними.
-GEOM = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
-        for m in re.finditer(r"\.vf-l(\d)\{ left:\s*(-?[\d.]+)vw; top:\s*(-?[\d.]+)vh; "
-                             r"width:([\d.]+)vw; height:([\d.]+)vh; \}", FIELD_CSS)}
-check("долей пять", len(GEOM) == 5, sorted(GEOM))
-check("каждая закрывает почти весь экран — масса сплошная",
-      all(g[2] >= 100 and g[3] >= 95 for g in GEOM.values()),
-      {i: (g[2], g[3]) for i, g in GEOM.items()})
-# Если бы доли стояли врозь, между ними были бы дыры и масса распалась бы.
-_cx = {i: g[0] + g[2] / 2 for i, g in GEOM.items()}
-_cy = {i: g[1] + g[3] / 2 for i, g in GEOM.items()}
-check("центры долей разведены — иначе они лягут одна в одну",
-      max(_cx.values()) - min(_cx.values()) >= 25, sorted(round(v) for v in _cx.values()))
-check("но не разбросаны — масса должна оставаться одной",
-      max(_cx.values()) - min(_cx.values()) <= 90, sorted(round(v) for v in _cx.values()))
+# Корень поля назывался .v-field — тем же именем, что и обёртка поля ввода в
+# разделе «ФОРМА». Из-за этого фон получал `margin-bottom` от формы и был на
+# 20px короче экрана: у fixed-элемента с inset:0 нижний отступ вычитается из
+# высоты. Имена разведены.
+check("корень поля не делит имя с компонентом формы",
+      "'v-live'" in FIELD_JS and ".v-live{" in FIELD_CSS
+      and ".v-field{" not in FIELD_CSS)
 
-STOPS = {int(m.group(1)): [(float(a.group(5)) / 100.0, float(a.group(4)),
-                           (int(a.group(1)), int(a.group(2)), int(a.group(3))))
-                          for a in re.finditer(
-                              r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)\s+([\d.]+)%", m.group(2))]
-         for m in re.finditer(r"\.vf-l(\d) > \.vf-t > \.vf-o > i\{ "
-                              r"background:radial-gradient\(closest-side,\s*(.+?)\); \}",
-                              FIELD_CSS, re.S)}
-check("цвет каждой доли задан", len(STOPS) == 5, sorted(STOPS))
-# Обратное прежнему требованию: край доли НЕ должен читаться. Тугая кромка
-# (вторая остановка близко к центру) выдала бы форму, и масса опять
-# распалась бы на пятна.
-check("растяжка мягкая: контур доли не читается",
-      all(st[1][0] >= 0.35 for st in STOPS.values()),
-      {i: st[1][0] for i, st in STOPS.items()})
+print("\n== ТРИ ОБЪЁМА, РАЗНЕСЁННЫХ ПО ГЛУБИНЕ ==")
+# Прошлая редакция была сплошной светящейся массой во весь экран — и читалась
+# как холодный переливающийся градиент, то есть как приём, а не как
+# пространство. Свет собран в три отдельных объёма, и главное в них не
+# яркость, а пустота между ними.
+BOXRE = (r"\.vf-v(\d)\{\s*left:\s*(-?[\d.]+)vw;\s*top:\s*(-?[\d.]+)vh;\s*"
+         r"width:\s*([\d.]+)vw;\s*height:\s*([\d.]+)vh;\s*\}")
+BOX = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
+       for m in re.finditer(BOXRE, FIELD_CSS)}
+check("объёмов ровно три", len(BOX) == 3 and set(BOX) == {1, 2, 3}, sorted(BOX))
+check("каждый крупнее экрана — у объёма не должно быть видимой границы",
+      all(g[2] >= 50 and g[3] >= 45 for g in BOX.values()),
+      {i: (g[2], g[3]) for i, g in BOX.items()})
+check("каждый частично уходит за край viewport",
+      all(g[0] < 0 or g[1] < 0 or g[0] + g[2] > 100 or g[1] + g[3] > 100
+          for g in BOX.values()), BOX)
 
-print("\n== ПЕРЕЛИВ: ОТТЕНКИ РАЗНЫЕ И ДЫШАТ ==")
-# Перелив невозможен, если все доли одного цвета: тогда наложение меняет
-# только яркость. Нужен разброс по тону.
-_hues = {i: st[0][2] for i, st in STOPS.items()}
-check("оттенки долей различаются", len(set(_hues.values())) == 5, _hues)
+CTR = {i: (g[0] + g[2] / 2, g[1] + g[3] / 2) for i, g in BOX.items()}
+pairs = [(a, b) for a in CTR for b in CTR if a < b]
+dist = {(a, b): _math.hypot(CTR[a][0] - CTR[b][0], CTR[a][1] - CTR[b][1]) for a, b in pairs}
+check("центры объёмов разнесены далеко — иначе три массы сольются в одну",
+      min(dist.values()) >= 55, {k: round(v) for k, v in dist.items()})
+
+CORE = {}
+for m in re.finditer(r"\.vf-v(\d) \.vf-o > i\.([abc])\{\s*left:\s*(-?[\d.]+)%;\s*top:\s*(-?[\d.]+)%;\s*"
+                     r"width:\s*([\d.]+)%;\s*height:\s*([\d.]+)%;\s*\}", FIELD_CSS):
+    CORE[(int(m.group(1)), m.group(2))] = tuple(float(x) for x in m.groups()[2:])
+check("у каждого объёма три смещённых ядра", len(CORE) == 9, sorted(CORE))
 
 
-def _spread(vals):
-    return max(vals) - min(vals)
+def _core_centre(v, k):
+    cl, ct, cw, ch = CORE[(v, k)]
+    L, T, W, H = BOX[v]
+    return (L + W * cl / 100 + W * cw / 200, T + H * ct / 100 + H * ch / 200)
 
 
-_rb = [c[0] - c[2] for c in _hues.values()]     # красный минус синий — грубая мера тона
-check("разброс по тону достаточный, чтобы наложение читалось цветом",
-      _spread(_rb) >= 100, sorted(_rb))
-check("в поле нет смысловых цветов продукта вне примесей",
-      all(not (c[1] > c[0] and c[1] > c[2]) for c in _hues.values()), _hues)
+# Три одинаковых круга — это не объёмы. Ядра должны стоять несимметрично:
+# центр их совокупности заметно смещён относительно центра рамки объёма.
+for v in (1, 2, 3):
+    cs = [_core_centre(v, k) for k in "abc"]
+    mx = sum(c[0] for c in cs) / 3 - CTR[v][0]
+    my = sum(c[1] for c in cs) / 3 - CTR[v][1]
+    off = _math.hypot(mx / BOX[v][2], my / BOX[v][3])
+    check(f"объём {v} несимметричен — силуэт дольчатый, а не круглый",
+          off >= .04, round(off, 3))
+check("раскладка ядер у объёмов разная — не один силуэт под тремя поворотами",
+      len({tuple(sorted(CORE[(v, k)] for k in "abc")) for v in (1, 2, 3)}) == 3)
 
-GLOW = {int(m.group(1)): (float(m.group(2)), float(m.group(3)))
+# Между объёмами обязана оставаться пустота, и стоять она должна там, где
+# читают: ни одно ядро не имеет права светить сердцевиной в середину экрана.
+inside = [(v, k) for v in (1, 2, 3) for k in "abc"
+          if 22 <= _core_centre(v, k)[0] <= 78 and 18 <= _core_centre(v, k)[1] <= 82]
+check("ни одна сердцевина не стоит посреди экрана — там воздух", not inside, inside)
+
+print("\n== ГЛУБИНА СДЕЛАНА ПРИЗНАКАМИ, А НЕ 3D ==")
+DRIFT = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
+         for m in re.finditer(r"@keyframes vf-drift(\d)\{ 0%,100%\{ transform:translate3d\(\s*(-?[\d.]+)vw,\s*"
+                              r"(-?[\d.]+)vh,0\); \}\s*50%\{ transform:translate3d\(\s*(-?[\d.]+)vw,\s*"
+                              r"(-?[\d.]+)vh,0\); \} \}", FIELD_CSS)}
+FORM = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
+        for m in re.finditer(r"@keyframes vf-form(\d)\{ 0%,100%\{ transform:scale\(([\d.]+),([\d.]+)\); \}\s*"
+                             r"50%\{ transform:scale\(([\d.]+),([\d.]+)\); \} \}", FIELD_CSS)}
+TURN = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
+        for m in re.finditer(r"@keyframes vf-turn(\d)\{ 0%,100%\{ transform:rotate\((-?[\d.]+)deg\); \}\s*"
+                             r"50%\{ transform:rotate\((-?[\d.]+)deg\); \} \}", FIELD_CSS)}
+GLOW = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
         for m in re.finditer(r"@keyframes vf-glow(\d)\{ 0%,100%\{ opacity:([\d.]+); \}\s*"
                              r"50%\{ opacity:([\d.]+); \} \}", FIELD_CSS)}
-check("у каждой доли своя волна прозрачности", len(GLOW) == 5, sorted(GLOW))
-# Мелкое колебание читается как мерцание, а не как смена оттенка.
-check("волна глубокая — это перелив, а не мерцание",
-      all(abs(a - b) >= 0.5 for a, b in GLOW.values()),
-      {i: round(abs(a - b), 2) for i, (a, b) in GLOW.items()})
-check("доли гаснут вразнобой, иначе гаснет вся масса разом",
-      len({round(a, 2) for a, b in GLOW.values()}) >= 4, GLOW)
+check("движение всех объёмов читается из CSS",
+      len(DRIFT) == len(FORM) == len(TURN) == len(GLOW) == 3,
+      (sorted(DRIFT), sorted(FORM), sorted(TURN), sorted(GLOW)))
 
-print("\n== ТРИ РИТМА НА ДОЛЮ И ПРОСТЫЕ ПЕРИОДЫ ==")
+# 1. Параллакс. Дальний проходит по экрану заметно меньше ближнего — это и
+#    есть ощущение расстояния, и оно бесплатное.
+travel = {v: _math.hypot(DRIFT[v][2] - DRIFT[v][0], DRIFT[v][3] - DRIFT[v][1]) for v in DRIFT}
+check("ходы объёмов различаются — иначе плоскость, а не глубина",
+      len({round(t, 1) for t in travel.values()}) == 3, {v: round(t, 1) for v, t in travel.items()})
+check("самый дальний идёт медленнее самого ближнего вдвое и более",
+      max(travel.values()) >= 2 * min(travel.values()), {v: round(t, 1) for v, t in travel.items()})
+
+STOP = {}
+for m in re.finditer(r"\.vf-v(\d) \.vf-o > i\.([abc])\{ background:radial-gradient\(closest-side,\s*(.+?)\); \}",
+                     FIELD_CSS, re.S):
+    STOP[(int(m.group(1)), m.group(2))] = [
+        (float(a.group(5)) / 100.0, float(a.group(4)),
+         (int(a.group(1)), int(a.group(2)), int(a.group(3))))
+        for a in re.finditer(r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)\s+([\d.]+)%", m.group(3))]
+check("цвет каждого ядра задан", len(STOP) == 9, sorted(STOP))
+
+# 2. Размытость. Вторая остановка — «насколько далеко»: у дальнего спад самый
+#    пологий. И у всех он мягкий: тугая кромка выдала бы фигуру, и объём снова
+#    стал бы пятном (этому научила третья редакция поля).
+soft = {v: STOP[(v, "a")][1][0] for v in (1, 2, 3)}
+# Мягкость меряется не одной остановкой, а тем, ЧЕМ кончается объём: у него
+# должен быть длинный тихий хвост, а не край. Тугая кромка выдала бы фигуру,
+# и объём снова стал бы пятном — этому научила третья редакция поля.
+tail = {v: STOP[(v, "a")][-2] for v in (1, 2, 3)}
+check("свет гаснет длинным хвостом, а не кромкой",
+      all(t[0] >= .6 for t in tail.values()), {v: t[0] for v, t in tail.items()})
+check("и хвост действительно тихий — на краю объёма его почти нет",
+      all(tail[v][1] <= STOP[(v, "a")][0][1] * .25 for v in (1, 2, 3)),
+      {v: (tail[v][1], STOP[(v, "a")][0][1]) for v in (1, 2, 3)})
+check("степень размытия у объёмов разная — это признак расстояния",
+      len(set(soft.values())) == 3, soft)
+check("дальний размыт сильнее ближнего", soft[1] > soft[3], soft)
+
+# 3. Перекрытие. Порядок в разметке и есть порядок по глубине.
+check("ближний написан поверх дальнего",
+      FIELD_JS.index("volume(1") < FIELD_JS.index("volume(2") < FIELD_JS.index("volume(3"))
+
+# Фильтр над анимируемым поддеревом заставил бы браузер каждый кадр заново
+# растрировать и размывать полный экран. Тот же признак дают остановки.
+check("размытие сделано градиентом, а не filter", "filter:" not in FIELD_CSS)
+
+print("\n== ПАЛИТРА: ХОЛОДНАЯ ГЛУБИНА, А НЕ ЦВЕТ СОСТОЯНИЯ ==")
+HUE = {v: STOP[(v, "a")][0][2] for v in (1, 2, 3)}
+check("фон — глубокий, а не чистый чёрный", "--void:#08080b" in CSS.replace(" ", ""))
+check("оттенки объёмов различаются", len(set(HUE.values())) == 3, HUE)
+check("дальний — полночный синий: синего в нём больше красного",
+      HUE[1][2] > HUE[1][0] * 1.5, HUE[1])
+check("ближний — сиреневый: он светлее и теплее дальнего",
+      HUE[3][0] > HUE[1][0] and sum(HUE[3]) > sum(HUE[1]), (HUE[1], HUE[3]))
+check("в поле нет смысловых цветов продукта вне примесей",
+      all(not (c[1] > c[0] and c[1] > c[2]) for c in HUE.values()), HUE)
+# Внутри объёма свет уходит от сердцевины к краю в холод — так он читается как
+# объём с источником, а не как ровно закрашенная область.
+for v in (1, 2, 3):
+    st = STOP[(v, "a")]
+    check(f"внутри объёма {v} свет уходит от сердцевины к краю",
+          sum(st[0][2]) > sum(st[-2][2]), (st[0][2], st[-2][2]))
+
+print("\n== ЧЕТЫРЕ РИТМА НА ОБЪЁМ И ПРОСТЫЕ ПЕРИОДЫ ==")
 PER = {}
-for kind, pat in (("течение", r"\.vf-l(\d)\{ animation:vf-flow\d (\d+)s"),
-                  ("размер", r"\.vf-l(\d) > \.vf-t\{ animation:vf-size\d (\d+)s"),
-                  ("перелив", r"\.vf-l(\d) > \.vf-t > \.vf-o\{ animation:vf-glow\d (\d+)s")):
+for kind, pat in (("снос", r"\.vf-v(\d) \.vf-l\{ animation:vf-drift\d (\d+)s"),
+                  ("форма", r"\.vf-v(\d) \.vf-t\{ animation:vf-form\d (\d+)s"),
+                  ("поворот", r"\.vf-v(\d) \.vf-r\{ animation:vf-turn\d (\d+)s"),
+                  ("свет", r"\.vf-v(\d) \.vf-o\{ animation:vf-glow\d (\d+)s")):
     for m in re.finditer(pat, FIELD_CSS):
         PER.setdefault(int(m.group(1)), {})[kind] = int(m.group(2))
-check("у каждой доли три независимых ритма",
-      len(PER) == 5 and all(len(v) == 3 for v in PER.values()), PER)
+check("у каждого объёма четыре независимых ритма",
+      len(PER) == 3 and all(len(v) == 4 for v in PER.values()), PER)
 
 
 def _prime(n):
@@ -530,33 +608,183 @@ periods = sorted(v for d in PER.values() for v in d.values())
 check("все периоды — простые числа, поэтому картина не повторяется",
       all(_prime(v) for v in periods), periods)
 check("периоды не совпадают между собой", len(periods) == len(set(periods)), periods)
-check("движение медленное: быстрейший ритм — двадцатки секунд",
-      min(periods) >= 15, periods)
+check("движение медленное: быстрейший ритм — под тридцать секунд",
+      min(periods) >= 17, periods)
 check("но не настолько, чтобы его не было видно", max(periods) <= 90, periods)
 
-print("\n== СОСТОЯНИЯ ОТЛИЧАЮТСЯ ФОРМОЙ, А НЕ ОТТЕНКОМ ==")
+# Объёмы не едут строем: у каждого своё направление сноса и свой характер
+# движения — один расширяется, другой ведёт вбок, третий сжимается.
+dirs = {v: (DRIFT[v][2] > DRIFT[v][0], DRIFT[v][3] > DRIFT[v][1]) for v in DRIFT}
+check("направления сноса не совпадают у всех троих", len(set(dirs.values())) >= 2, dirs)
+growth = {v: (FORM[v][2] * FORM[v][3]) - (FORM[v][0] * FORM[v][1]) for v in FORM}
+check("характер деформации разный: кто-то расширяется, кто-то сжимается",
+      max(growth.values()) > 0 > min(growth.values()), {v: round(g, 2) for v, g in growth.items()})
+check("поворот у каждого свой", len({TURN[v] for v in TURN}) == 3, TURN)
+
+# Дыхание яркости: глубина нужна, чтобы состав света менялся, но верхняя
+# граница — это максимум, а видит человек среднее. Минимумы подняты намеренно.
+check("у каждого объёма своя волна яркости",
+      len({GLOW[v][0] for v in GLOW}) == 3, GLOW)
+check("волна заметная, а не мерцание",
+      all(abs(a - b) >= .3 for a, b in GLOW.values()),
+      {v: round(abs(a - b), 2) for v, (a, b) in GLOW.items()})
+check("объёмы гаснут вразнобой, иначе гаснет всё разом",
+      len({round(a, 2) for a, b in GLOW.values()}) == 3, GLOW)
+
+print("\n== ВОЗДУХ: ГЛУБОКИЙ КОСМОС НЕ БЫВАЕТ ЧЁРНЫМ ==")
+# Пока воздуха не было, половина экрана оставалась чистым --void, и поле
+# читалось не как пространство, а как «три пятна на пустоте». Слой поднимает
+# ПОЛ, а не потолок: под пиком объёмов он почти не считается, а там, где
+# объёмов нет, разница между «чёрное» и «глубокое синее» видна сразу.
+AIRM = re.search(r"\.vf-air\{[^}]*?linear-gradient\((\d+)deg,\s*(.+?)\); \}", FIELD_CSS, re.S)
+check("воздух есть", AIRM is not None)
+AIRA = float(AIRM.group(1))
+AIRS = [(float(a.group(5)) / 100.0, float(a.group(4)),
+         (int(a.group(1)), int(a.group(2)), int(a.group(3))))
+        for a in re.finditer(r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)\s+([\d.]+)%", AIRM.group(2))]
+check("у воздуха нет нулевых остановок — чёрных мест на экране не остаётся",
+      len(AIRS) >= 3 and all(a > 0 for _, a, _ in AIRS), [a for _, a, _ in AIRS])
+check("воздух холодный: синего в нём больше красного",
+      all(c[2] > c[0] for _, _, c in AIRS), [c for _, _, c in AIRS])
+check("воздух заметно тише объёмов — он пол, а не источник",
+      max(a for _, a, _ in AIRS) < min(STOP[(v, "a")][0][1] for v in (1, 2, 3)) * 1.4,
+      (max(a for _, a, _ in AIRS), [STOP[(v, "a")][0][1] for v in (1, 2, 3)]))
+check("воздух неподвижен",
+      "animation" not in FIELD_CSS[FIELD_CSS.index(".vf-air{"):FIELD_CSS.index(".vf-air{") + 300])
+# Дымка стоит между глазом и сценой, а не за ней. Порядок не косметический:
+# под колодцем воздух вычитался из середины экрана, и там появлялось тёмное
+# пятно — колодец должен снимать свет объёмов, а не пол.
+check("воздух написан поверх объёмов и колодца",
+      FIELD_JS.index("vf-air") > FIELD_JS.index("vf-well"))
+
+print("\n== КОЛОДЕЦ: ПРОСТРАНСТВО ВОКРУГ ТЕКСТА ==")
+# Не «затемнение ради контраста», а то самое пространство вокруг содержимого:
+# свет проходит рядом с текстом и частично за ним, но источник — никогда под
+# ним. Благодаря колодцу свет по краям можно держать заметно ярче.
+WELLRE = (r"radial-gradient\(ellipse ([\d.]+)% ([\d.]+)% at ([\d.]+)% ([\d.]+)%,\s*(.+?)\); \}")
+_w = re.search(r"\.vf-well\{(.+?)\n", FIELD_CSS, re.S)
+check("колодец есть", _w is not None)
+_wm = re.search(WELLRE, FIELD_CSS, re.S)
+check("колодец стоит над колонкой текста", _wm is not None
+      and 40 <= float(_wm.group(3)) <= 60, _wm.group(3) if _wm else None)
+_wstops = [float(a.group(1)) for a in re.finditer(r"rgba\(8,8,11,([\d.]+)\)", _wm.group(5))]
+check("в середине колодец глубже, чем по краю",
+      _wstops == sorted(_wstops, reverse=True) and _wstops[0] > _wstops[-1], _wstops)
+check("колодец неподвижен: это пространство, а не эффект",
+      "animation" not in FIELD_CSS[FIELD_CSS.index(".vf-well{"):
+                                   FIELD_CSS.index(".vf-well{") + 400])
+
+print("\n== БАЗОВОЕ СОСТОЯНИЕ ЗАДАЁТ ФОРМУ ПОЛЯ ==")
+# Четыре состояния должны различаться КОМПОЗИЦИЕЙ: разошлись / широко /
+# сошлись / повело в сторону. Цвет только помогает это почувствовать —
+# закрыв цвет, состояние всё равно надо понимать.
+ST = {}
 for st in ("waiting", "risk", "opportunity"):
-    blk = re.findall(r'\.v-field\[data-field="%s"\][^{]*\{[^}]*\}' % st, FIELD_CSS)
-    check(f"состояние «{st}» задано", bool(blk), st)
-    check(f"«{st}» меняет форму, а не только цвет",
-          any("transform" in b for b in blk), [b[:60] for b in blk])
+    ST[st] = {int(m.group(1)): (float(m.group(2)), float(m.group(3)))
+              for m in re.finditer(r'\.v-live\[data-field="%s"\] \.vf-v(\d)\{ '
+                                   r'transform:translate\(\s*(-?[\d.]+)%%,\s*(-?[\d.]+)%%\)' % st,
+                                   FIELD_CSS)}
+    check(f"состояние «{st}» двигает все три объёма", len(ST[st]) == 3, ST[st])
 check("норма — база: отдельного правила ей не нужно",
       'data-field="normal"' not in FIELD_CSS)
-check("примесь риска и возможности по умолчанию погашена",
-      re.search(r"\.v-field \.vf-o > u\{ opacity:0", FIELD_CSS) is not None)
+
+
+def _shift(st, v):
+    """Куда уходит объём в vw/vh — проценты считаются от его же рамки."""
+    tx, ty = ST[st][v]
+    return BOX[v][2] * tx / 100, BOX[v][3] * ty / 100
+
+
+def _toward_centre(st, v):
+    """Положительное — объём пошёл к середине экрана, отрицательное — от неё."""
+    dx, dy = _shift(st, v)
+    cx, cy = CTR[v]
+    было = _math.hypot(cx - 50, cy - 50)
+    стало = _math.hypot(cx + dx - 50, cy + dy - 50)
+    return было - стало
+
+
+check("ЖДУ: объёмы расходятся от центра — пространство пустеет",
+      all(_toward_centre("waiting", v) < 0 for v in (1, 2, 3)),
+      {v: round(_toward_centre("waiting", v), 1) for v in (1, 2, 3)})
+check("РИСК: объёмы сходятся к центру — кадр становится собраннее",
+      all(_toward_centre("risk", v) > 0 for v in (1, 2, 3)),
+      {v: round(_toward_centre("risk", v), 1) for v in (1, 2, 3)})
+_opp = [_shift("opportunity", v) for v in (1, 2, 3)]
+check("ВОЗМОЖНОСТЬ: все три ведёт в одну сторону — появилась точка притяжения",
+      len({(x > 0, y > 0) for x, y in _opp}) == 1, _opp)
+check("и вместе с направлением поле вытягивается вдоль него",
+      len(re.findall(r'\.v-live\[data-field="opportunity"\] \.vf-v\d\{ [^}]*scale\(1\.\d+,\s*\.\d+\)',
+                     FIELD_CSS)) == 3)
+# Разрежено и стянуто — разные вещи не только по направлению, но и по яркости.
+LEV = {m.group(1): float(m.group(2))
+       for m in re.finditer(r'\.v-live\[data-field="(\w+)"\]\{ --vf-level:([\d.]+); \}', FIELD_CSS)}
+check("у ЖДУ света меньше, у РИСКА — больше нормы",
+      LEV.get("waiting", 1) < 1 < LEV.get("risk", 1), LEV)
+check("но ЖДУ не выключено: глубина остаётся", LEV.get("waiting", 0) >= .5, LEV)
+
+print("\n== СИГНАЛЫ БИЗНЕСА — ОТДЕЛЬНЫЙ УРОВЕНЬ ==")
+# Базовое состояние задаёт форму, сигнал — местное поведение и примесь.
+# Их нельзя смешивать: сигналов может действовать несколько сразу и при любой
+# форме, а состояние в каждый момент одно.
+check("примеси по умолчанию погашены",
+      re.search(r"\.v-live \.vf-o > u\{ opacity:0", FIELD_CSS) is not None)
 check("риск красит коралловым, возможность — бирюзовым",
       "u.risk{ background:radial-gradient" in FIELD_CSS
       and "255,107,107" in FIELD_CSS and "47,212,178" in FIELD_CSS)
+check("примеси разведены по разным объёмам — иначе два цвета смешаются в грязь",
+      ".vf-v2 .vf-o > u.risk{" in FIELD_CSS and ".vf-v3 .vf-o > u.opp{" in FIELD_CSS)
+# У объёма, чей центр за краем viewport, примесь «по центру» просто не
+# показалась бы — поэтому у неё своя рамка внутри объёма.
+TINT = {m.group(2): (int(m.group(1)), tuple(float(x) for x in m.groups()[2:]))
+        for m in re.finditer(r"\.vf-v(\d) \.vf-o > u\.(risk|opp)\{\s*left:\s*(-?[\d.]+)%;\s*"
+                             r"top:\s*(-?[\d.]+)%;\s*width:\s*([\d.]+)%;\s*height:\s*([\d.]+)%;\s*\}",
+                             FIELD_CSS)}
+check("у каждой примеси своя рамка внутри объёма", len(TINT) == 2, sorted(TINT))
+for _k, (_v, (_l, _t, _w, _h)) in TINT.items():
+    _cx = BOX[_v][0] + BOX[_v][2] * _l / 100 + BOX[_v][2] * _w / 200
+    _cy = BOX[_v][1] + BOX[_v][3] * _t / 100 + BOX[_v][3] * _h / 200
+    check(f"примесь «{_k}» стоит в видимой части объёма, а не за краем экрана",
+          -10 <= _cx <= 110 and -10 <= _cy <= 110, (round(_cx), round(_cy)))
 
-print("\n== СОБЫТИЯ: ЧЕТЫРЕ, И КЛИЕНТ СРЕДИ НИХ ЕДИНСТВЕННЫЙ ЦВЕТНОЙ ==")
+# ── НЕОТВЕЧЕННЫЕ ОБРАЩЕНИЯ ──
+AMB = {m.group(1): float(m.group(2))
+       for m in re.finditer(r'\.v-live\[data-leads="(\w+)"\]\{\s*--vf-amber:([\d.]+); \}', FIELD_CSS)}
+check("у янтарного сигнала три ступени силы", len(AMB) == 3, AMB)
+check("сила растёт с числом обращений",
+      AMB.get("few", 1) < AMB.get("many", 0) < AMB.get("heavy", 0), AMB)
+check("при нуле обращений янтаря нет вовсе: по умолчанию сигнал выключен",
+      re.search(r"--vf-amber:\s*0;", FIELD_CSS) is not None
+      and "if (n <= 0) return '';" in FIELD_JS)
+check("янтарь гаснет плавно, а не пропадает",
+      "transition:opacity 2.4s" in FIELD_CSS.split(".vf-lead > i{")[1].split("}")[0])
+_leadrules = re.findall(r'[^\n]*data-leads[^\n]*', FIELD_CSS)
+check("сигнал ложится поверх ЛЮБОЙ формы: в его правилах нет состояния",
+      len(_leadrules) >= 4 and all("data-field" not in r for r in _leadrules), _leadrules)
+_leadw = re.findall(r"\.vf-lead\{[^}]*?width:\s*([\d.]+)vw", FIELD_CSS)
+check("янтарь — местное скопление, а не заливка экрана",
+      len(_leadw) == 1 and float(_leadw[0]) <= 55, _leadw)
+check("и он живёт: медленно ходит и дышит",
+      "vf-leadrift" in FIELD_CSS and "vf-leadbeat" in FIELD_CSS)
+check("при сигнале поле тихо тянет к месту, которое ждёт ответа",
+      re.search(r'\.v-live\[data-leads\] \.vf-v2 \.vf-o\{ transform:', FIELD_CSS) is not None)
+
+# В коде уровни тоже должны быть разными сущностями, а не одним словарём.
+check("состояние и сигнал — разные функции поля",
+      "function state(name)" in FIELD_JS and "function signal(name, value)" in FIELD_JS)
+check("и хранятся раздельно, чтобы переживать переход между страницами",
+      "velor_field_state" in FIELD_JS and "velor_field_leads" in FIELD_JS)
+check("ступени считает поле, а не страница", "function leadTier" in FIELD_JS)
+check("ответили последнему — сигнал снимается сам",
+      "delete f.dataset.leads" in FIELD_JS)
+
+print("\n== СОБЫТИЯ: ПЯТЬ, И У КАЖДОГО СВОЁ НАПРАВЛЕНИЕ ==")
 check("приход клиента — отдельное событие", "@keyframes vf-arrive" in FIELD_CSS)
 check("и оно бирюзовое: в языке продукта это «получилось»",
       re.search(r"\.vf-pulse > u\.ok\{ background:radial-gradient\(closest-side,\s*"
                 r"rgba\(47,212,178", FIELD_CSS) is not None)
 check("на приходе клиента сиреневая волна гасится — цвет не смешивается",
-      '.v-field[data-pulse="client"] .vf-pulse > i{ opacity:0; }' in FIELD_CSS)
-# Ярче прочих событий — но яркость теперь в полосе кольца, а не в первой
-# остановке градиента: центр у кольца прозрачный.
+      '.v-live[data-pulse="client"] .vf-pulse > i{ opacity:0; }' in FIELD_CSS)
 _ok_alphas = [float("0." + x) for x in
               re.findall(r"rgba\(47,212,178,\.(\d+)\)",
                          FIELD_CSS.split("u.ok{")[1].split("}")[0])]
@@ -569,37 +797,36 @@ check("событие «новый вывод» сходится внутрь",
       re.search(r"@keyframes vf-converge\{.*?scale\(1\.42\).*?scale\(\.72\)",
                 FIELD_CSS, re.S) is not None)
 check("раскрытая цепочка отвечает тише всех", "@keyframes vf-focus" in FIELD_CSS)
+# Пришло обращение без ответа — событие МЕСТНОЕ: волна из центра экрана
+# сказала бы «в системе что-то произошло», а произошло в конкретном месте.
+check("обращение без ответа отвечает местно, а не во весь экран",
+      '.v-live[data-pulse="lead"] .vf-lead > u{' in FIELD_CSS
+      and '[data-pulse="lead"] .vf-pulse' not in FIELD_CSS)
+check("и кольцо расширяется чуть-чуть, а не через весь кадр",
+      re.search(r"@keyframes vf-notice\{.*?scale\(\.40\).*?scale\(1\.02\)",
+                FIELD_CSS, re.S) is not None)
 check("событие не накладывается само на себя",
       "if (!f || f.dataset.pulse) return;" in FIELD_JS)
 check("клиент известен как событие поля", "client: 1" in FIELD_JS)
-# Приход человека — причина, вывод Директора — следствие. Показывать причину
-# полезнее, поэтому у неё старшинство.
+check("и обращение без ответа тоже", "lead: 1" in FIELD_JS)
 # Приход человека — причина, вывод Директора — следствие. Показывать причину
 # полезнее, поэтому у неё старшинство: клиент → вывод → просто новое число.
 check("приход клиента старше прочих событий",
       DASH.index("if (arrived)") < DASH.index("else if (decided)")
       < DASH.index("else if (changed)"))
 check("считается рост, а не любое изменение", "now > _prevClients" in DASH)
-# Между опросами тридцать секунд, и за это окно человек может прийти не один.
-# Пока считалось «стало больше — да/нет», трое пришедших давали одну волну.
 check("считается СКОЛЬКО пришло, а не «пришёл ли»",
       "now - _prevClients" in DASH and "function clientsArrived" in DASH)
 check("на каждого поднимается своя волна", "VELOR_FIELD.arrivals(arrived)" in DASH)
 check("очередь волн есть в поле", "function arrivals" in FIELD_JS and "function runWave" in FIELD_JS)
-# Волна должна успеть отыграть и исчезнуть, иначе браузер не перезапустит
-# анимацию и вторая волна просто не появится.
 _wave = int(re.search(r"var WAVE = (\d+)", FIELD_JS).group(1))
 _gap = int(re.search(r"GAP = (\d+)", FIELD_JS).group(1))
 _anim = float(re.search(r'data-pulse="client"\] \.vf-pulse\{ animation:vf-arrive ([\d.]+)s', FIELD_CSS).group(1))
 check("волна снимается позже, чем кончается её анимация",
       _wave >= _anim * 1000, (_wave, _anim))
 check("между волнами есть пауза на перезапуск анимации", _gap >= 100, _gap)
-# Поток клиентов не должен превращать поле в мигалку: точное число всё равно
-# стоит числом на экране.
 check("у очереди есть потолок", re.search(r"MAX_WAVES = (\d)", FIELD_JS) is not None)
 check("потолок разумный", 3 <= int(re.search(r"MAX_WAVES = (\d)", FIELD_JS).group(1)) <= 6)
-# Общее число клиентов, а не «новые за 30 дней»: у окна есть задний край, и
-# выпавший из него клиент погасил бы пришедшего.
 check("берётся общее число клиентов, а не окно за 30 дней",
       "d.clients.total" in DASH.replace(" ", "") or "clients && d.clients.total" in DASH)
 
@@ -627,26 +854,44 @@ check("в кадрах поля двигаются только transform и opa
       _props <= {"transform", "opacity"}, sorted(_props))
 check("кадры вообще есть", bool(_props))
 
-rm = FIELD_CSS[FIELD_CSS.index("prefers-reduced-motion"):]
+rm = FIELD_ALL[FIELD_ALL.index("prefers-reduced-motion"):]
 check("при reduce движение выключено", "animation:none !important" in rm)
-# Без волны прозрачности все доли светили бы в полную силу и слились в одно
-# ровное пятно — статичные веса сохраняют разнооттеночность кадра.
-check("при reduce долям розданы статичные веса", rm.count("vf-o{ opacity:") >= 5,
-      rm.count("vf-o{ opacity:"))
+# Форма состояний задана ПЕРЕХОДОМ на .vf-v, а не анимацией, поэтому она
+# переживает выключение движения: человек по-прежнему видит, что происходит.
+_stopped = rm[:rm.index("animation:none !important")]
+check("при reduce состояние всё равно читается формой",
+      ".vf-v{" not in _stopped and ".vf-v," not in _stopped and " .vf-v " not in _stopped
+      and "transition:transform 1.8s" in FIELD_CSS, _stopped[-160:])
+check("при reduce объёмам розданы статичные веса", rm.count(".vf-o{ opacity:") >= 3,
+      rm.count(".vf-o{ opacity:"))
 
-mob = FIELD_CSS[FIELD_CSS.index("max-width:700px"):]
-check("на узком экране часть долей снята", ".v-field .vf-l4, .v-field .vf-l5{ display:none; }" in mob)
-_m = re.search(r"--vf-mob:\s*\.(\d+)", mob)
-check("на узком экране пик приглушён", bool(_m), mob[:120])
+check("на узком экране пик приглушён",
+      re.search(r"--vf-mob:\s*\.(\d+)", FIELD_MOB) is not None, FIELD_MOB[:120])
+MOBBOX = {int(m.group(1)): tuple(float(x) for x in m.groups()[1:])
+          for m in re.finditer(BOXRE, FIELD_MOB)}
+check("на узком экране объёмов по-прежнему три: снять объём значит снять глубину",
+      len(MOBBOX) == 3 and "display:none" not in FIELD_MOB, sorted(MOBBOX))
+check("но света на них меньше",
+      all(MOBBOX[v][2] * MOBBOX[v][3] < BOX[v][2] * BOX[v][3] for v in (1, 2, 3)),
+      {v: (MOBBOX[v][2:], BOX[v][2:]) for v in (1, 2, 3)})
+_mw = re.search(WELLRE, FIELD_MOB, re.S)
+check("а колодец шире: колонка текста здесь во весь экран",
+      float(_mw.group(1)) > float(_wm.group(1)), (_mw.group(1), _wm.group(1)))
 
 print("\n== ЯРКОСТЬ ПОЛЯ ОГРАНИЧЕНА КОНТРАСТОМ, А НЕ ВКУСОМ ==")
-# Под самой светлой точкой массы лежит текст, и он обязан оставаться читаемым.
+# Под самой светлой точкой поля лежит текст, и он обязан оставаться читаемым.
 # Считаем не «сумму альф», а верхнюю границу того, что бывает на экране: у
-# каждой доли свои независимые периоды, поэтому в какой-то момент каждая может
-# оказаться в самой выгодной для этой точки фазе одновременно с остальными.
-# Берём для каждой доли максимум по её собственным фазам и складываем — это
-# честная верхняя оценка, а не выдуманное «все ядра в одной точке».
-_VW, _VH = 1440.0, 900.0
+# каждого объёма свои независимые периоды, поэтому в какой-то момент он может
+# оказаться в самой выгодной для этой точки фазе. Берём максимум по фазам
+# объёма и складываем объёмы — честная верхняя оценка, а не выдуманное
+# «все сердцевины в одной точке».
+LSTOP = [(float(a.group(5)) / 100.0, float(a.group(4)), (int(a.group(1)), int(a.group(2)), int(a.group(3))))
+         for a in re.finditer(r"rgba\((\d+),(\d+),(\d+),([\d.]+)\)\s+([\d.]+)%",
+                              FIELD_CSS.split(".vf-lead > i{")[1].split("}")[0])]
+_beat = FIELD_CSS.split("@keyframes vf-leadbeat{")[1].split("}}")[0]
+LBEAT = max(float(x) for x in re.findall(r"scale\(([\d.]+)\)", _beat))
+LEADRE = (r"\.vf-lead\{[^}]*?left:\s*(-?[\d.]+)vw;\s*top:\s*(-?[\d.]+)vh;\s*"
+          r"width:\s*([\d.]+)vw;\s*height:\s*([\d.]+)vh;")
 
 
 def _hex(c):
@@ -670,18 +915,6 @@ def _token(name):
     return _hex(re.search(r"--%s:\s*(#[0-9a-fA-F]{6})" % name, CSS).group(1))
 
 
-FLOW, SIZE = {}, {}
-for m in re.finditer(r"@keyframes vf-flow(\d)\{ 0%,100%\{ transform:translate3d\(\s*(-?[\d.]+)vw,"
-                     r"\s*(-?[\d.]+)vh,0\); \}\s*50%\{ transform:translate3d\(\s*(-?[\d.]+)vw,"
-                     r"\s*(-?[\d.]+)vh,0\); \} \}", FIELD_CSS):
-    FLOW[int(m.group(1))] = tuple(float(x) for x in m.groups()[1:])
-for m in re.finditer(r"@keyframes vf-size(\d)\{ 0%,100%\{ transform:scale\(([\d.]+),([\d.]+)\); \}\s*"
-                     r"50%\{ transform:scale\(([\d.]+),([\d.]+)\); \} \}", FIELD_CSS):
-    SIZE[int(m.group(1))] = tuple(float(x) for x in m.groups()[1:])
-check("движение всех долей читается из CSS",
-      len(FLOW) == len(SIZE) == len(GLOW) == 5, (sorted(FLOW), sorted(SIZE), sorted(GLOW)))
-
-
 def _mix(a, b, t):
     return a + (b - a) * t
 
@@ -691,83 +924,158 @@ def _ez(t):
     return u * u * (3 - 2 * u)
 
 
-def _lobe_alpha(i, px, py, pf, pz, pg):
-    left, top, w, h = (GEOM[i][0] * _VW / 100, GEOM[i][1] * _VH / 100,
-                       GEOM[i][2] * _VW / 100, GEOM[i][3] * _VH / 100)
-    fx0, fy0, fx1, fy1 = FLOW[i]
-    cx = left + w / 2 + _mix(fx0, fx1, _ez(pf)) * _VW / 100
-    cy = top + h / 2 + _mix(fy0, fy1, _ez(pf)) * _VH / 100
-    sx0, sy0, sx1, sy1 = SIZE[i]
-    sx, sy = _mix(sx0, sx1, _ez(pz)), _mix(sy0, sy1, _ez(pz))
-    d = _math.hypot((px - cx) / (w / 2 * sx), (py - cy) / (h / 2 * sy))
+def _grad(stops, d):
     if d >= 1:
         return 0.0, (0, 0, 0)
-    st = STOPS[i]
-    a = 0.0
-    col = (0, 0, 0)
-    for k in range(1, len(st)):
-        if d <= st[k][0]:
-            p0, a0, c0 = st[k - 1]
-            p1, a1, c1 = st[k]
+    for k in range(1, len(stops)):
+        if d <= stops[k][0]:
+            p0, a0, c0 = stops[k - 1]
+            p1, a1, c1 = stops[k]
             f = 0 if p1 == p0 else (d - p0) / (p1 - p0)
-            a = _mix(a0, a1, f)
-            col = tuple(_mix(c0[j], c1[j], f) for j in range(3))
-            break
-    return a * _mix(GLOW[i][0], GLOW[i][1], _ez(pg)), col
+            return _mix(a0, a1, f), tuple(_mix(c0[j], c1[j], f) for j in range(3))
+    return 0.0, (0, 0, 0)
 
 
-_void = _token("void")
-_peakL, _peak = 0.0, None
-_P = 6
-for _yi in range(14):
-    _py = _yi * _VH / 13
-    for _xi in range(14):
-        _px = _xi * _VW / 13
-        col = _void
-        for _i in (1, 2, 3, 4, 5):
-            best_a, best_c = 0.0, (0, 0, 0)
-            for _f in range(_P):
-                for _z in range(_P):
-                    for _g in range(_P):
-                        a, c = _lobe_alpha(_i, _px, _py, _f / _P, _z / _P, _g / _P)
-                        if a > best_a:
-                            best_a, best_c = a, c
-            if best_a > 0:
-                col = _over(best_c, best_a, col)
-        L = _lum(col)
-        if L > _peakL:
-            _peakL, _peak = L, tuple(round(v) for v in col)
+_void, _bone, _ash = _token("void"), _token("bone"), _token("ash")
 
-_main = (_lum(_token("bone")) + .05) / (_peakL + .05)
-_quiet = (_lum(_token("ash")) + .05) / (_peakL + .05)
-check(f"самая яркая точка поля (верхняя оценка): rgb{_peak}", _peak is not None)
-check(f"основной текст поверх неё — {_main:.2f}:1 (нужно 7)", _main >= 7, round(_main, 2))
-# Порог чуть выше нормы WCAG: сетка дискретна и может проскочить пик
-# между узлами. Оценка и так верхняя, но запас лишним не бывает.
-check(f"самый тихий текст поверх неё — {_quiet:.2f}:1 (нужно 4.7)", _quiet >= 4.7, round(_quiet, 2))
-# Поле выкручено близко к границе намеренно: заметная прибавка яркости
-# уронит эту проверку, и потолок здесь — «стало нечитаемо», а не «некрасиво».
-check("поле стоит у границы, а не далеко от неё", _quiet < 7, round(_quiet, 2))
 
-print("\n== ЗЕЛЁНАЯ ВОЛНА НЕ ГАСИТ ТЕКСТ ==")
-# Событие длится 2.6 секунды, но и это не повод класть светлую бирюзу поверх
-# читаемого. Считаем худший момент: самая яркая полоса кольца поверх самой
-# яркой точки массы. Крупный текст — заголовок и числа, то есть содержание
-# экрана — обязан остаться читаемым и под ней.
-_ring = max(float(x) for x in re.findall(r"rgba\(47,212,178,\.(\d+)\)",
-                                         FIELD_CSS.split("u.ok{")[1].split("}")[0]))
-_ring /= 100.0
-_ok = (47, 212, 178)
-_under = _over(_ok, _ring, _peak)
-_L = _lum(_under)
-_main_p = (_lum(_token("bone")) + .05) / (_L + .05)
-check(f"полоса кольца поверх пика поля: rgb{tuple(round(v) for v in _under)}", True)
-check(f"крупный текст под волной — {_main_p:.2f}:1 (нужно 4.5)", _main_p >= 4.5, round(_main_p, 2))
+def _air(px, py, VW, VH):
+    """Доля вдоль оси линейной растяжки по правилам CSS (0deg — вверх)."""
+    th = _math.radians(AIRA)
+    ux, uy = _math.sin(th), -_math.cos(th)
+    L = abs(VW * ux) + abs(VH * uy)
+    t = min(1.0, max(0.0, ((px - VW / 2) * ux + (py - VH / 2) * uy) / L + .5))
+    for k in range(1, len(AIRS)):
+        if t <= AIRS[k][0]:
+            p0, a0, c0 = AIRS[k - 1]
+            p1, a1, c1 = AIRS[k]
+            f = 0 if p1 == p0 else (t - p0) / (p1 - p0)
+            return _mix(a0, a1, f), tuple(_mix(c0[j], c1[j], f) for j in range(3))
+    return AIRS[-1][1], AIRS[-1][2]
+
+
+def _peak(block, box, mob, VW, VH, col0, col1):
+    """Самая светлая точка экрана и самая светлая точка под главным ответом."""
+    lead = tuple(float(x) for x in re.search(LEADRE, block).groups())
+    wm = re.search(WELLRE, block, re.S)
+    wr = tuple(float(wm.group(i)) / 100 for i in (1, 2, 3, 4))
+    wstop = [(float(a.group(2)) / 100.0, float(a.group(1)))
+             for a in re.finditer(r"rgba\(8,8,11,([\d.]+)\)\s+([\d.]+)%", wm.group(5))]
+    P, PH = 4, [i / 4 for i in range(4)]
+    best_all = best_txt = (0.0, None, None)
+    for yi in range(17):
+        py = yi * VH / 16
+        for xi in range(23):
+            px = xi * VW / 22
+            col = _void
+            for v in (1, 2, 3):
+                L, T, W, H = box[v]
+                left, top, w, h = L * VW / 100, T * VH / 100, W * VW / 100, H * VH / 100
+                cx, cy = left + w / 2, top + h / 2
+                bestset, besta = [], -1.0
+                for pf in PH:
+                    dx = _mix(DRIFT[v][0], DRIFT[v][2], _ez(pf)) * VW / 100
+                    dy = _mix(DRIFT[v][1], DRIFT[v][3], _ez(pf)) * VH / 100
+                    for pz in PH:
+                        sx = _mix(FORM[v][0], FORM[v][2], _ez(pz))
+                        sy = _mix(FORM[v][1], FORM[v][3], _ez(pz))
+                        for pr in PH:
+                            th = _math.radians(_mix(TURN[v][0], TURN[v][1], _ez(pr)))
+                            qx, qy = px - dx, py - dy
+                            qx, qy = cx + (qx - cx) / sx, cy + (qy - cy) / sy
+                            ux, uy = qx - cx, qy - cy
+                            lx = cx + ux * _math.cos(-th) - uy * _math.sin(-th)
+                            ly = cy + ux * _math.sin(-th) + uy * _math.cos(-th)
+                            for pg in PH:
+                                g = _mix(GLOW[v][0], GLOW[v][1], _ez(pg)) * mob
+                                acc, tot = [], 0.0
+                                for k in "abc":
+                                    cl, ct, cw, ch = CORE[(v, k)]
+                                    ex = left + cl * w / 100 + cw * w / 200
+                                    ey = top + ct * h / 100 + ch * h / 200
+                                    d = _math.hypot((lx - ex) / (cw * w / 200),
+                                                    (ly - ey) / (ch * h / 200))
+                                    a, c = _grad(STOP[(v, k)], d)
+                                    if a > 0:
+                                        acc.append((a * g, c))
+                                        tot += a * g
+                                if tot > besta:
+                                    besta, bestset = tot, acc
+                for a, c in bestset:
+                    col = _over(c, a, col)
+            # янтарь в полную силу — сигнал «много обращений»
+            lcx = lead[0] * VW / 100 + lead[2] * VW / 200
+            lcy = lead[1] * VH / 100 + lead[3] * VH / 200
+            d = _math.hypot((px - lcx) / (lead[2] * VW / 200 * LBEAT),
+                            (py - lcy) / (lead[3] * VH / 200 * LBEAT))
+            a, c = _grad(LSTOP, d)
+            if a > 0:
+                col = _over(c, a * mob, col)
+            dw = _math.hypot((px / VW - wr[2]) / wr[0], (py / VH - wr[3]) / wr[1])
+            aw = 0.0
+            for k in range(1, len(wstop)):
+                if dw <= wstop[k][0]:
+                    p0, a0 = wstop[k - 1]
+                    p1, a1 = wstop[k]
+                    aw = _mix(a0, a1, 0 if p1 == p0 else (dw - p0) / (p1 - p0))
+                    break
+            if aw > 0:
+                col = _over((8, 8, 11), aw, col)
+            # Дымка — последней: она между глазом и сценой.
+            _aa, _ac = _air(px, py, VW, VH)
+            col = _over(_ac, _aa * mob, col)
+            Lv = _lum(col)
+            if Lv > best_all[0]:
+                best_all = (Lv, tuple(round(x) for x in col), (round(px), round(py)))
+            # Полоса главного ответа: там стоит крупный вывод и строка
+            # «как посчитано» — ровно то, что колодец обязан беречь.
+            if col0 <= px <= col1 and 109 <= py <= 509 and Lv > best_txt[0]:
+                best_txt = (Lv, tuple(round(x) for x in col), (round(px), round(py)))
+    return best_all, best_txt
+
+
+_mob = float(re.search(r"--vf-mob:\s*(\.\d+)", FIELD_MOB).group(1))
+_wide_all, _wide_txt = _peak(FIELD_CSS, BOX, 1.0, 1440.0, 900.0, 160.0, 1280.0)
+_mob_all, _mob_txt = _peak(FIELD_MOB, MOBBOX, _mob, 375.0, 812.0, 18.0, 357.0)
+
+for _name, _pk, _need in (("широкий экран", _wide_all, 4.6), ("телефон", _mob_all, 4.6)):
+    _main = (_lum(_bone) + .05) / (_pk[0] + .05)
+    _quiet = (_lum(_ash) + .05) / (_pk[0] + .05)
+    check(f"{_name}: самая светлая точка поля rgb{_pk[1]} в {_pk[2]}", _pk[1] is not None)
+    check(f"{_name}: основной текст поверх неё — {_main:.2f}:1 (нужно 7)", _main >= 7, round(_main, 2))
+    check(f"{_name}: самый тихий текст — {_quiet:.2f}:1 (нужно {_need})", _quiet >= _need, round(_quiet, 2))
+
+# Колодец существует ровно ради этого: под главным ответом должно быть
+# заметно спокойнее, чем в самой светлой точке экрана. Если разница пропала —
+# колодец сломан, и яркость поля придётся снимать.
+_edge = (_lum(_ash) + .05) / (_wide_all[0] + .05)
+_inner = (_lum(_ash) + .05) / (_wide_txt[0] + .05)
+check(f"под главным ответом спокойнее, чем в самом светлом месте: "
+      f"{_inner:.2f}:1 против {_edge:.2f}:1",
+      _inner >= _edge * 1.05, (round(_inner, 2), round(_edge, 2)))
+# Поле выкручено близко к границе намеренно: заметная прибавка яркости уронит
+# проверку выше, и потолок здесь — «стало нечитаемо», а не «некрасиво».
+check("поле стоит у границы, а не далеко от неё", _edge < 7, round(_edge, 2))
+
+print("\n== КОЛЬЦА СОБЫТИЙ НЕ ГАСЯТ ТЕКСТ ==")
+# События длятся секунды, но и это не повод класть светлое поверх читаемого.
+# Считаем худший момент: самая яркая полоса кольца поверх самой яркой точки
+# поля. Крупный текст — заголовок и числа — обязан остаться читаемым.
+for _name, _sel, _rgb, _min in (("зелёная волна клиента", "u.ok{", (47, 212, 178), 4.5),
+                                ("янтарное кольцо обращения", ".vf-lead > u{", (255, 184, 41), 4.5)):
+    _band = max(float(x) for x in re.findall(r"rgba\(\d+,\d+,\d+,\.(\d+)\)",
+                                             FIELD_CSS.split(_sel)[1].split("}")[0]))
+    _band = _band / 100.0
+    _under = _over(_rgb, _band, _wide_all[1])
+    _c = (_lum(_bone) + .05) / (_lum(_under) + .05)
+    check(f"{_name}: крупный текст под ней — {_c:.2f}:1 (нужно {_min})", _c >= _min, round(_c, 2))
 # Кольцо, а не заливка: в середине прозрачно, иначе строка под ним гасла бы
 # на всю волну, а не на мгновение прохода полосы.
-check("волна — кольцо: центр прозрачен",
+check("волна клиента — кольцо: центр прозрачен",
       re.search(r"u\.ok\{ background:radial-gradient\(closest-side,\s*rgba\(47,212,178,0\) 0%",
                 FIELD_CSS) is not None)
+check("янтарное кольцо тоже пустое в середине",
+      re.search(r"\.vf-lead > u\{[^}]*?rgba\(255,184,41,0\) 0%", FIELD_CSS, re.S) is not None)
 
 print("\n== ПОЛЕ ГОВОРИТ ТО ЖЕ, ЧТО БРИФИНГ ==")
 # Состояние поля выводится из настоящего разбора Директора: срочный риск,
@@ -786,6 +1094,19 @@ check("импульс поднимает событие, а не таймер",
       and "else if (changed)" in DASH and "setInterval(() => window.VELOR_FIELD" not in DASH)
 check("новый вывод определяется по ключам рекомендаций",
       "function newDecision(dir)" in DASH and "r.key || r.title" in DASH)
+# Янтарный сигнал берётся из канонического счётчика воронки, а не из нового
+# определения «без ответа», заведённого ради фона.
+check("обращения без ответа берутся из воронки, а не выдумываются",
+      "/api/leads?status=open" in DASH and "stats.waiting" in DASH)
+check("сигнал поднимается числом, а не признаком",
+      "VELOR_FIELD.signal('leads', n)" in DASH)
+check("импульс — только на рост, дальше сигнал живёт присутствием",
+      "n > _prevWaiting" in DASH and "VELOR_FIELD.pulse('lead')" in DASH)
+# Отдельный запрос ради фона не имеет права задерживать экран: числа, разбор
+# и «что требует внимания» не ждут его ни секунды.
+check("запрос за сигналом не задерживает страницу",
+      "await leadsWaiting()" not in DASH and "leadsWaiting().then(" in DASH)
+
 
 print("\n== ГЛАВНАЯ: ТРИ ГЛАВНЫХ ЧИСЛА, ОСТАЛЬНЫЕ ВПОЛГОЛОСА ==")
 check("деньги набраны в полную величину", "const MAJOR = { revenue:1, expenses:1, profit:1 }" in DASH)
@@ -820,7 +1141,11 @@ if DOC.exists():
     # фонового движения нет» должен быть назван и ограничен прямо в нём,
     # иначе через месяц исключение станет разрешением.
     check("допуск живому полю назван и ограничен",
-          "Именной допуск — живое поле" in d and "17–73" in d)
+          "Именной допуск — живое поле" in d and "29–89" in d)
+    # Уровни поля — архитектурное решение, а не описание: если документ
+    # перестанет их разделять, следующая правка склеит их и в коде.
+    check("документ разделяет форму состояния и сигнал бизнеса",
+          "Базовое состояние" in d and "Сигнал бизнеса" in d)
     check("состояния поля описаны таблицей",
           all(w in d for w in ("waiting", "normal", "risk", "opportunity")))
 
