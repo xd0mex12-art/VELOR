@@ -18,21 +18,20 @@ import datetime
 
 import database
 import identity
+import plans as _plans
 
 TRIAL_DAYS = 14
 
-# Каталог подписок (архитектура под будущий Stripe/ЮKassa). Активация сейчас —
-# вручную владельцем через activate_subscription(); платёжка позже вызовет ту же
-# функцию, ничего не переписывая.
-PLANS = {
-    "starter":    {"name": "Starter",    "price": 2990,  "note": "1 AI-сотрудник, база знаний, CRM"},
-    "business":   {"name": "Business",   "price": 9990,  "note": "до 5 сотрудников, аналитика, финансы, контент"},
-    "enterprise": {"name": "Enterprise", "price": 24990, "note": "расширенные лимиты, интеграции, приоритет"},
-}
+# Каталог тарифов живёт в plans.py и только там. Здесь его когда-то была вторая
+# копия — starter/business/enterprise по своим ценам, — и она не совпадала ни с
+# третьей копией в database.PLANS, ни со страницей тарифов. Цена, которую видел
+# владелец, зависела от того, куда он попал; для продукта, который берёт
+# деньги, это худший вид ошибки. Осталось одно имя — ссылка на каталог.
+PLANS = _plans.PLANS
 
 
 def plan_name(key):
-    return (PLANS.get((key or "").lower()) or {}).get("name") or (key or "—")
+    return _plans.name(key)
 
 
 # ---------- время (храним текстом 'YYYY-MM-DD HH:MM:SS' UTC, как вся база) ----------
@@ -91,7 +90,14 @@ def start(bid):
 
 
 def activate_subscription(bid, plan="business", months=1):
-    """Активировать платную подписку (владелец делает после оплаты)."""
+    """Активировать платную подписку.
+
+    Вызывается ТОЛЬКО из billing.apply_paid (подтверждённая оплата) и из
+    админки владельца VELOR. Из обработчика возврата с платёжной страницы
+    вызывать нельзя никогда: возврат означает лишь, что браузер открыл наш
+    адрес, а его может открыть кто угодно.
+    """
+    plan = _plans.normalize(plan)
     now = _now()
     database.update_business(
         bid,

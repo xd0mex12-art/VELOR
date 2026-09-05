@@ -60,8 +60,64 @@ def _pg_row_factory(cursor):
 
 _RE_DATE_NOW_PARAM = re.compile(r"date\(\s*'now'\s*,\s*\?\s*\)")
 _RE_DATE_NOW_LIT = re.compile(r"date\(\s*'now'\s*,\s*'([^']+)'\s*\)")
-_RE_STRFTIME_COL = re.compile(r"strftime\(\s*'%Y-%m'\s*,\s*([A-Za-z_][\w.]*)\s*\)")
-_RE_DATE_COL = re.compile(r"date\(\s*([A-Za-z_][\w.]*)\s*\)")
+
+# Ширина текстовой даты для каждого формата: время храним строкой
+# 'YYYY-MM-DD HH:MM:SS', поэтому «взять дату» — это взять первые 10 символов.
+_STRFTIME_WIDTH = {"'%Y'": 4, "'%Y-%m'": 7, "'%Y-%m-%d'": 10}
+_TO_CHAR_FMT = {4: "YYYY", 7: "YYYY-MM", 10: "YYYY-MM-DD"}
+
+
+def _rewrite_calls(sql: str, name: str, build) -> str:
+    """
+    Переписать вызовы name(...) с учётом ВЛОЖЕННЫХ скобок.
+
+    Почему не регулярка. Прежняя версия узнавала только простой столбец —
+    date(created_at). Вызов date(COALESCE(converted_at, created_at)) она
+    пропускала, и он уходил в Postgres нетронутым. Там date() своя: она
+    приводит к типу date, сравнение с текстовой датой становится «date = text»,
+    и запрос падает. Так на боевом сервере молча не открывалась главная
+    страница. Скобки нельзя сосчитать регулярным выражением — поэтому обычный
+    проход со счётчиком.
+    """
+    out, i, low, n = [], 0, sql.lower(), len(name)
+    while True:
+        j = low.find(name + "(", i)
+        # Имя должно быть отдельным словом: datetime( и op_date( — не наши.
+        while j > 0 and (sql[j - 1].isalnum() or sql[j - 1] == "_"):
+            j = low.find(name + "(", j + 1)
+        if j < 0:
+            out.append(sql[i:])
+            return "".join(out)
+        k, depth = j + n, 0
+        while k < len(sql):
+            if sql[k] == "(":
+                depth += 1
+            elif sql[k] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        if k >= len(sql):       # скобка не закрыта — оставляем как есть
+            out.append(sql[i:])
+            return "".join(out)
+        out.append(sql[i:j])
+        # Внутрь аргумента заходим тем же разбором: date(COALESCE(a, date(b)))
+        # встречается редко, но пропущенный вложенный вызов — это ровно та
+        # ошибка, из-за которой писался весь этот код.
+        out.append(build(_rewrite_calls(sql[j + n + 1:k].strip(), name, build)))
+        i = k + 1
+
+
+def _pg_strftime(args: str) -> str:
+    """strftime('%Y-%m', x) → срез текстовой даты. Незнакомый формат не трогаем."""
+    fmt, _, rest = args.partition(",")
+    fmt, rest = fmt.strip(), rest.strip()
+    width = _STRFTIME_WIDTH.get(fmt)
+    if not width or not rest:
+        return "strftime(" + args + ")"
+    if rest == "'now'":
+        return "to_char(now() at time zone 'utc', '%s')" % _TO_CHAR_FMT[width]
+    return "substr((%s)::text, 1, %d)" % (rest, width)
 
 
 def _translate(sql: str) -> str:
@@ -72,9 +128,16 @@ def _translate(sql: str) -> str:
     s = _RE_DATE_NOW_LIT.sub(lambda m: "to_char((now() at time zone 'utc') + interval '%s', 'YYYY-MM-DD')" % m.group(1), s)
     s = s.replace("datetime('now')", "to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS')")
     s = s.replace("date('now')", "to_char(now() at time zone 'utc', 'YYYY-MM-DD')")
-    s = re.sub(r"strftime\(\s*'%Y-%m'\s*,\s*'now'\s*\)", "to_char(now() at time zone 'utc', 'YYYY-MM')", s)
-    s = _RE_STRFTIME_COL.sub(r"substr(\1, 1, 7)", s)
-    s = _RE_DATE_COL.sub(r"substr(\1, 1, 10)", s)   # date('now') уже заменён выше
+    s = s.replace("julianday('now')", "(now() at time zone 'utc')::date")
+    # Порядок важен: варианты с 'now' сняты выше, ниже — общий случай с любым
+    # выражением внутри, включая COALESCE и вложенные вызовы.
+    s = _rewrite_calls(s, "julianday", lambda x: "(substr((%s)::text, 1, 10))::date" % x)
+    s = _rewrite_calls(s, "date", lambda x: "substr((%s)::text, 1, 10)" % x)
+    s = _rewrite_calls(s, "strftime", _pg_strftime)
+    # CURRENT_TIMESTAMP отдаёт timestamptz, а колонки времени у нас текстовые:
+    # Postgres отказался бы писать одно в другое. Заменяем везде, а не только
+    # в DEFAULT (ниже) — signals.touch() пишет его прямо в запросе.
+    s = s.replace("CURRENT_TIMESTAMP", "to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS')")
     # ---- DDL: целые числа = 64 бита (Telegram id, совпадение типов для FK) ----
     s = re.sub(r"INTEGER\s+PRIMARY\s+KEY(\s+AUTOINCREMENT)?", "BIGSERIAL PRIMARY KEY", s, flags=re.I)
     s = re.sub(r"\bAUTOINCREMENT\b", "", s, flags=re.I)
@@ -82,8 +145,6 @@ def _translate(sql: str) -> str:
     # Двоичные данные: в SQLite это BLOB, в Postgres — BYTEA. Нужен для
     # оригиналов файлов Inbox, которые на Render живут в базе, а не на диске.
     s = re.sub(r"\bBLOB\b", "BYTEA", s, flags=re.I)
-    s = re.sub(r"DEFAULT\s+CURRENT_TIMESTAMP",
-               "DEFAULT to_char(now() at time zone 'utc', 'YYYY-MM-DD HH24:MI:SS')", s, flags=re.I)
     s = re.sub(r"CREATE\s+TABLE\s+(?!IF NOT EXISTS)", "CREATE TABLE IF NOT EXISTS ", s, flags=re.I)
     s = re.sub(r"ADD\s+COLUMN\s+(?!IF NOT EXISTS)", "ADD COLUMN IF NOT EXISTS ", s, flags=re.I)
     # ---- плейсшолдеры в самом конце ----
@@ -207,28 +268,42 @@ def _verify_password(raw, stored):
     return hmac.compare_digest(str(stored), str(raw or ""))
 
 
-# ---------- ТАРИФЫ (SaaS-лимиты) ----------
-# Лимит — число обработанных сообщений клиентов в календарный месяц.
-PLANS = {
-    "free":     {"name": "Free trial", "price": 0,     "limit": 100,    "note": "7 дней, до 100 сообщений"},
-    "starter":  {"name": "Starter",    "price": 2990,  "limit": 2000,   "note": "1 AI-сотрудник, документы, память"},
-    "business": {"name": "Business",   "price": 9990,  "limit": 10000,  "note": "5 AI-сотрудников, аналитика, финансы, контент"},
-    "pro":      {"name": "Pro",        "price": 24990, "limit": 100000, "note": "Расширенные лимиты, автоматизации, интеграции"},
-}
-# Легаси-значения plan из старой базы («Старт» и пр.) не блокируем — считаем Business.
-_LEGACY_PLAN = "business"
+# ---------- ТАРИФЫ ----------
+# Каталог живёт в plans.py и только там. Здесь — расход месячного пакета
+# сообщений: единственное, что база считает сама.
+#
+# Раньше тариф лежал в двух колонках сразу: businesses.plan (легаси, значения
+# вроде «Старт») и businesses.subscription_plan (то, что реально оплачено).
+# Спрашивать надо второе, а первое читать только когда второго нет, — иначе
+# оплативший BUSINESS продолжал бы жить по лимиту своего старого «Старта».
+def plan_key(business):
+    """Ключ действующего тарифа бизнеса.
+
+    Читается ТОЛЬКО subscription_plan. Легаси-колонка businesses.plan сюда не
+    входит намеренно, хотя соблазн велик: у неё в схеме стоит
+    `DEFAULT 'Старт'`, то есть она заполнена у каждого аккаунта с момента
+    регистрации и не означает ни одной оплаты. Пока её читали как тариф, любой
+    новый бизнес немедленно оказывался на START — и пробный период, обещанный
+    как полный доступ, молча выдавал урезанный продукт.
+
+    Нет подписки — значит человек ещё ничего не покупал: это пробный период, а
+    у него полный доступ. Показать меньше значит соврать о том, что он получит
+    за деньги.
+    """
+    import plans as _plans
+    key = (business.get("subscription_plan") or "").strip()
+    return _plans.normalize(key) if key else _plans.TRIAL_PLAN
 
 
 def plan_status(business):
     """Тариф бизнеса + расход сообщений за месяц. business — dict из get_business."""
-    key = (business.get("plan") or "").strip().lower()
-    if key not in PLANS:
-        key = _LEGACY_PLAN
-    p = PLANS[key]
+    import plans as _plans
+    key = plan_key(business)
+    p = _plans.get(key)
     used = messages_this_month(business["id"])
-    limit = p["limit"]
+    limit = p["limits"]["messages"]
     return {
-        "plan": key, "name": p["name"], "price": p["price"], "note": p["note"],
+        "plan": key, "name": p["name"], "price": p["price"], "note": p["tagline"],
         "limit": limit, "used": used,
         "remaining": max(0, limit - used),
         "over": used >= limit,
@@ -316,6 +391,12 @@ def _migrate_columns(conn):
         ("businesses", "subscription_plan", "TEXT"),
         ("businesses", "subscription_started", "TEXT"),
         ("businesses", "subscription_expires", "TEXT"),
+        # Founder Pilot — условия первых компаний, а не тариф. Держим флагом,
+        # чтобы он не попал в каталог: тариф со словом «пилот» однажды окажется
+        # на публичной странице, и его начнут спрашивать все.
+        ("businesses", "founder_pilot", "INTEGER DEFAULT 0"),
+        # Настройка оплачена (разовая услуга VELOR SETUP).
+        ("businesses", "setup_paid", "TEXT"),
         ("businesses", "risk_score", "INTEGER DEFAULT 0"),   # сигнал абьюза (не блокировка)
         ("businesses", "tg_verify_code", "TEXT"),            # одноразовый код привязки владельца
         ("businesses", "owner_verified", "INTEGER DEFAULT 0"),  # личность владельца подтверждена
@@ -797,6 +878,39 @@ def init_db():
                    created_at  TEXT DEFAULT (datetime('now'))
                )"""
         )
+
+        # Платежи. Единственная запись о том, что бизнес платил, — и
+        # единственное, на что опирается активация подписки.
+        #
+        # provider_id — идентификатор платежа У ПРОВАЙДЕРА, и он UNIQUE. Это не
+        # аккуратность, а вся защита от повтора: платёжка присылает webhook
+        # столько раз, сколько считает нужным (сеть моргнула, наш ответ не
+        # дошёл, ретрай по расписанию), и без уникального ключа каждый повтор
+        # продлевал бы подписку заново. Здесь второй webhook просто находит ту
+        # же строку в состоянии paid и ничего не делает.
+        #
+        # kind: subscription | setup. Настройка — разовая услуга: у неё нет
+        # срока и она не продлевает подписку.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS payments (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   kind         TEXT NOT NULL DEFAULT 'subscription',
+                   plan         TEXT,
+                   months       INTEGER DEFAULT 1,
+                   amount       INTEGER NOT NULL,        -- рубли, целыми
+                   currency     TEXT DEFAULT 'RUB',
+                   status       TEXT NOT NULL DEFAULT 'pending',  -- pending|paid|canceled
+                   provider     TEXT DEFAULT 'yookassa',
+                   provider_id  TEXT UNIQUE,
+                   confirm_url  TEXT,
+                   description  TEXT,
+                   created_at   TEXT DEFAULT (datetime('now')),
+                   paid_at      TEXT
+               )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_payments_biz "
+                     "ON payments(business_id, created_at)")
 
         # Личность владельца бизнеса (Owner Identity) — сущность, к которой
         # ПРИВЯЗЫВАЕТСЯ триал (а НЕ к Telegram-боту: бота легко пересоздать).
@@ -2189,7 +2303,9 @@ def update_business(business_id, **fields):
                # код привязки Telegram молча терялся: /api/trial/start выдавал код,
                # он не сохранялся, webhook его не находил — и кнопка «Запустить
                # VELOR» не могла сработать никогда.
-               "tg_verify_code", "owner_verified"}
+               "tg_verify_code", "owner_verified",
+               # Условия первых компаний и факт оплаты настройки.
+               "founder_pilot", "setup_paid"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return
@@ -2270,11 +2386,97 @@ def delete_business(business_id):
         conn.execute("DELETE FROM orders   WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM clients  WHERE business_id = ?", (business_id,))
         conn.execute("DELETE FROM businesses WHERE id = ?", (business_id,))
+        # Платежи тоже НЕ удаляем: это записи о полученных деньгах, и они
+        # переживают удаление компании — как и реестр триала. Наружу осиротевшая
+        # строка не попадёт, list_payments всегда спрашивает по business_id.
         # ВНИМАНИЕ: trial_registry НЕ трогаем — признак использования триала должен
         # пережить удаление компании (иначе абьюз через «удалить и создать заново»).
 
 
 # ---------- TRIAL / ПОДПИСКА (данные для TrialService) ----------
+
+# ---------- ПЛАТЕЖИ ----------
+# Ни одна из этих функций не даёт доступа. Они только записывают, что
+# произошло с деньгами; подписку включает billing.py, и только по подтверждению
+# от платёжной системы.
+
+def create_payment(business_id, *, kind, amount, plan=None, months=1,
+                   description=None, provider="yookassa"):
+    """Завести платёж в состоянии pending. Возвращает строку целиком."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO payments (business_id, kind, plan, months, amount,
+                                     status, provider, description)
+               VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)""",
+            (business_id, kind, plan, int(months or 1), int(amount),
+             provider, description))
+        pid = cur.lastrowid
+    return get_payment(pid)
+
+
+def attach_provider_payment(payment_id, provider_id, confirm_url=None):
+    """Связать наш платёж с платежом у провайдера.
+
+    provider_id UNIQUE — по нему webhook находит строку, и по нему же второй
+    webhook понимает, что делать нечего.
+    """
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE payments SET provider_id = ?, confirm_url = ? WHERE id = ?",
+            (str(provider_id), confirm_url, int(payment_id)))
+    return get_payment(payment_id)
+
+
+def get_payment(payment_id):
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM payments WHERE id = ?",
+                           (int(payment_id),)).fetchone()
+    return dict(row) if row else None
+
+
+def get_payment_by_provider(provider_id):
+    """Найти платёж по идентификатору провайдера — вход webhook."""
+    if not provider_id:
+        return None
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM payments WHERE provider_id = ?",
+                           (str(provider_id),)).fetchone()
+    return dict(row) if row else None
+
+
+def mark_payment_paid(payment_id):
+    """
+    Отметить платёж оплаченным. Возвращает True, только если СЕЙЧАС перевёл его
+    из pending в paid.
+
+    Возврат — это и есть замок идемпотентности: условие `status <> 'paid'` стоит
+    в самом UPDATE, поэтому второй webhook получит 0 изменённых строк и False, и
+    вызывающий код не станет продлевать подписку второй раз. Проверять статус
+    отдельным SELECT было бы гонкой: два webhook-а могут прийти одновременно.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE payments SET status = 'paid', paid_at = datetime('now') "
+            "WHERE id = ? AND status <> 'paid'", (int(payment_id),))
+        return (cur.rowcount or 0) > 0
+
+
+def cancel_payment(payment_id):
+    """Платёж не состоялся. Оплаченный не отменяем — деньги уже получены."""
+    with _connect() as conn:
+        conn.execute("UPDATE payments SET status = 'canceled' "
+                     "WHERE id = ? AND status = 'pending'", (int(payment_id),))
+    return get_payment(payment_id)
+
+
+def list_payments(business_id, limit=20):
+    """История платежей бизнеса — для страницы тарифа."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM payments WHERE business_id = ? "
+            "ORDER BY id DESC LIMIT ?", (business_id, int(limit))).fetchall()
+    return [dict(r) for r in rows]
+
 
 def trial_used_before(fingerprint=None, email=None, telegram=None):
     """Выдавался ли уже триал на любой из признаков (вечный реестр)."""

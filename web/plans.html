@@ -6,120 +6,329 @@
 <title>VELOR AI — Тариф</title>
 <link href="vendor/inter.css" rel="stylesheet">
 <style>
-  
+  /* Страница тарифа — она же страница подписки. Разделять их незачем: вопрос
+     «что у меня сейчас» и вопрос «что мне выбрать» человек задаёт в один и тот
+     же момент, и ответы должны стоять рядом.
+
+     Ни одной цены и ни одного правила доступа в этом файле нет: всё приходит
+     из /api/billing. Две копии прайса однажды разойдутся — и разойдутся именно
+     в цене, то есть в том единственном месте, где ошибка стоит доверия. */
   *{ margin:0; padding:0; box-sizing:border-box; }
-  body{ background:var(--void); color:var(--bone);
-    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
-    font-weight:200; font-size:var(--fs-lead); line-height:1.5; overflow-x:hidden; }
-  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
   a{ text-decoration:none; color:inherit; }
-  button{ font-family:inherit; cursor:pointer; }
-  :focus-visible{ outline:2px solid var(--iris); outline-offset:3px; border-radius:4px; }
-  .num{ font-variant-numeric:tabular-nums; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  section{ margin-bottom:var(--sp-12); }
 
-  .label{ font-weight:600; font-size:var(--fs-body); letter-spacing:.35px; text-transform:uppercase; color:var(--saffron); }
-  .caption{ font-weight:200; font-size:var(--fs-caption); color:var(--ash); }
-  .ghost{ font-weight:400; font-size:var(--fs-body); letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; background:none; border:none; }
-  .ghost:hover{ color:var(--bone); }
+  /* ── текущее состояние ── */
+  .now{ border:1px solid var(--hairline); border-radius:var(--r-xl);
+    background:var(--surface); box-shadow:var(--edge); padding:var(--sp-6) var(--sp-8); }
+  .now .cap{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); }
+  .now .name{ font-weight:var(--fw-reg); font-size:clamp(26px,3vw,34px);
+    letter-spacing:-.03em; line-height:1.1; margin-top:var(--sp-2); }
+  .now .line{ display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap;
+    margin-top:var(--sp-3); }
+  .now .until{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-body); }
+  .now .have{ display:flex; flex-wrap:wrap; gap:var(--sp-2); margin-top:var(--sp-5); }
+  .now .have span{ font-size:var(--fs-sm); color:var(--ash); font-weight:var(--fw-thin);
+    border:1px solid var(--hairline); border-radius:var(--r-pill); padding:5px 12px; }
 
-  nav{ position:fixed; top:0; left:0; right:0; z-index:50;
-    display:flex; align-items:center; justify-content:space-between;
-    padding:24px; background:linear-gradient(180deg,rgba(0,0,0,.85),transparent); }
-  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:var(--fs-lead); letter-spacing:.12em; }
-  .logo-sub{ font-weight:500; font-size:var(--fs-micro); letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
-    border-left:1px solid var(--hairline); padding-left:9px; margin-left:1px; }
-  .nav-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
+  /* ── тарифы ── */
+  .tiers{ display:grid; grid-template-columns:repeat(3,1fr); gap:var(--sp-4); }
+  .tier{ position:relative; display:flex; flex-direction:column;
+    border:1px solid var(--hairline); border-radius:var(--r-xl);
+    background:var(--surface); box-shadow:var(--edge);
+    padding:var(--sp-6) var(--sp-6) var(--sp-5); }
+  /* Основной тариф выделен рамкой и подложкой, а не размером: карточка выше
+     соседних ломает ряд и читается как ошибка вёрстки, а не как акцент. */
+  .tier.pop{ border-color:rgba(128,82,255,.45); background:rgba(128,82,255,.06); }
+  .tier .tag{ position:absolute; top:-9px; left:var(--sp-6);
+    font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:var(--track-micro);
+    text-transform:uppercase; color:var(--ink-iris);
+    background:#17102b; border:1px solid rgba(128,82,255,.45);
+    border-radius:var(--r-pill); padding:3px 10px; }
+  .tier .tn{ font-weight:var(--fw-semi); font-size:var(--fs-sm); letter-spacing:.14em;
+    text-transform:uppercase; }
+  .tier .pr{ font-weight:var(--fw-reg); font-size:clamp(30px,3.4vw,40px);
+    letter-spacing:-.03em; margin-top:var(--sp-4); font-variant-numeric:tabular-nums; }
+  .tier .pr i{ font-style:normal; color:var(--ash); font-size:var(--fs-body);
+    font-weight:var(--fw-thin); letter-spacing:0; }
+  .tier .tl{ color:var(--silver); font-weight:var(--fw-thin); font-size:var(--fs-body);
+    margin-top:var(--sp-2); }
+  .tier ul{ list-style:none; margin:var(--sp-5) 0 var(--sp-5); flex:1; }
+  .tier li{ display:flex; gap:var(--sp-3); padding:7px 0; font-size:var(--fs-body);
+    line-height:1.45; }
+  .tier li::before{ content:""; flex:none; width:5px; height:2px; border-radius:1px;
+    background:var(--iris); margin-top:11px; }
+  .tier li.soon{ color:var(--ash); }
+  .tier li.soon::before{ background:var(--hairline-2); }
+  .tier li .soon-mark{ color:var(--ink-saffron); font-size:var(--fs-caption);
+    text-transform:uppercase; letter-spacing:.1em; margin-left:6px; white-space:nowrap; }
+  .tier .lim{ color:var(--ash); font-weight:var(--fw-thin); font-size:var(--fs-sm);
+    line-height:1.5; margin-bottom:var(--sp-4); }
+  .tier .v-btn{ width:100%; }
 
-  main{ position:relative; z-index:1; max-width:1000px; margin:0 auto; padding:140px 24px 100px; }
-  .lead{ color:var(--silver); font-weight:200; margin-bottom:40px; max-width:600px; }
+  /* ── настройка ── */
+  .setup{ border:1px solid var(--hairline); border-radius:var(--r-xl);
+    background:var(--surface); box-shadow:var(--edge); padding:var(--sp-6) var(--sp-8);
+    display:grid; grid-template-columns:1fr 300px; gap:var(--sp-8); align-items:start; }
+  .setup h2{ font-weight:var(--fw-reg); font-size:var(--fs-h2); letter-spacing:-.02em; }
+  .setup .tl{ color:var(--silver); font-weight:var(--fw-thin); margin-top:var(--sp-2);
+    font-size:var(--fs-body); }
+  .setup ul{ list-style:none; margin-top:var(--sp-4); columns:2; column-gap:var(--sp-6); }
+  .setup li{ font-size:var(--fs-body); color:var(--silver); font-weight:var(--fw-thin);
+    padding:5px 0; break-inside:avoid; }
+  .setup .box{ border-left:1px solid var(--hairline); padding-left:var(--sp-6); }
+  .setup .pr{ font-weight:var(--fw-reg); font-size:clamp(26px,3vw,34px);
+    letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  .setup .pr i{ font-style:normal; color:var(--ash); font-size:var(--fs-body);
+    font-weight:var(--fw-thin); }
+  .setup .v-btn{ width:100%; margin-top:var(--sp-4); }
 
-  /* Текущий расход */
-  .usage{ background:rgba(255,255,255,.04); border:1px solid var(--hairline); border-radius:var(--r-lg); padding:26px 24px; margin-bottom:48px; }
-  .usage .row{ display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; }
-  .usage .now{ font-weight:600; font-size:var(--fs-caption); letter-spacing:.2em; text-transform:uppercase; color:var(--ash); }
-  .usage .plan{ font-weight:400; font-size:var(--fs-h2); letter-spacing:-.02em; }
-  .usage .cnt{ color:var(--silver); font-size:var(--fs-body); }
-  .bar{ height:8px; border-radius:6px; background:rgba(255,255,255,.08); margin-top:18px; overflow:hidden; }
-  .bar > i{ display:block; height:100%; border-radius:6px; background:var(--iris); transition:width .5s; }
-  .bar.warn > i{ background:var(--warn); }
+  /* ── история платежей ── */
+  table{ width:100%; border-collapse:collapse; }
+  th{ text-align:left; font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:.14em; text-transform:uppercase; color:var(--ash);
+    padding-bottom:var(--sp-3); border-bottom:1px solid var(--hairline); }
+  td{ padding:var(--sp-3) 0; border-bottom:1px solid var(--hairline);
+    font-size:var(--fs-body); font-weight:var(--fw-thin); color:var(--silver); }
+  td.sum{ font-variant-numeric:tabular-nums; color:var(--bone); white-space:nowrap; }
+  td:last-child{ text-align:right; }
 
-  .grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; }
-  .tier{ background:rgba(255,255,255,.03); border:1px solid var(--hairline); border-radius:var(--r-lg); padding:26px 22px; display:flex; flex-direction:column; }
-  .tier.cur{ border-color:var(--iris); }
-  .tier .tn{ font-weight:600; font-size:var(--fs-sm); letter-spacing:.14em; text-transform:uppercase; color:var(--bone); }
-  .tier .pr{ font-weight:400; font-size:var(--fs-display); letter-spacing:-.02em; margin:14px 0 4px; }
-  .tier .pr small{ font-size:var(--fs-body); color:var(--ash); font-weight:200; }
-  .tier .lim{ color:var(--verdant); font-size:var(--fs-body); margin-bottom:12px; }
-  .tier .nt{ color:var(--silver); font-size:var(--fs-body); font-weight:200; flex:1; }
-  .tier .badge{ margin-top:16px; font-size:var(--fs-caption); letter-spacing:.14em; text-transform:uppercase; color:var(--iris); font-weight:600; }
+  .say{ margin-top:var(--sp-4); font-size:var(--fs-body); line-height:1.5; }
+  .say.bad{ color:var(--ink-coral); }
+  .say.ok{ color:var(--ink-verdant); }
 
-  .foot{ color:var(--ash); font-size:var(--fs-body); margin-top:32px; }
-
-  @media (max-width:820px){ .grid{ grid-template-columns:1fr 1fr; } }
-  @media (max-width:480px){ .grid{ grid-template-columns:1fr; } }
+  @media (max-width:900px){
+    .tiers{ grid-template-columns:1fr; }
+    .setup{ grid-template-columns:1fr; }
+    .setup .box{ border-left:none; border-top:1px solid var(--hairline);
+      padding-left:0; padding-top:var(--sp-5); }
+    .setup ul{ columns:1; }
+  }
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
 </head>
 <body>
 
-
 <main>
-  <span class="label">// Тариф и лимиты</span>
-  <h1>Тариф.</h1>
-  <p class="lead">VELOR работает по подписке. Лимит — число обработанных сообщений клиентов в месяц. Расход обнуляется каждый месяц.</p>
-
-  <div class="usage">
-    <div class="row">
-      <div>
-        <div class="now">Ваш тариф</div>
-        <div class="plan" id="uPlan">—</div>
-      </div>
-      <div class="cnt num" id="uCnt">— / —</div>
+  <header class="v-head">
+    <div>
+      <h1>Тариф</h1>
+      <p class="v-lead">Вы видите не просто выручку и количество клиентов. VELOR показывает,
+        что изменилось, где появилась проблема, где теряются деньги и что стоит сделать
+        дальше.</p>
     </div>
-    <div class="bar" id="uBar"><i style="width:0%"></i></div>
-    <div class="caption" id="uNote" style="margin-top:12px"></div>
-  </div>
+  </header>
 
-  <div class="grid" id="grid"></div>
+  <section id="nowZone"><div class="v-sk panel"></div></section>
 
-  <p class="foot">Оплата и смена тарифа — по запросу: напишите нам, подключим. Пробный период даётся при старте.</p>
+  <section>
+    <div class="v-cap">Тарифы</div>
+    <div class="tiers" id="tiers">
+      <div class="v-sk panel"></div><div class="v-sk panel"></div><div class="v-sk panel"></div>
+    </div>
+    <p class="say" id="say"></p>
+  </section>
+
+  <section id="setupZone"></section>
+
+  <section id="histZone"></section>
 </main>
 
 <script src="panel-auth.js"></script>
 <script src="nav.js"></script>
 <script src="velor-field.js?v=19"></script>
 <script>
-function fmt(n){ return (n||0).toLocaleString('ru-RU'); }
-async function load(){
-  try{
-    const d = await (await fetch('/api/plan')).json();
-    const s = d.status, plans = d.plans;
-    document.getElementById('uPlan').textContent = s.name;
-    document.getElementById('uCnt').textContent = fmt(s.used) + ' / ' + fmt(s.limit) + ' сообщений';
-    const pct = Math.min(100, Math.round(s.used / s.limit * 100));
-    const bar = document.getElementById('uBar');
-    bar.querySelector('i').style.width = pct + '%';
-    if(pct >= 80) bar.classList.add('warn');
-    document.getElementById('uNote').textContent = s.over
-      ? 'Лимит месяца исчерпан — клиентам отвечает заглушка. Смените тариф, чтобы включить ИИ снова.'
-      : 'Осталось ' + fmt(s.remaining) + ' сообщений в этом месяце.';
-
-    const order = ['free','starter','business','pro'];
-    document.getElementById('grid').innerHTML = order.map(k => {
-      const p = plans[k]; if(!p) return '';
-      const cur = k === s.plan;
-      return `<div class="tier ${cur?'cur':''}">
-        <div class="tn">${p.name}</div>
-        <div class="pr">${p.price ? fmt(p.price)+' <small>₽/мес</small>' : 'Бесплатно'}</div>
-        <div class="lim num">${fmt(p.limit)} сообщений/мес</div>
-        <div class="nt">${p.note}</div>
-        ${cur ? '<div class="badge">Текущий</div>' : ''}
-      </div>`;
-    }).join('');
-  }catch{ document.getElementById('uPlan').textContent = 'сервер не отвечает'; }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function money(n){ return (n || 0).toLocaleString('ru-RU') + ' ₽'; }
+function day(s){
+  if (!s) return '';
+  const d = new Date(String(s).replace(' ', 'T') + 'Z');
+  return isNaN(d) ? String(s).slice(0, 10)
+    : d.toLocaleDateString('ru-RU', { day:'numeric', month:'long', year:'numeric' });
 }
-load();
+
+// Что сказано в шапке. Состояние подписки называем словом, а не цветом:
+// «Активна» читается и на монохромном экране, и вслух.
+const PHASE = {
+  onboarding: { t:'Не запущен', d:'Пробный период начнётся, когда вы запустите VELOR.' },
+  trial:      { t:'Пробный период', d:'14 дней полного доступа.' },
+  subscribed: { t:'Активна', d:'' },
+  legacy:     { t:'Активна', d:'' },
+  locked:     { t:'Завершён', d:'Ваши данные сохранены. Выберите тариф, чтобы продолжить работу.' }
+};
+
+let STATE = null;
+
+function nowHTML(d){
+  const a = d.access, ph = PHASE[a.phase] || PHASE.trial;
+  // Во время триала показываем не «ваш тариф», а честное «пробный период»:
+  // человек ничего не покупал, и называть это тарифом значит соврать.
+  const title = a.phase === 'subscribed' ? d.plan_name
+              : a.phase === 'locked' ? 'Пробный период завершён'
+              : a.phase === 'onboarding' ? 'VELOR не запущен'
+              : 'Пробный период';
+  const until = a.phase === 'subscribed' && a.subscription_expires
+      ? 'До ' + day(a.subscription_expires)
+      : (a.phase === 'trial' && a.trial_end ? 'До ' + day(a.trial_end) : '');
+  const tag = a.phase === 'locked' ? 'warn' : (a.read_only ? 'warn' : 'ok');
+  const have = (d.entitlements || []).length
+    ? '<div class="have">' + d.entitlements.map(function(e){
+        return '<span>' + esc((d.titles && d.titles[e]) || e) + '</span>'; }).join('') + '</div>'
+    : '';
+  return '<div class="now">' +
+    '<div class="cap">Подписка</div>' +
+    '<div class="name">' + esc(title) + '</div>' +
+    '<div class="line">' +
+      '<span class="v-tag ' + tag + '">' + esc(ph.t) + '</span>' +
+      (until ? '<span class="until">' + esc(until) + '</span>' : '') +
+      (d.founder_pilot ? '<span class="v-tag info">Founder Pilot</span>' : '') +
+    '</div>' +
+    (ph.d ? '<div class="until" style="margin-top:var(--sp-3)">' + esc(ph.d) + '</div>' : '') +
+    have +
+  '</div>';
+}
+
+function tierHTML(p, d){
+  const paid = d.paid_plan === p.key;
+  const feats = p.features.map(function(f){
+    return '<li class="' + (f.ready ? '' : 'soon') + '">' +
+      '<span>' + esc(f.title) +
+      (f.ready ? '' : '<span class="soon-mark">готовится</span>') + '</span></li>';
+  }).join('');
+  // «37 мес.» человек не читает как срок — переводим в годы, когда их больше
+  // одного. Единица измерения должна быть той, в которой думают.
+  const hist = p.limits.history >= 365
+    ? Math.round(p.limits.history / 365) + ' ' +
+      (Math.round(p.limits.history / 365) === 1 ? 'год' : 'года')
+    : Math.round(p.limits.history / 30) + ' мес.';
+  const lim = 'Источников: ' + (p.limits.sources ? p.limits.sources : 'без ограничения') +
+    ' · История: ' + hist +
+    ' · Сообщений: ' + p.limits.messages.toLocaleString('ru-RU') + '/мес';
+  return '<div class="tier' + (p.popular ? ' pop' : '') + '">' +
+    (p.popular ? '<span class="tag">Популярный</span>' : '') +
+    '<div class="tn">' + esc(p.name) + '</div>' +
+    '<div class="pr">' + money(p.price) + ' <i>/ месяц</i></div>' +
+    '<div class="tl">' + esc(p.tagline) + '</div>' +
+    '<ul>' + feats + '</ul>' +
+    '<div class="lim">' + esc(lim) + '</div>' +
+    (paid
+      ? '<button class="v-btn ghost" type="button" disabled>Ваш тариф</button>'
+      : '<button class="v-btn' + (p.popular ? '' : ' ghost') + '" type="button" ' +
+        'data-plan="' + esc(p.key) + '">Оформить</button>') +
+  '</div>';
+}
+
+function setupHTML(d){
+  const s = d.setup;
+  return '<div class="v-cap">Настройка</div><div class="setup">' +
+    '<div>' +
+      '<h2>' + esc(s.name) + '</h2>' +
+      '<p class="tl">' + esc(s.tagline) + '</p>' +
+      '<ul>' + s.includes.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
+    '</div>' +
+    '<div class="box">' +
+      '<div class="pr">' + (s.price ? money(s.price) : 'Входит в пилот') +
+        (s.price ? ' <i>единоразово</i>' : '') + '</div>' +
+      (s.paid
+        ? '<button class="v-btn ghost" type="button" disabled>Оплачено</button>'
+        : '<button class="v-btn ghost" type="button" data-setup="1">Заказать настройку</button>') +
+    '</div>' +
+  '</div>';
+}
+
+const KIND = { subscription:'Подписка', setup:'Настройка' };
+const PAYST = { paid:['ok','Оплачен'], pending:['warn','Ожидает оплаты'], canceled:['','Отменён'] };
+
+function histHTML(d){
+  if (!d.history.length) return '';
+  return '<div class="v-cap">История платежей</div>' +
+    '<table><thead><tr><th>Дата</th><th>Что</th><th>Сумма</th><th>Состояние</th></tr></thead><tbody>' +
+    d.history.map(function(x){
+      const st = PAYST[x.status] || ['', x.status];
+      return '<tr><td>' + esc(day(x.paid_at || x.created_at)) + '</td>' +
+        '<td>' + esc(x.description || KIND[x.kind] || x.kind) + '</td>' +
+        '<td class="sum">' + money(x.amount) + '</td>' +
+        '<td><span class="v-tag ' + st[0] + '">' + esc(st[1]) + '</span></td></tr>';
+    }).join('') + '</tbody></table>';
+}
+
+function say(text, cls){
+  const el = document.getElementById('say');
+  el.className = 'say ' + (cls || '');
+  el.textContent = text || '';
+}
+
+async function buy(kind, plan, btn){
+  const was = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Готовим оплату…';
+  say('');
+  try{
+    const r = await fetch('/api/billing/checkout', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      // Адрес возврата собирает сервер: присланный отсюда был бы открытым
+      // редиректом — платёжка увела бы человека на любой указанный сайт.
+      body: JSON.stringify({ kind: kind, plan: plan || '', months: 1 })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'не получилось');
+    // Бесплатная покупка (условия пилота) проводится сразу и без платёжной
+    // страницы — в истории она видна строкой на 0 ₽.
+    if (d.payment.confirm_url) location.href = d.payment.confirm_url;
+    else { say('Готово. Обновляем состояние…', 'ok'); load(); }
+  }catch(e){
+    btn.disabled = false; btn.textContent = was;
+    say(String(e.message || e), 'bad');
+  }
+}
+
+async function load(){
+  let d;
+  try{
+    const r = await fetch('/api/billing');
+    if (!r.ok) throw new Error(r.status);
+    d = STATE = await r.json();
+  }catch{
+    document.getElementById('nowZone').innerHTML =
+      '<div class="v-fail"><div><div class="t">Не удалось получить состояние подписки</div>' +
+      '<div class="d">Сервер не отвечает. Обновите страницу.</div></div></div>';
+    return;
+  }
+  // Названия возможностей берём из каталога — на фронте их нет.
+  d.titles = {};
+  d.plans.forEach(function(p){ p.features.forEach(function(f){ d.titles[f.key] = f.title; }); });
+
+  document.getElementById('nowZone').innerHTML = nowHTML(d);
+  document.getElementById('tiers').innerHTML = d.plans.map(function(p){ return tierHTML(p, d); }).join('');
+  document.getElementById('setupZone').innerHTML = setupHTML(d);
+  document.getElementById('histZone').innerHTML = histHTML(d);
+
+  if (!d.payments_enabled)
+    say('Приём оплаты картой ещё подключается. Напишите нам — оформим подписку вручную.');
+
+  document.querySelectorAll('[data-plan]').forEach(function(b){
+    b.onclick = function(){ buy('subscription', b.dataset.plan, b); };
+  });
+  document.querySelectorAll('[data-setup]').forEach(function(b){
+    b.onclick = function(){ buy('setup', '', b); };
+  });
+}
+
+// Возврат с платёжной страницы. Подписку здесь НЕ включаем: возврат означает
+// лишь, что браузер открыл наш адрес. Просим сервер спросить у платёжной
+// системы, что стало с платежом, — решает её ответ, а не наш редирект.
+async function afterReturn(){
+  const id = new URLSearchParams(location.search).get('payment');
+  if (!id) return;
+  try{
+    await fetch('/api/billing/payments/' + encodeURIComponent(id) + '/refresh', { method:'POST' });
+  }catch{ /* не страшно: придёт webhook */ }
+  history.replaceState(null, '', location.pathname);
+}
+
+afterReturn().then(load);
 </script>
 </body>
 </html>

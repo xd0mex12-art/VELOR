@@ -60,12 +60,23 @@ def touch(bid, modules, reason=None):
     try:
         with database._connect() as conn:
             for m in modules:
-                conn.execute(
-                    """INSERT OR REPLACE INTO module_state
-                       (business_id, module, dirty, reason, updated_at)
-                       VALUES (?, ?, 1, ?, CURRENT_TIMESTAMP)""",
-                    (bid, m, (reason or "")[:200]),
+                # UPDATE, а если строки ещё нет — INSERT. Раньше здесь стоял
+                # INSERT OR REPLACE: это синтаксис только SQLite, на Postgres
+                # запрос падал, а исключение глоталось ниже — в логах пусто,
+                # и модули молча переставали помечаться на пересборку.
+                cur = conn.execute(
+                    """UPDATE module_state SET dirty = 1, reason = ?,
+                              updated_at = CURRENT_TIMESTAMP
+                        WHERE business_id = ? AND module = ?""",
+                    ((reason or "")[:200], bid, m),
                 )
+                if not (cur.rowcount or 0):
+                    conn.execute(
+                        """INSERT INTO module_state
+                           (business_id, module, dirty, reason, updated_at)
+                           VALUES (?, ?, 1, ?, CURRENT_TIMESTAMP)""",
+                        (bid, m, (reason or "")[:200]),
+                    )
     except Exception:
         pass
 

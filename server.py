@@ -38,6 +38,8 @@ import config
 import botcore
 import connectors
 import trial
+import plans
+import billing
 import identity
 import storage
 import understanding
@@ -337,6 +339,126 @@ def require_active(bid):
     return st
 
 
+def require_entitlement(bid, entitlement):
+    """
+    Гейт платной возможности. Нет возможности — 403.
+
+    Фронт не система безопасности. Кнопку можно не рисовать, но запрос всё
+    равно уйдёт — руками, из консоли, из чужого скрипта; поэтому решает
+    только эта функция, и стоит она в самом эндпоинте, а не в разметке.
+
+    Разделение с require_active намеренное и означает разные вещи:
+      402 — аккаунт в режиме просмотра: истёк срок, операции остановлены;
+      403 — аккаунт рабочий, но этой возможности нет на его тарифе.
+    Одинаковый код на два разных случая заставил бы владельца гадать,
+    закончился у него срок или не хватает тарифа.
+
+    Спрашивается ТАРИФ, а не срок. После окончания триала данные обязаны
+    оставаться видимыми — блокируются операции, а не чтение; за это отвечает
+    require_active, и он стоит в тех же обработчиках, где меняют данные. Если
+    учитывать срок ещё и здесь, экран «ваши данные сохранены» превратится в
+    ложь: половина разделов перестанет открываться.
+    """
+    if not billing.plan_allows(bid, entitlement):
+        title = (plans.ENTITLEMENTS.get(entitlement) or {}).get("title") or entitlement
+        raise HTTPException(
+            status_code=403,
+            detail="«%s» доступно на тарифе VELOR BUSINESS и выше." % title)
+    return True
+
+
+def plan_limit(bid, what):
+    """Числовой лимит тарифа. 0 = без ограничения."""
+    b = database.get_business(bid) or {}
+    return plans.limit(database.plan_key(b), what)
+
+
+# ---------- ТАРИФЫ, ПОДПИСКА, ОПЛАТА ----------
+
+class CheckoutIn(BaseModel):
+    kind: str = billing.KIND_SUBSCRIPTION
+    plan: str = ""
+    months: int = 1
+
+
+@app.get("/api/billing")
+def api_billing(business_id: int = 0, x_auth: str = Header(default="")):
+    """Состояние подписки, каталог тарифов и история платежей — одним запросом.
+
+    Каталог отдаёт сервер: во фронте не должно быть ни одной цены. Две копии
+    прайса однажды разойдутся, и разойдутся именно в цене."""
+    bid = _resolve_bid(x_auth, business_id)
+    return billing.state(bid)
+
+
+@app.post("/api/billing/checkout")
+def api_billing_checkout(body: CheckoutIn, request: Request,
+                         business_id: int = 0, x_auth: str = Header(default="")):
+    """Создать платёж и вернуть адрес страницы оплаты.
+
+    Сумму считает сервер (billing.quote). Присланная фронтом цена не
+    используется нигде: иначе BUSINESS покупался бы за рубль."""
+    bid = _resolve_bid(x_auth, business_id)
+    wait = ratelimit.ask_retry_after("pay:" + _client_ip(request))
+    if wait:
+        raise HTTPException(status_code=429, detail=(
+            "Слишком много попыток подряд. Подождите " + ratelimit.human_wait(wait) + "."))
+    try:
+        # Адрес возврата берём из своего же запроса, а не от фронта: иначе это
+        # открытый редирект — ЮKassa увела бы человека на любой присланный сайт.
+        row = billing.start(bid, body.kind, plan_key=(body.plan or None),
+                            months=body.months or 1,
+                            base_url=str(request.base_url))
+    except billing.BillingError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "payment": {
+        "id": row["id"], "amount": row["amount"], "status": row["status"],
+        "confirm_url": row.get("confirm_url"), "kind": row["kind"],
+        "plan": row.get("plan")}}
+
+
+@app.post("/api/billing/payments/{payment_id}/refresh")
+def api_billing_refresh(payment_id: int, business_id: int = 0,
+                        x_auth: str = Header(default="")):
+    """
+    Спросить у платёжной системы, что стало с платежом.
+
+    Это НЕ «фронт активировал подписку». Человек вернулся на сайт — мы не
+    верим этому факту, а спрашиваем ЮKassa по её API нашими ключами; включает
+    доступ ровно тот же код и с той же перепроверкой, что и webhook. Нужно
+    потому, что webhook может задержаться, а владелец уже смотрит на экран.
+
+    Чужой платёж посмотреть нельзя: строка проверяется на принадлежность
+    этому бизнесу до всякого обращения к провайдеру.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    row = database.get_payment(payment_id)
+    if not row or row["business_id"] != bid:
+        raise HTTPException(status_code=404, detail="Платёж не найден")
+    if row["status"] != "pending" or not row.get("provider_id"):
+        return {"ok": True, "status": row["status"]}
+    code, res = billing.handle_webhook({"object": {"id": row["provider_id"]}})
+    return {"ok": code == 200, "status": database.get_payment(payment_id)["status"],
+            "detail": res}
+
+
+@app.post("/api/billing/webhook")
+async def api_billing_webhook(request: Request):
+    """
+    Уведомление ЮKassa. Открытый адрес — авторизации здесь нет и быть не может.
+
+    Именно поэтому телу запроса не верим: ЮKassa не подписывает уведомления, и
+    прислать такой JSON может кто угодно. Берём из него один идентификатор и
+    спрашиваем состояние платежа у API ЮKassa нашими ключами.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    code, res = billing.handle_webhook(payload)
+    return JSONResponse(status_code=code, content=res)
+
+
 @app.get("/api/trial")
 def api_trial(business_id: int = 0, x_auth: str = Header(default="")):
     """Состояние триала/подписки для фронта: баннер-отсчёт и экран окончания."""
@@ -411,7 +533,8 @@ def api_trial_start(x_auth: str = Header(default="")):
 class TrialAdminIn(BaseModel):
     days: int | None = None
     date: str | None = None       # 'YYYY-MM-DD [HH:MM:SS]'
-    plan: str | None = None       # starter | business | pro
+    plan: str | None = None       # start | business | network
+    founder_pilot: bool | None = None
     months: int | None = None
 
 
@@ -458,6 +581,19 @@ def api_admin_subscription_extend(bid: int, body: TrialAdminIn, x_auth: str = He
     return {"ok": True, **trial.access(database.get_business(bid))}
 
 
+@app.post("/api/admin/businesses/{bid}/founder-pilot")
+def api_admin_founder_pilot(bid: int, body: TrialAdminIn,
+                            x_auth: str = Header(default="")):
+    """Включить или снять условия Founder Pilot (владелец VELOR).
+
+    Флаг меняет только ЦЕНУ первого месяца и настройки — не набор возможностей.
+    Пилот получает обычный BUSINESS, иначе продукт нельзя было бы проверить."""
+    require_owner(x_auth)
+    on = True if body.founder_pilot is None else bool(body.founder_pilot)
+    database.update_business(bid, founder_pilot=1 if on else 0)
+    return {"ok": True, "founder_pilot": on}
+
+
 @app.get("/api/admin/trial-overview")
 def api_admin_trial_overview(x_auth: str = Header(default="")):
     """Владелец VELOR: сводка по триалам/подпискам + воронка конверсии."""
@@ -479,7 +615,7 @@ def api_admin_trial_overview(x_auth: str = Header(default="")):
                       "trial_end": st["trial_end"], "risk_score": b.get("risk_score") or 0,
                       "suspicious": risky})
     return {"counts": counts, "funnel": database.trial_funnel(),
-            "plans": trial.PLANS, "businesses": items}
+            "plans": plans.public(), "businesses": items}
 
 
 @app.post("/api/business-login")
@@ -1466,6 +1602,7 @@ def api_initiatives(business_id: int = 0, all: bool = False, limit: int = 30,
     живой, пока не исчезнет сам сигнал.
     """
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "insights_auto")
     items = initiatives.feed(bid, only_open=not all, limit=max(1, min(limit, 100)))
     for row in items:
         if row["fresh"]:
@@ -1483,6 +1620,7 @@ def api_initiative_one(initiative_id: int, business_id: int = 0,
                        x_auth: str = Header(default="")):
     """Одна находка целиком: на чём основана, что предлагается, чем кончилось."""
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "insights_auto")
     row = database.get_initiative(initiative_id, bid)
     if not row:
         raise HTTPException(status_code=404, detail="Находка не найдена")
@@ -1493,6 +1631,7 @@ def api_initiative_one(initiative_id: int, business_id: int = 0,
 def api_initiatives_scan(body: InitiativeIn, x_auth: str = Header(default="")):
     """Посмотреть прямо сейчас, не дожидаясь обхода."""
     bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "insights_auto")
     require_active(bid)
     got = initiatives.scan(bid)
     return {"ok": True, "scan": got, "items": initiatives.feed(bid, limit=30),
@@ -1504,6 +1643,7 @@ def api_initiative_ack(initiative_id: int, body: InitiativeIn,
                        x_auth: str = Header(default="")):
     """«Понял». Не «решил»: сигнал остаётся, пока не исчезнет сам."""
     bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "insights_auto")
     try:
         row = initiatives.acknowledge(bid, initiative_id)
     except initiatives.InitiativeError as e:
@@ -1516,6 +1656,7 @@ def api_initiative_dismiss(initiative_id: int, body: InitiativeIn,
                            x_auth: str = Header(default="")):
     """«Не интересно». Замолкаем — но не навсегда, если картина изменится."""
     bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "insights_auto")
     try:
         row = initiatives.dismiss(bid, initiative_id)
     except initiatives.InitiativeError as e:
@@ -1534,6 +1675,7 @@ def api_initiative_act(initiative_id: int, body: InitiativeIn,
     в этом пути не меняет.
     """
     bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "insights_auto")
     require_active(bid)
     try:
         got = initiatives.act(bid, initiative_id)
@@ -1614,6 +1756,11 @@ def api_series(business_id: int = 0, days: int = 30, x_auth: str = Header(defaul
     """
     bid = _resolve_bid(x_auth, business_id)
     days = 7 if days <= 7 else (90 if days >= 90 else 30)
+    # Глубина истории тоже тарифная. Обрезаем молча, а не отказом: график —
+    # доказательство числа, и он должен показаться хоть каким-то.
+    depth = plan_limit(bid, "history")
+    if depth:
+        days = min(days, depth)
     try:
         series = database.daily_series(bid, days)
         now = database.orders_period(bid, days, 0)
@@ -1830,7 +1977,8 @@ def _attention(bid, sig, totals, risks, business):
     # заявок: заявку владелец видит и без подсказки, а «шесть горячих клиентов
     # ждут пятый час» — ровно то, на что у него не хватает глаз.
     try:
-        items += initiatives.attention(bid)
+        if billing.allowed(bid, "insights_auto"):
+            items += initiatives.attention(bid)
     except Exception:
         logging.exception("Находки не попали в список внимания (biz %s)", bid)
 
@@ -1950,7 +2098,11 @@ def api_home(business_id: int = 0, x_auth: str = Header(default="")):
         "sales": database.sales_today(bid),
         # Только счётчик и самое важное: сами карточки главная просит отдельным
         # запросом — они не должны задерживать цифры наверху.
-        "initiatives": initiatives.overview(bid),
+        # Счётчик находок — тоже часть платной возможности: показать «3 находки»
+        # и закрыть их тарифом значит подразнить, а не продать.
+        "initiatives": (initiatives.overview(bid)
+                        if billing.allowed(bid, "insights_auto")
+                        else {"open": 0, "fresh": 0, "act": 0, "top": None}),
         "today": datetime.date.today().isoformat(),
         "forecast": signals.forecast(bid),   # прогноз на конец месяца (обновляется с расходами)
         "advice": advice,
@@ -2267,6 +2419,7 @@ def _generate_board(bid, day):
 def api_board(business_id: int = 0, x_auth: str = Header(default="")):
     """Рекомендации совета директоров. Раз в день собираются автоматически."""
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "analytics_advanced")
     day = datetime.date.today().isoformat()
     business = database.get_business(bid) or {}
     # Пересобираем заседание, если данные менялись (реактивно) или его ещё не было сегодня.
@@ -2284,6 +2437,7 @@ def api_board(business_id: int = 0, x_auth: str = Header(default="")):
 def api_board_refresh(business_id: int = 0, x_auth: str = Header(default="")):
     """Пересобрать заседание принудительно (не повторяя уже решённое)."""
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "analytics_advanced")
     require_active(bid)
     day = datetime.date.today().isoformat()
     added, error = _generate_board(bid, day)
@@ -2296,6 +2450,7 @@ def api_board_refresh(business_id: int = 0, x_auth: str = Header(default="")):
 def api_board_status(rec_id: int, body: OppStatusIn, x_auth: str = Header(default="")):
     """Решение по рекомендации: accepted (принять), deferred (отложить), ignored (игнор)."""
     bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "analytics_advanced")
     if body.status not in ("new", "accepted", "deferred", "ignored"):
         raise HTTPException(status_code=400, detail="Неизвестный статус")
     database.set_board_status(rec_id, bid, body.status)
@@ -3063,6 +3218,7 @@ def api_weekly(business_id: int = 0, week: str = "",
                x_auth: str = Header(default="")):
     """Обзор за неделю (по умолчанию — текущую). Готовится один раз, дальше из базы."""
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "analytics_advanced")
     try:
         base = datetime.date.fromisoformat(week) if week else datetime.date.today()
     except ValueError:
@@ -3075,6 +3231,7 @@ def api_weekly(business_id: int = 0, week: str = "",
 def api_weekly_refresh(business_id: int = 0, week: str = "",
                        x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "analytics_advanced")
     require_active(bid)
     try:
         base = datetime.date.fromisoformat(week) if week else datetime.date.today()
@@ -3087,6 +3244,7 @@ def api_weekly_refresh(business_id: int = 0, week: str = "",
 @app.get("/api/weekly/list")
 def api_weekly_list(business_id: int = 0, x_auth: str = Header(default="")):
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "analytics_advanced")
     out = []
     for r in database.list_weekly_reviews(bid):
         try:
@@ -3250,6 +3408,15 @@ def api_connection_connect(provider: str, body: ConnectConfigIn,
     """
     bid = _resolve_bid(x_auth, body.business_id)
     require_active(bid)
+    # Лимит источников — часть тарифа, а не украшение страницы: проверяем до
+    # обращения к чужому сервису. 0 значит «без ограничения».
+    cap = plan_limit(bid, "sources")
+    if cap and provider not in {c.get("provider") for c in database.list_connections(bid)}:
+        if len(database.list_connections(bid)) >= cap:
+            raise HTTPException(
+                status_code=403,
+                detail=("На вашем тарифе можно подключить %d источник(ов). "
+                        "Отключите лишний или перейдите на тариф выше." % cap))
     config = {k: (str(v) if v is not None else "") for k, v in (body.config or {}).items()}
     try:
         st = connections.connect(bid, provider, config)
@@ -3687,7 +3854,8 @@ def api_plan(business_id: int = 0, x_auth: str = Header(default="")):
     """Текущий тариф бизнеса, расход сообщений за месяц и остаток. + список всех тарифов."""
     bid = _resolve_bid(x_auth, business_id)
     business = database.get_business(bid) or {"id": bid, "plan": ""}
-    return {"status": database.plan_status(business), "plans": database.PLANS}
+    return {"status": database.plan_status(business),
+            "plans": plans.public(business.get("subscription_plan"))}
 
 
 # ---------- VELOR RESEARCH (анализ конкурентов) ----------
@@ -4836,6 +5004,7 @@ def api_graph_entity(entity_type: str, entity_id: int, business_id: int = 0,
     Пусто — значит, эта запись пока ни с чем не связана, и так и написано.
     """
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "analytics_advanced")
     try:
         data = graph.neighbors(bid, entity_type, entity_id)
     except ValueError:
@@ -4855,6 +5024,7 @@ def api_graph_client(client_id: int, business_id: int = 0,
     «хочу повторить прошлый заказ» — владелец должен видеть его глазами.
     """
     bid = _resolve_bid(x_auth, business_id)
+    require_entitlement(bid, "analytics_advanced")
     d = graph.client_dossier(bid, client_id)
     if not d:
         raise HTTPException(status_code=404, detail="Клиент не найден.")
@@ -4865,6 +5035,7 @@ def api_graph_client(client_id: int, business_id: int = 0,
 def api_graph_link(body: LinkIn, x_auth: str = Header(default="")):
     """Связать две записи руками. Обе должны быть свои и существовать."""
     bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "analytics_advanced")
     require_active(bid)
     for t, i in ((body.src_type, body.src_id), (body.dst_type, body.dst_id)):
         if t not in entities.ENTITIES:
@@ -4892,6 +5063,7 @@ def api_graph_link(body: LinkIn, x_auth: str = Header(default="")):
 def api_graph_unlink(body: UnlinkIn, x_auth: str = Header(default="")):
     """Убрать связь. Сами записи остаются на месте."""
     bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "analytics_advanced")
     require_active(bid)
     database.delete_entity_link(body.link_id, bid)
     return {"ok": True}

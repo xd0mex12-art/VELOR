@@ -94,6 +94,14 @@ def check_owner_credentials() -> str | None:
 # ---------- JWT (аутентификация) ----------
 # Секрет подписи токенов. Если не задан в .env — auth.py сгенерирует и сохранит
 # его в файл .jwt_secret, чтобы токены переживали перезапуск сервера.
+# ЮKassa — приём оплаты подписки. Берутся в личном кабинете ЮKassa:
+# Настройки → Магазин (shopId) и Настройки → API-ключи (секретный ключ).
+# Без них платить нельзя, и продукт об этом честно говорит, а не делает вид,
+# что оплата прошла. Не путать с connectors/yookassa.py: тот читает ЧУЖИЕ
+# поступления владельца как источник данных, этот принимает деньги за VELOR.
+YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
+YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
+
 JWT_SECRET = os.getenv("JWT_SECRET")
 # Время жизни токенов — настраивается через .env.
 ACCESS_TTL_MIN = int(os.getenv("ACCESS_TTL_MIN", "30"))      # access-токен: минуты
