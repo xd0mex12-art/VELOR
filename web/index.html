@@ -267,38 +267,31 @@
     <span class="label">// Доступ</span>
     <h2 class="h-lg" style="margin-top:18px">Доступ к ядру.</h2>
   </div>
+  <!-- Цены и состав тарифов подставляет скрипт внизу страницы: единственный
+       каталог живёт в plans.py. Карточки остаются в вёрстке, потому что к ним
+       привязаны наблюдатели анимации — собранные скриптом, они не появлялись бы. -->
   <div class="plans fade-up">
-    <div class="plan">
-      <span class="label">Start</span>
-      <div class="h-xs">Базовый</div>
-      <div class="price">1 990 ₽ / мес</div>
-      <ul>
-        <li>Приём заказов 24/7</li>
-        <li>До 100 клиентов в памяти</li>
-        <li>Панель заказов</li>
-      </ul>
+    <div class="plan" data-plan="start">
+      <span class="label">START</span>
+      <div class="h-xs">Для небольшого бизнеса</div>
+      <div class="price">—</div>
+      <ul></ul>
     </div>
-    <div class="plan hot">
-      <span class="label">Pro · популярный</span>
-      <div class="h-xs">Про</div>
-      <div class="price">4 990 ₽ / мес</div>
-      <ul>
-        <li>Всё из «Базового»</li>
-        <li>Память без лимита</li>
-        <li>Напоминания и повторные продажи</li>
-        <li>Календарь и оплата</li>
-      </ul>
+    <div class="plan" data-plan="business">
+      <span class="label">BUSINESS</span>
+      <div class="h-xs">Основной тариф</div>
+      <div class="price">—</div>
+      <ul></ul>
     </div>
-    <div class="plan">
-      <span class="label">Max</span>
-      <div class="h-xs">Макс</div>
-      <div class="price">9 990 ₽ / мес</div>
-      <ul>
-        <li>Несколько точек и каналов</li>
-        <li>Отчёты и аналитика</li>
-        <li>Приоритетная поддержка</li>
-      </ul>
+    <div class="plan" data-plan="network">
+      <span class="label">NETWORK</span>
+      <div class="h-xs">Для нескольких направлений</div>
+      <div class="price">—</div>
+      <ul></ul>
     </div>
+  </div>
+  <div class="wrap fade-up" style="padding-top:22px">
+    <span class="caption" id="setup-note"></span>
   </div>
 </section>
 
@@ -470,6 +463,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 });
+</script>
+<script>
+// ТАРИФЫ. Цен в этой странице нет намеренно. Пока они лежали здесь строкой,
+// витрина обещала 1 990 ₽, кабинет просил 4 900, и правым оказывался тот, кто
+// смотрел последним. Каталог один — plans.py, и витрина спрашивает его.
+(function () {
+  var box = document.querySelector('.plans');
+  if (!box) return;
+
+  function money(n) { return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); }
+  function esc(t) {
+    return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  fetch('/api/public/plans')
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (data) {
+      (data.plans || []).forEach(function (p) {
+        var card = box.querySelector('[data-plan="' + p.key + '"]');
+        if (!card) return;
+        if (p.popular) card.classList.add('hot');
+        card.querySelector('.label').textContent =
+          String(p.name || '').replace('VELOR ', '') + (p.popular ? ' · популярный' : '');
+        card.querySelector('.h-xs').textContent = (p.tagline || '').replace(/\.$/, '');
+        card.querySelector('.price').textContent = money(p.price) + ' ₽ / мес';
+        // «Готовится» — не украшение. Возможность, объявленная в тарифе, но ещё
+        // не написанная, не должна выглядеть купленной.
+        card.querySelector('ul').innerHTML = (p.features || []).map(function (f) {
+          return '<li>' + esc(f.title) +
+                 (f.ready ? '' : ' <span style="opacity:.55">— готовится</span>') + '</li>';
+        }).join('');
+      });
+      var setup = data.setup, note = document.getElementById('setup-note');
+      if (setup && note) {
+        note.textContent = setup.name + ' — ' + money(setup.price) + ' ₽ разово. ' +
+                           (setup.tagline || '') + ' Первые 14 дней — полный доступ, без карты.';
+      }
+    })
+    .catch(function () {
+      // Сервер не ответил. Показать старую цену «чтобы не пусто» нельзя: цена,
+      // в которой мы не уверены, хуже её отсутствия — по ней человек приходит.
+      box.querySelectorAll('.price').forEach(function (el) { el.textContent = '—'; });
+      var note = document.getElementById('setup-note');
+      if (note) note.innerHTML =
+        'Цены сейчас не загрузились — они на <a href="plans.html">странице тарифов</a>.';
+    });
+})();
 </script>
 </body>
 </html>

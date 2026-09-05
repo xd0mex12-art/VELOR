@@ -397,6 +397,11 @@ def _migrate_columns(conn):
         ("businesses", "founder_pilot", "INTEGER DEFAULT 0"),
         # Настройка оплачена (разовая услуга VELOR SETUP).
         ("businesses", "setup_paid", "TEXT"),
+        # Когда владелец в последний раз открывал кабинет и сколько РАЗНЫХ дней
+        # открывал. Без этого про пилота нельзя сказать ничего: молчащий триал
+        # выглядит так же, как идущий, и заканчивается незаметно для обоих.
+        ("businesses", "last_seen_at", "TEXT"),
+        ("businesses", "active_days", "INTEGER DEFAULT 0"),
         ("businesses", "risk_score", "INTEGER DEFAULT 0"),   # сигнал абьюза (не блокировка)
         ("businesses", "tg_verify_code", "TEXT"),            # одноразовый код привязки владельца
         ("businesses", "owner_verified", "INTEGER DEFAULT 0"),  # личность владельца подтверждена
@@ -2605,6 +2610,46 @@ def trial_stats(business_id):
         recs = conn.execute("SELECT COUNT(*) AS n FROM board_recs WHERE business_id = ?", (business_id,)).fetchone()["n"]
     return {"messages": msgs, "orders": orders, "clients": clients,
             "recommendations": recs, "hours_saved": round(msgs * 2 / 60, 1)}
+
+
+def touch_seen(business_id):
+    """
+    Отметить, что кабинет открывали. Один UPDATE, без отдельной таблицы.
+
+    Считаем не заходы, а ДНИ: «зашёл 40 раз» ничего не говорит, если все сорок
+    были в один вечер, а «заходил 9 дней из 14» говорит всё. День увеличивается
+    только когда дата отличается от прошлой отметки — поэтому счётчик нельзя
+    накрутить обновлением страницы.
+    """
+    if not business_id:
+        return
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE businesses
+                  SET active_days = COALESCE(active_days, 0)
+                      + CASE WHEN COALESCE(date(last_seen_at), '') = date('now')
+                             THEN 0 ELSE 1 END,
+                      last_seen_at = datetime('now')
+                WHERE id = ?""",
+            (int(business_id),))
+
+
+def pilots_activity():
+    """
+    Для всех бизнесов сразу: когда был первый брифинг и сколько их всего.
+
+    Одним запросом, а не по одному на компанию: обзор пилотов открывается
+    целиком, и полсотни запросов ради двух дат — это та же ошибка, из-за
+    которой в своё время появился last_exchanges.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT business_id,
+                      MIN(created_at) AS first_at,
+                      COUNT(*)        AS total
+                 FROM briefings GROUP BY business_id""").fetchall()
+    return {int(r["business_id"]): {"first_briefing_at": r["first_at"],
+                                    "briefings": int(r["total"] or 0)} for r in rows}
 
 
 def trial_funnel():

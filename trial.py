@@ -136,8 +136,18 @@ def extend_trial(bid, days=7):
 
 
 def set_trial_end(bid, date_str):
-    """Задать точную дату окончания триала (админка). Формат 'YYYY-MM-DD [HH:MM:SS]'."""
-    database.update_business(bid, trial_end=date_str, subscription_status="trial")
+    """
+    Задать дату окончания триала (админка). Формат 'YYYY-MM-DD [HH:MM:SS]'.
+
+    Время дописывается, если его не передали. Без этого одна дата уходила в базу
+    как есть, `_parse` её не понимал и возвращал None — а аккаунт без даты
+    окончания считается легаси и получает доступ БЕЗ ограничения срока. То есть
+    попытка сократить кому-то триал молча выдавала бессрочный доступ.
+    """
+    stamp = str(date_str or "").strip()
+    if len(stamp) == 10:
+        stamp += " 23:59:59"
+    database.update_business(bid, trial_end=stamp, subscription_status="trial")
 
 
 def disable(bid):

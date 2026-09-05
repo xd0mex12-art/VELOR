@@ -16,6 +16,7 @@ import re
 # Модульный импорт вместо трёх локальных: потоки нужны и на уровне модуля
 # (замок на дописывание брифинга), а не только внутри функций.
 import threading
+import time as _time
 
 import requests
 
@@ -594,13 +595,37 @@ def api_admin_founder_pilot(bid: int, body: TrialAdminIn,
     return {"ok": True, "founder_pilot": on}
 
 
+def _days_since(stamp):
+    """Сколько дней назад это было. None — если не было никогда."""
+    if not stamp:
+        return None
+    try:
+        d = datetime.datetime.strptime(str(stamp)[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return max(0, (datetime.datetime.utcnow() - d).days)
+
+
+def _hours_between(start, end):
+    """Часы между двумя отметками. None, если хотя бы одной ещё нет."""
+    if not start or not end:
+        return None
+    try:
+        a = datetime.datetime.strptime(str(start)[:19], "%Y-%m-%d %H:%M:%S")
+        b = datetime.datetime.strptime(str(end)[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return max(0, int((b - a).total_seconds() // 3600))
+
+
 @app.get("/api/admin/trial-overview")
 def api_admin_trial_overview(x_auth: str = Header(default="")):
     """Владелец VELOR: сводка по триалам/подпискам + воронка конверсии."""
     require_owner(x_auth)
     rows = database.list_businesses_with_stats()
     counts = {"total": len(rows), "onboarding": 0, "trial": 0,
-              "subscribed": 0, "locked": 0, "suspicious": 0}
+              "subscribed": 0, "locked": 0, "suspicious": 0, "silent": 0}
+    activity = database.pilots_activity()      # один запрос на всех, не по одному
     items = []
     for b in rows:
         st = trial.access(b)
@@ -610,10 +635,36 @@ def api_admin_trial_overview(x_auth: str = Header(default="")):
         risky = (b.get("risk_score") or 0) >= 40
         if risky:
             counts["suspicious"] += 1
+        act = activity.get(int(b["id"])) or {}
+        first = act.get("first_briefing_at")
+        seen = b.get("last_seen_at")
+        idle = _days_since(seen)
+        # ТИХОЕ ИСТЕЧЕНИЕ. Триал заканчивается, а человек либо ни разу не увидел,
+        # ради чего всё затевалось (брифинга не было), либо перестал заходить.
+        # Такой пилот не откажется — он просто исчезнет, и мы узнаем об этом
+        # постфактум. Именно ради этой строки всё остальное и считается.
+        silent, why = False, ""
+        if ph == "trial" and (st["days_left"] is not None and st["days_left"] <= 3):
+            if not first:
+                silent, why = True, "не дошёл до первого брифинга"
+            elif idle is not None and idle >= 3:
+                silent, why = True, "не заходит %d дн." % idle
+            elif seen is None:
+                silent, why = True, "ни одного захода в кабинет"
         items.append({"id": b["id"], "name": b.get("name"), "phase": ph,
                       "days_left": st["days_left"], "plan": st["plan"],
                       "trial_end": st["trial_end"], "risk_score": b.get("risk_score") or 0,
-                      "suspicious": risky})
+                      "suspicious": risky,
+                      # Путь к ценности: сколько прошло от запуска до первого
+                      # брифинга. Пусто — значит ценности ещё не случилось.
+                      "first_briefing_at": first,
+                      "hours_to_value": _hours_between(b.get("trial_start"), first),
+                      "briefings": act.get("briefings") or 0,
+                      "last_seen_at": seen, "days_since_seen": idle,
+                      "active_days": b.get("active_days") or 0,
+                      "silent_risk": silent, "silent_why": why})
+        if silent:
+            counts["silent"] = counts.get("silent", 0) + 1
     return {"counts": counts, "funnel": database.trial_funnel(),
             "plans": plans.public(), "businesses": items}
 
@@ -821,6 +872,31 @@ class OrderIn(BaseModel):
 
 # ---------- ПАНЕЛЬ БИЗНЕСА (защищено — каждый видит только своё) ----------
 
+# Последняя запись активности по каждому бизнесу — в памяти процесса. Кабинет
+# опрашивает сервер каждые полминуты, и писать в базу на каждый опрос значило
+# бы сотни UPDATE в час ради поля, которое меняется раз в день. Потеря отметки
+# при перезапуске не страшна: следующий же запрос её поставит.
+_SEEN_CACHE = {}
+_SEEN_EVERY_SEC = 600
+
+
+def _mark_seen(bid):
+    """Отметить заход в кабинет. Никогда не мешает основному запросу."""
+    try:
+        now = _time.time()
+        if now - _SEEN_CACHE.get(bid, 0) < _SEEN_EVERY_SEC:
+            return
+        _SEEN_CACHE[bid] = now
+        database.touch_seen(bid)
+    except Exception:
+        # Наблюдение за пилотом не стоит того, чтобы из-за него упал запрос
+        # клиента, — но и молчать нельзя. Первая же версия этой функции падала
+        # на необъявленном имени, `pass` это проглотил, и активность просто не
+        # писалась: в админке был бы ноль заходов у живых людей. Сбой ловим,
+        # запрос не роняем, в журнал пишем.
+        log.exception("Не удалось отметить заход в кабинет (бизнес %s)", bid)
+
+
 def _resolve_bid(x_auth: str, requested: int) -> int:
     """
     business_id для панельных запросов.
@@ -833,6 +909,11 @@ def _resolve_bid(x_auth: str, requested: int) -> int:
     """
     bid = require_business(x_auth)      # 401, если токена нет
     if bid != -1:
+        # Отмечаем, что владелец открывал кабинет. Только здесь — под токеном
+        # САМОГО бизнеса. Когда владелец VELOR смотрит чужой кабинет из
+        # админки (ветка ниже), это не его клиент заходил, и засчитывать
+        # такое пилоту значит смотреть в зеркало вместо окна.
+        _mark_seen(bid)
         return bid                      # бизнес — только свой, параметр не влияет
     if not requested or requested <= 0:
         raise HTTPException(status_code=400,
@@ -3848,6 +3929,19 @@ def api_agent_delete(agent_id: int, business_id: int = 0, x_auth: str = Header(d
 
 
 # ---------- ТАРИФЫ И ЛИМИТЫ ----------
+
+@app.get("/api/public/plans")
+def api_public_plans():
+    """
+    Тарифы для лендинга — единственная ручка каталога БЕЗ входа.
+
+    Нужна потому, что цены на витрине обязаны совпадать с ценами в кабинете, а
+    /api/plan требует токена: страница, которую человек видит до регистрации,
+    получить их не могла и держала свои — и держала неправильные. Ничего про
+    конкретный бизнес здесь нет и быть не может: отдаём только каталог.
+    """
+    return {"plans": plans.public(), "setup": plans.SETUP}
+
 
 @app.get("/api/plan")
 def api_plan(business_id: int = 0, x_auth: str = Header(default="")):
