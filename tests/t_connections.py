@@ -184,6 +184,42 @@ check("владельцу показан только хвост ключа",
 # Соседу чужой ключ не достаётся.
 check("свой ключ не виден соседу", _ai.own_key(bid2) is None)
 
+print("\n== СВОЙ КЛЮЧ — СВОЙ СЧЁТ, ЛИМИТ НЕ ЕГО ==")
+# Лимит запросов защищает БАЗОВЫЙ ключ VELOR — тот, за который платит
+# платформа. Кто спрашивает своим ключом, тратит свои запросы и свои деньги:
+# считать их за него незачем.
+import ratelimit as _rl, config as _cfg
+
+# Ключ у бизнеса свой (сохранён выше) — лимит расходоваться не должен.
+_before = len(_rl._events.get("ask:testclient", []))
+for _ in range(_cfg.ASK_MAX + 3):
+    r = c.post("/api/ask", headers=H, json={"question": "тест"})
+    if r.status_code == 429:
+        break
+check("со своим ключом лимит не срабатывает", r.status_code != 429, r.status_code)
+
+# А без своего ключа — срабатывает: базовый ключ надо беречь.
+connections.disconnect(bid, "model")
+_hit = None
+for _ in range(_cfg.ASK_MAX + 5):
+    r = c.post("/api/ask", headers=H, json={"question": "тест"})
+    if r.status_code == 429:
+        _hit = r
+        break
+check("без своего ключа лимит срабатывает", _hit is not None,
+      "прошло без 429 за %d запросов" % (_cfg.ASK_MAX + 5))
+if _hit is not None:
+    check("и объясняет, сколько ждать", "Подождите" in _hit.json().get("detail", ""),
+          _hit.json())
+
+# Порядок проверок: сперва «кто спрашивает», потом лимит. Побочная польза —
+# просроченный токен больше не съедает попытку, а сразу получает 401.
+# Заголовки HTTP только ASCII — кириллица в токене падает ещё в httpx.
+_stale = c.post("/api/ask", headers={"X-Auth": "broken.token.value"},
+                json={"question": "тест"})
+check("просроченный токен получает 401, а не 429", _stale.status_code == 401,
+      _stale.status_code)
+
 # Отключение возвращает на базовый — бизнес не остаётся без ИИ.
 connections.disconnect(bid, "model")
 check("после отключения бизнес возвращается на базовый",

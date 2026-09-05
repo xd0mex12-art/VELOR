@@ -5272,17 +5272,6 @@ def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
     роли, зная базу знаний и свежую сводку бизнеса.
     """
     import ai
-    # Защита общего ключа ИИ: лимит запросов по IP. Проверяем ДО обращения к модели —
-    # при превышении отдаём понятную 429 и к ИИ не идём вовсе (никаких лишних вызовов).
-    wait = ratelimit.ask_retry_after("ask:" + _client_ip(request))
-    if wait:
-        raise HTTPException(status_code=429, detail=(
-            "Слишком много запросов подряд. Подождите " + ratelimit.human_wait(wait)
-            + " и попробуйте снова."))
-    if not ai.ai_available():
-        return {"ok": False, "answer": None,
-                "detail": "Модель не настроена: в .env нет ни одного ключа."}
-
     payload = _auth_payload(x_auth)
     # Токен передан, но не распознан (истёк/битый) → отдаём 401, чтобы panel-auth.js
     # обновил access по refresh и повторил запрос. Иначе кабинетный вопрос молча уходил
@@ -5291,6 +5280,24 @@ def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
     if x_auth and not payload:
         raise HTTPException(status_code=401, detail="Сессия истекла — обновите вход")
     bid = payload["bid"] if payload and payload.get("role") == "business" else None
+
+    # Лимит защищает БАЗОВЫЙ ключ VELOR — тот, за который платит платформа. Кто
+    # спрашивает своим ключом, тратит свои запросы и свои деньги: считать их за
+    # него незачем, а ограничивать — просто неправильно.
+    #
+    # Порядок проверок поменялся намеренно: чтобы узнать, чей ключ, нужно сперва
+    # понять, кто спрашивает. Побочно стало лучше — просроченный токен больше не
+    # съедает лимит: раньше он тратил попытку и только потом получал 401.
+    if not (bid is not None and ai.own_key(bid)):
+        wait = ratelimit.ask_retry_after("ask:" + _client_ip(request))
+        if wait:
+            raise HTTPException(status_code=429, detail=(
+                "Слишком много запросов подряд. Подождите " + ratelimit.human_wait(wait)
+                + " и попробуйте снова."))
+
+    if not ai.ai_available(bid):
+        return {"ok": False, "answer": None,
+                "detail": "Модель не настроена: ни базового ключа, ни своего."}
     if bid is not None:
         st = trial.access(database.get_business(bid))
         # Онбординг + реальное использование ИИ = старт триала (как при сохранении
