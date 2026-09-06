@@ -5692,8 +5692,13 @@ def api_ask(body: AskIn, request: Request, x_auth: str = Header(default="")):
             # совместимость: при ЛЮБОЙ ошибке — прежний путь ai.assistant_answer.
             try:
                 import context_engine
-                return {"ok": True, "answer": context_engine.respond(
-                    bid, body.question, role=role, snapshot=snapshot)}
+                got = context_engine.respond_verified(
+                    bid, body.question, role=role, snapshot=snapshot)
+                # Вердикт проверки уезжает рядом с ответом: проверка, которой
+                # не видно, не защищает никого.
+                return {"ok": True, "answer": got["answer"],
+                        "check": got["note"],
+                        "unverified": [p["text"] for p in got["unverified"]]}
             except Exception:
                 logging.exception("Context Engine упал — откат на assistant_answer (biz %s)", bid)
             business = database.get_business(bid) or {"name": "VELOR AI"}

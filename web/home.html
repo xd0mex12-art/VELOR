@@ -57,6 +57,16 @@
   .msg.core{ align-self:flex-start; background:rgba(255,255,255,.06); border:1px solid var(--hairline);
     border-bottom-left-radius:6px; }
   .msg.core.think{ color:var(--ash); font-style:italic; }
+  /* Вердикт проверки фактов. Он приклеен к ответу, а не висит отдельной
+     плашкой: цифру и слова о ней разделять нельзя — прочтут только цифру.
+     Состояние сказано словом, а не одним цветом: «сверено» и «не нашлось»
+     слишком дорого перепутать, а цвет видят не все. */
+  .checked{ align-self:flex-start; max-width:84%; margin:-6px 0 2px;
+    padding:0 17px; font-size:var(--fs-caption); line-height:1.5;
+    color:var(--ash); display:flex; gap:7px; }
+  .checked::before{ content:'✓'; flex:none; color:var(--verdant); }
+  .checked.warn{ color:var(--silver); }
+  .checked.warn::before{ content:'!'; color:var(--saffron); font-weight:600; }
   .ask{ display:flex; gap:10px; padding:16px 20px; border-top:1px solid var(--hairline); }
   .ask input{ flex:1; min-height:48px; background:rgba(255,255,255,.05); border:1px solid var(--hairline);
     border-radius:var(--r-lg); padding:12px 20px; color:var(--bone); font-size:var(--fs-base); }
@@ -538,6 +548,15 @@ document.getElementById('ask').addEventListener('submit', async e => {
     if (data.ok && data.answer){
       if (C) C.setState('generating');
       addMsg(data.answer, 'core');
+      // Проверка фактов: каждая цифра ответа сверена с данными компании.
+      // Показываем и когда всё сошлось — это и есть обещание продукта, а
+      // молчаливая проверка ничего никому не обещает.
+      if (data.check){
+        const v = document.createElement('div');
+        v.className = 'checked' + ((data.unverified || []).length ? ' warn' : '');
+        v.textContent = data.check;                        // только текст: без разметки
+        log.appendChild(v); log.scrollTop = log.scrollHeight;
+      }
       if (C) setTimeout(() => C.setState('idle'), 2200);   // плавно назад в покой
     } else {
       if (C) C.setState('error');

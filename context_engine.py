@@ -33,6 +33,7 @@ import database
 import director
 import graph
 import prompt_engine
+import verify
 
 
 # ============================================================
@@ -593,10 +594,28 @@ def check_and_improve(text: str, business: dict) -> str:
 #  ГЛАВНЫЙ ВХОД
 # ============================================================
 
-def respond(business_id: int, question: str, *, role: str | None = None,
-            client_id=None, snapshot: str | None = None, max_tokens: int = 600) -> str:
-    """Полный цикл: контекст → системный промпт → LLM → проверка качества → ответ.
-    LLM-агностик: сама модель выбирается в ai._ask (Claude/GigaChat/…)."""
+# Роли, где выдуманное число — не ошибка, а работа. Придумать акцию «−20% в
+# выходные» просят как раз затем, чтобы такой скидки ещё не было. Переписывать
+# такой ответ по данным значило бы отказать владельцу в том, о чём он попросил;
+# сказать, что цифра не из его данных, — по-прежнему полезно.
+CREATIVE_ROLES = ("marketing", "copywriter", "content")
+
+# Если после правки от ответа осталась треть — модель не исправила его, а
+# вычеркнула. Тогда честнее показать исходный текст с пометкой.
+_REPAIR_FLOOR = 0.4
+
+
+def respond_verified(business_id: int, question: str, *, role: str | None = None,
+                     client_id=None, snapshot: str | None = None,
+                     max_tokens: int = 600) -> dict:
+    """
+    Полный цикл с проверкой фактов: контекст → промпт → LLM → качество →
+    сверка цифр с данными → один шанс исправиться → ответ и вердикт.
+
+    Возвращает {"answer", "unverified", "note", "repaired"}. Ответ владелец
+    получает ВСЕГДА: молчание вместо ответа не защищает его ни от чего. Но
+    каждая цифра помечена — нашлась она в его данных или нет.
+    """
     business = _business(business_id)
     # Свой AI-сотрудник владельца (роль agent:N) — характер берём из БД, как в кабинете.
     persona = None
@@ -612,7 +631,45 @@ def respond(business_id: int, question: str, *, role: str | None = None,
     with ai.for_business(business_id):
         answer = ai._ask(system, [{"role": "user", "content": (question or "")[:800]}],
                          max_tokens=max_tokens).strip()
-    return check_and_improve(answer, business)
+        # Редактор стиля идёт ДО проверки фактов, а не после: он переписывает
+        # текст через ту же модель и вполне способен занести в него новое
+        # число. Проверять надо ровно то, что увидит владелец.
+        answer = check_and_improve(answer, business)
+
+        # Подтверждением считаем только то, что модель реально видела: сам
+        # промпт и вопрос владельца. Всё остальное ей взять неоткуда.
+        grounding = system + "\n" + (question or "")
+        problems = _safe(lambda: verify.check(answer, grounding), [])
+
+        role_key = _safe(lambda: prompt_engine.build_persona(
+            business, question, ui_role=role, forced_persona=persona)[0], "")
+        creative = role_key in CREATIVE_ROLES
+        repaired = False
+
+        if problems and not creative:
+            fixed = ""
+            try:
+                fixed = ai._ask(verify.repair_system(problems),
+                                [{"role": "user", "content": answer[:4000]}],
+                                max_tokens=max_tokens).strip()
+            except Exception:
+                fixed = ""
+            if fixed and len(fixed) >= len(answer) * _REPAIR_FLOOR:
+                again = _safe(lambda: verify.check(fixed, grounding), problems)
+                # Берём правку, только если она действительно помогла: ответ,
+                # ставший хуже, — это не исправление.
+                if len(again) < len(problems):
+                    answer, problems, repaired = fixed, again, True
+
+    return {"answer": answer, "unverified": problems, "repaired": repaired,
+            "note": verify.note(problems, creative=creative)}
+
+
+def respond(business_id: int, question: str, *, role: str | None = None,
+            client_id=None, snapshot: str | None = None, max_tokens: int = 600) -> str:
+    """Только текст ответа — прежняя дверь для тех, кому вердикт не нужен."""
+    return respond_verified(business_id, question, role=role, client_id=client_id,
+                            snapshot=snapshot, max_tokens=max_tokens)["answer"]
 
 
 def respond_chat(business_id: int, history: list[dict], *, client_info: dict | None = None,
