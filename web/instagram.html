@@ -297,6 +297,20 @@ function paintState(d){
 function offHTML(d){
   const c = d.connection || {};
   const s = d.setup || {};
+
+  // Приложение Meta ещё не создано: войти нельзя никому, и адреса для его
+  // настройки владельцу магазина не нужны — он не тот, кто их вписывает.
+  // Показать их значит выдать техническую кухню за инструкцию к действию.
+  if (!s.ready){
+    return `<div class="panel"><div class="empty">
+      <div class="t">Директ Instagram готовится</div>
+      <div class="d">Канал написан и ждёт открытия. Сейчас клиенты пишут вам в
+        Telegram — как только Instagram откроется, переписка появится здесь,
+        и подключать его вы будете сами, одной кнопкой.</div>
+      <a class="v-btn go" href="connections.html">Открыть подключения</a>
+    </div></div>`;
+  }
+
   const rows = [];
   if (s.redirect_uri) rows.push(['Адрес возврата для Meta', s.redirect_uri]);
   if (s.webhook_url)  rows.push(['Адрес вебхука', s.webhook_url]);

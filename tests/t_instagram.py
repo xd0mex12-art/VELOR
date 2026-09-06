@@ -204,13 +204,25 @@ check("и сказано, чего именно не хватает",
 d = card()
 check("карточка честно отключена", d["status"] == connections.DISCONNECTED, d["status"])
 check("подключиться нельзя", not d["can_connect"], d)
-check("и причина названа словами", "выключено" in (d["note"] or ""), d["note"])
+# Пока приложения Meta нет, канал стоит в «готовится» рядом с остальными
+# ненаписанными — не потому, что не написан, а потому что войти нельзя никому.
+check("канал показан как готовящийся, а не как рабочий", not d["implemented"], d)
+check("двери в раздел нет", not d["manage_href"], d["manage_href"])
+check("и причина названа словами", "готовится" in (d["note"] or ""), d["note"])
+# Владелец цветочного магазина не чинит переменные окружения сервера. Назвать
+# их ему — значит выдать тревогу вместо объяснения: сделать он всё равно ничего
+# не может. Чего не хватает, знает журнал сервера и setup_state.
+for tech in ("INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "PUBLIC_URL", "сервере"):
+    check("в объяснении нет технической кухни: " + tech,
+          tech not in (d["note"] or ""), d["note"])
+check("а нам самим по-прежнему видно, чего не хватает",
+      "INSTAGRAM_APP_ID" in instagram.setup_state()["missing"])
 check("вход не выдаёт ссылку в никуда",
       c.post("/api/instagram/login", headers=H).status_code == 422)
 r = c.post("/api/connections/instagram/connect", headers=H, json={"config": {"token": "1"}})
 check("форма с полями тоже не проходит", r.status_code == 422, r.status_code)
-check("и объясняет, что настройка серверная",
-      "сервере" in (r.json().get("detail") or ""), r.json())
+check("и отказ объясняет по-человечески",
+      "готовится" in (r.json().get("detail") or ""), r.json())
 check("вебхук без секрета приложения не принимает ничего",
       push(IG_ID, incoming("9", "привет", "mid.zero")).status_code == 403)
 
@@ -223,6 +235,12 @@ print("\n== НАСТРОЙКА ПОЯВИЛАСЬ — КНОПКА ОЖИЛА ==
 check("приложение настроено", instagram.configured())
 st = instagram.setup_state()
 check("готово к подключению", st["ready"], st)
+# Ключи появились — карточка обязана ожить в тот же миг, без правки кода и без
+# перезапуска. Иначе «включить канал» превращается в задачу для разработчика.
+live_card = card()
+check("канал перестал быть готовящимся", live_card["implemented"], live_card)
+check("и дверь в раздел вернулась",
+      live_card["manage_href"] == "instagram.html", live_card["manage_href"])
 check("адрес возврата собран из публичного адреса",
       st["redirect_uri"] == "https://velor.example.com/api/instagram/callback", st)
 check("адрес вебхука показан",

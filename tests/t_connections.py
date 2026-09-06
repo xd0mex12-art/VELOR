@@ -261,15 +261,28 @@ for p in ("whatsapp", "website", "google_drive", "google_sheets", "bank"):
     check(f"{p}: и сказано почему",
           "ещё не написана" in (r.json().get("detail") or ""), r.json())
     check(f"{p}: остался отключённым", item(p)["status"] == connections.DISCONNECTED)
-# Instagram написан, но включается ключами приложения Meta на стороне сервера.
-# Здесь их нет — и отказ обязан назвать именно эту причину, а не «нет интеграции»:
-# чинить владельцу нужно разные вещи.
+# Instagram написан целиком, но приложения Meta пока нет, и войти нельзя никому.
+# Для ВЛАДЕЛЬЦА разницы с ненаписанной интеграцией нет: и там и там канала нет,
+# и починить он не может ни то ни другое. Поэтому он видит «готовится» — а не
+# перечень переменных окружения, который для него просто тревога без действия.
 r = c.post("/api/connections/instagram/connect", headers=H, json={"config": {"x": "1"}})
 check("instagram: формой с полями не подключить", r.status_code == 422, r.status_code)
-check("instagram: и причина — незаданные ключи приложения",
-      "сервере" in (r.json().get("detail") or ""), r.json())
+check("instagram: отказ написан по-человечески",
+      "готовится" in (r.json().get("detail") or ""), r.json())
+check("instagram: без имён переменных окружения",
+      not any(t in (r.json().get("detail") or "")
+              for t in ("INSTAGRAM_APP_ID", "INSTAGRAM_APP_SECRET", "PUBLIC_URL")),
+      r.json())
 check("instagram: остался отключённым",
       item("instagram")["status"] == connections.DISCONNECTED)
+check("instagram: стоит среди готовящихся", not item("instagram")["implemented"],
+      item("instagram"))
+check("instagram: и двери в раздел нет", not item("instagram")["manage_href"],
+      item("instagram")["manage_href"])
+# А различить причины по-прежнему можно — там, где это и нужно: у того, кто
+# действительно чинит сервер.
+check("нам самим видно, чего не хватает",
+      "INSTAGRAM_APP_ID" in connections.instagram_api.setup_state()["missing"])
 check("instagram: вход идёт на стороне сервиса", item("instagram")["needs_login"],
       item("instagram"))
 check("несуществующий сервис не подключить",
