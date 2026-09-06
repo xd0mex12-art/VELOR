@@ -235,9 +235,16 @@ check("и процент верный",
 check("в тексте — обе суммы",
       "482 000 ₽" in ch["revenue"]["detail"] and "430 000 ₽" in ch["revenue"]["detail"],
       ch["revenue"]["detail"])
-cat = ch.get("category")
-check("категория расходов разобрана отдельно", cat is not None, list(ch))
-check("это доставка", cat and cat["numbers"]["category"] == "доставка", cat)
+# Ключ находки о категории несёт саму статью: двух выводов с одинаковым
+# ключом быть не должно, иначе второй молча затирает первый в любом словаре.
+cats = {f["numbers"]["category"]: f for f in b["changed"]
+        if str(f["key"]).startswith("category")}
+check("ключи находок о категориях не совпадают",
+      len(cats) == len([f for f in b["changed"] if str(f["key"]).startswith("category")]),
+      [f["key"] for f in b["changed"]])
+
+cat = cats.get("доставка")
+check("категория расходов разобрана отдельно", cat is not None, list(cats))
 check("рост посчитан за 14 дней",
       cat and cat["numbers"]["days"] == 14 and cat["numbers"]["change"] == 31,
       cat and cat["numbers"])
@@ -249,6 +256,39 @@ check("и источник объясняет, что с чем сравнива
 check("суммы в тексте совпадают с базой",
       cat and cat["numbers"]["now"] == 41400 and cat["numbers"]["was"] == 31600,
       cat and cat["numbers"])
+
+print("\n== МЕСЯЧНЫЙ РАСХОД БОЛЬШЕ НЕ НЕВИДИМ ==")
+# Закупка сделана раз в месяц: 200 000 сорок один день назад и 120 000 шесть
+# дней назад. В прошлое ДВУХНЕДЕЛЬНОЕ окно она не попадает вовсе — сравнивать
+# не с чем, и падение на 40% не было видно никогда. Длинное окно его находит.
+buy = cats.get("закупка")
+check("месячная статья расходов сравнена", buy is not None, list(cats))
+check("сравнение идёт по длинному окну", buy and buy["numbers"]["days"] == 30,
+      buy and buy["numbers"])
+check("и числа настоящие",
+      buy and buy["numbers"]["now"] == 120000 and buy["numbers"]["was"] == 200000
+      and buy["numbers"]["change"] == -40, buy and buy["numbers"])
+check("одна операция против одной — это платёж, а не «мало данных»",
+      buy and "в текущем окне 1 операция" in buy["source"], buy and buy["source"])
+check("падение расходов — хорошая новость, а не тревожная",
+      buy and buy["level"] == "good", buy and buy["level"])
+
+print("\n== ПРИБЫЛЬ ОБЪЯСНЯЕТСЯ СЛАГАЕМЫМИ ==")
+# Раньше «что изменилось» о прибыли молчало: она составная, а порог считался
+# по каждому слагаемому отдельно. Владелец читал «прибыль −26%» и пустоту.
+pf = ch.get("profit")
+check("прибыль попала в «что изменилось»", pf is not None, list(ch))
+check("и посчитана верно",
+      pf and pf["numbers"]["now"] == 190600 and pf["numbers"]["was"] == 170000,
+      pf and pf["numbers"])
+check("рядом названы оба движения",
+      pf and "выручка" in pf["detail"] and "расходы" in pf["detail"], pf and pf["detail"])
+check("оба процента лежат в доказательствах",
+      pf and pf["numbers"]["income_change"] == 12
+      and pf["numbers"]["expense_change"] == 12, pf and pf["numbers"])
+check("прибыль идёт первой — она в заголовке сводки",
+      b["changed"] and b["changed"][0]["key"] == "profit",
+      [f["key"] for f in b["changed"]])
 for f in b["changed"]:
     check(f"«{f['title'][:34]}…»: есть источник", bool((f["source"] or "").strip()))
 
@@ -277,8 +317,56 @@ check("ножницы «расходы против выручки» замеч�
       find(lb, "risks", "scissors") is not None, [r["key"] for r in lb["risks"]])
 sc = find(lb, "risks", "scissors")
 check("и проценты в них настоящие",
-      sc and sc["numbers"] == {"income_change": -17, "expense_change": 140},
+      sc and sc["numbers"]["income_change"] == -17
+      and sc["numbers"]["expense_change"] == 140, sc and sc["numbers"])
+check("разрыв посчитан и лежит рядом", sc and sc["numbers"]["gap"] == 157,
       sc and sc["numbers"])
+
+print("\n== НОЖНИЦЫ СРАБАТЫВАЮТ ПО ПОСЛЕДСТВИЮ, А НЕ ПО КРУГЛОМУ ЧИСЛУ ==")
+# Разрыв 10 пунктов меньше жёсткого порога в 15. Но расходы растут, выручка
+# падает, и прибыль от этого просела почти вдвое — молчать здесь нельзя.
+# Ровно на этом раньше и спотыкалась демо-клиника: заголовок «прибыль −26%»
+# над пустым списком рисков.
+soft_bid, SFH = biz("dir_soft")
+money(soft_bid, "income", 950000, "продажи", 5)
+money(soft_bid, "expense", 800000, "закупка", 6)
+money(soft_bid, "expense", 100000, "аренда", 7)
+money(soft_bid, "income", 1000000, "продажи", 40)
+money(soft_bid, "expense", 810000, "закупка", 41)
+money(soft_bid, "expense", 50000, "аренда", 42)
+sfb = director.briefing(soft_bid)
+sf = find(sfb, "risks", "scissors")
+check("небольшой разрыв замечен, потому что ударил по прибыли",
+      sf is not None, [r["key"] for r in sfb["risks"]])
+check("разрыв действительно меньше жёсткого порога",
+      sf and 0 < sf["numbers"]["gap"] < 15, sf and sf["numbers"])
+check("и в тексте сказано, почему это риск",
+      sf and "прибыл" in sf["detail"].lower(), sf and sf["detail"])
+
+print("\n== ЗАРПЛАТА СЧИТАЕТСЯ И ПО КАТЕГОРИИ ==")
+# Бизнес без справочника сотрудников пишет расход в категорию «Зарплаты» —
+# и до правки эта зарплата равнялась нулю вместе с риском «на людей уходит
+# слишком много». Проверяем и заглавную букву: кириллицу не приводит к
+# нижнему регистру ни LOWER в SQLite, ни LIKE в Postgres.
+cat_bid, CBH = biz("dir_paycat")
+money(cat_bid, "income", 300000, "продажи", 5)
+money(cat_bid, "expense", 200000, "Зарплаты", 6)
+money(cat_bid, "expense", 50000, "аренда", 7)
+money(cat_bid, "income", 250000, "продажи", 40)
+pay = database.payroll_period(cat_bid, 30)
+check("зарплата по категории найдена", pay["total"] == 200000, pay)
+cb = director.briefing(cat_bid)
+cpr = find(cb, "risks", "payroll")
+check("и риск по ней сработал", cpr is not None, [r["key"] for r in cb["risks"]])
+check("доля посчитана верно", cpr and cpr["numbers"]["share"] == 80, cpr and cpr["numbers"])
+
+# А «фотограф» зарплатой не является: «фот» ловится только целым словом.
+photo_bid, PBH = biz("dir_photo")
+money(photo_bid, "income", 300000, "продажи", 5)
+money(photo_bid, "expense", 200000, "фотограф", 6)
+check("«фотограф» за зарплату не принят",
+      database.payroll_period(photo_bid, 30)["total"] == 0,
+      database.payroll_period(photo_bid, 30))
 
 # Зарплатная нагрузка.
 pay_bid, PH = biz("dir_pay")

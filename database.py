@@ -1956,18 +1956,63 @@ def service_revenue(business_id, days=30):
              "orders": int(r["orders"] or 0), "amount": int(r["amount"] or 0)} for r in rows]
 
 
+# Как малый бизнес называет расход на людей. Список короткий и закрытый
+# намеренно: чем шире сеть, тем больше в неё попадает лишнего, а ошибка здесь
+# сразу превращается в риск «на людей уходит N% расходов» на главной.
+_PAYROLL_STEMS = ("зарплат", "оплата труда", "оплату труда", "жалован")
+# «фот» — сокращение, но как подстрока оно живёт внутри «фото», «фотограф»,
+# «фотозона». Поэтому только целиком, а не вхождением.
+_PAYROLL_WHOLE = ("фот", "фонд оплаты труда")
+
+
+def _is_payroll_category(name) -> bool:
+    low = " ".join(str(name or "").split()).casefold()
+    if not low:
+        return False
+    return low in _PAYROLL_WHOLE or any(w in low for w in _PAYROLL_STEMS)
+
+
 def payroll_period(business_id, days=30, offset=0):
-    """Сколько ушло людям за окно: выплаты сотрудникам и всё с пометкой «зарплата»."""
+    """
+    Сколько ушло людям за окно: выплаты сотрудникам и всё с пометкой «зарплата».
+
+    Раньше описание обещало вторую половину, а код её не искал: условие
+    сводилось к ссылке на сотрудника или типу документа. У бизнеса, который
+    просто пишет расход в категорию «Зарплаты» и никакого справочника
+    сотрудников не ведёт, зарплата равнялась нулю — а вместе с ней молчал и
+    риск «на людей уходит слишком много».
+
+    Категории отбираем в Python, а не условием в SQL. Ни LOWER, ни LIKE не
+    приводят регистр кириллицы: в SQLite LOWER работает только с латиницей, в
+    Postgres LIKE вообще регистрозависим. «Зарплаты» с большой буквы прошли бы
+    мимо любого из этих способов, а именно так их и пишут.
+    """
     frm, to = _window(days, offset)
     with _connect() as conn:
+        cats = [r["category"] for r in conn.execute(
+            f"""SELECT DISTINCT COALESCE(f.category,'') AS category
+                  FROM finance_entries f
+                 WHERE f.business_id = ? AND f.kind = 'expense'
+                   AND {_OP_DAY} >= date('now', ?) AND {_OP_DAY} < date('now', ?)""",
+            (business_id, frm, to)).fetchall()]
+        pay = [c for c in cats if _is_payroll_category(c)]
+
+        # OR, а не UNION: запись с привязанным сотрудником И категорией
+        # «Зарплаты» — это одна выплата, и посчитаться она должна один раз.
+        cond = "f.employee_id IS NOT NULL OR f.doc_type = 'salary'"
+        args = [business_id]
+        if pay:
+            cond += " OR f.category IN (%s)" % ",".join("?" * len(pay))
+            args += pay
+        args += [frm, to]
         row = conn.execute(
             f"""SELECT COALESCE(SUM(f.amount),0) AS total, COUNT(*) AS n,
                        COUNT(DISTINCT f.employee_id) AS people
                   FROM finance_entries f
                  WHERE f.business_id = ? AND f.kind = 'expense'
-                   AND (f.employee_id IS NOT NULL OR f.doc_type = 'salary')
+                   AND ({cond})
                    AND {_OP_DAY} >= date('now', ?) AND {_OP_DAY} < date('now', ?)""",
-            (business_id, frm, to)).fetchone()
+            tuple(args)).fetchone()
     return {"total": int(row["total"] or 0), "n": int(row["n"] or 0),
             "people": int(row["people"] or 0)}
 

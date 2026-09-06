@@ -32,6 +32,9 @@ CHANGE_NOTABLE = 10       # % — с этого начинается «что и
 MIN_BASE_FOR_PCT = 5      # ниже этой базы процент врёт: 1 → 0 это не «−100%»
 PCT_AS_TIMES = 300        # выше этого процент нечитаем: говорим «в N раз»
 CHANGE_CATEGORY = 30      # % — с этого начинается разговор про категорию
+SCISSORS_GAP = 15         # п.п. — разрыв «расходы против выручки», риск сам по себе
+SCISSORS_SOFT = 8         # п.п. — меньший разрыв считаем риском, только если…
+PROFIT_HIT = 15           # …прибыль от него действительно просела на столько %
 DEPEND_CLIENT = 40        # % заказов у одного клиента — уже зависимость
 DEPEND_SOURCE = 60        # % выручки из одного источника
 PAYROLL_HEAVY = 50        # % расходов, уходящих людям
@@ -197,15 +200,59 @@ def _briefing_metrics(bid, days, now, prev, orders_now, orders_prev,
 
 def _changed(bid, days, now, prev, orders_now, orders_prev,
              clients_now, clients_prev, comparable, gaps):
-    # Порядок не случаен: сначала то, что можно взять и проверить сегодня
-    # (какая статья расходов сдвинулась), потом общие итоги периода — их
-    # проценты владелец уже увидел в сводке выше.
-    out = _category_moves(bid, gaps)
+    out = []
     if not comparable:
+        out += _category_moves(bid, gaps, period=days)
         gaps.append("Сравнить период не с чем: данных меньше чем за "
                     f"{MIN_DAYS_FOR_TREND} дней или в прошлом периоде пусто. "
                     + NOT_ENOUGH)
         return out
+
+    # Прибыль идёт первой, и это не косметика. Она стоит в заголовке сводки, но
+    # «что изменилось» о ней молчало: выручка −7% и расходы +5% по отдельности
+    # не дотягивали до порога в 10%, а вместе роняли прибыль на 26%. Порог
+    # составного числа нельзя считать по его слагаемым — владелец читал
+    # «прибыль −26%» и пустой список под ним.
+    #
+    # Здесь же и ответ на «почему»: оба слагаемых называются рядом, даже когда
+    # каждое из них само по себе разговора не стоит.
+    if prev["profit"] > 0 and now["entries"] >= MIN_ENTRIES_TREND:
+        p_ch = _pct(now["profit"], prev["profit"])
+        if p_ch is not None and abs(p_ch) >= CHANGE_NOTABLE:
+            inc_ch = _pct(now["income"], prev["income"])
+            exp_ch = _pct(now["expense"], prev["expense"])
+            parts = []
+            if inc_ch is not None:
+                parts.append(f"выручка {inc_ch:+d}%")
+            if exp_ch is not None:
+                parts.append(f"расходы {exp_ch:+d}%")
+            if now["profit"] < 0:
+                # Между прибылью и убытком не «падение на N%», а смена знака:
+                # процент здесь не объясняет ничего, а звучит внушительно.
+                # Говорим словами и показываем оба числа.
+                title = "Прибыль сменилась убытком"
+                detail = (f"Было {_money(prev['profit'])}, стало "
+                          f"{_money(now['profit'])} за {days} дн.")
+            else:
+                title = f"Прибыль {'выросла' if p_ch > 0 else 'упала'} на {abs(p_ch)}%"
+                detail = (f"{_money(now['profit'])} против {_money(prev['profit'])} "
+                          f"за предыдущие {days} дн.")
+            if parts:
+                detail += " Сложилась из двух движений: " + ", ".join(parts) + "."
+            out.append(_fact(
+                title, detail,
+                f"Выручка минус расходы за два периода по {days} дн.: "
+                f"{_ops(now['entries'])} в текущем.",
+                level="good" if p_ch > 0 and now["profit"] > 0 else "warn",
+                href="finance.html",
+                numbers={"now": now["profit"], "was": prev["profit"], "change": p_ch,
+                         "income_change": inc_ch, "expense_change": exp_ch},
+                key="profit"))
+
+    # Дальше — то, что можно взять и проверить сегодня: какая статья расходов
+    # сдвинулась. Потом общие итоги периода, проценты которых владелец уже
+    # увидел в сводке выше.
+    out += _category_moves(bid, gaps, period=days)
 
     for key, label, cur_v, prev_v, cur_n, href, good_up in (
             ("revenue", "Выручка", now["income"], prev["income"], now["income_n"],
@@ -266,37 +313,61 @@ def _changed(bid, days, now, prev, orders_now, orders_prev,
     return out
 
 
-def _category_moves(bid, gaps, days=14):
+def _category_moves(bid, gaps, days=14, period=30):
     """
-    Какая статья расходов сдвинулась за две недели.
+    Какая статья расходов сдвинулась — в двух окнах сразу.
 
-    Две недели — потому что месячное окно прячет всплеск: аренда, заплаченная
-    в начале месяца, растворяет скачок на доставке в конце.
+    Две недели ловят всплеск: аренда, заплаченная в начале месяца, растворила
+    бы скачок на доставке в конце. Но у короткого окна есть зеркальная
+    слепота, и стоит она дороже. Всё, что платят раз в месяц — аренда,
+    зарплата, крупная закупка, — в ПРОШЛОЕ двухнедельное окно просто не
+    попадает: сравнивать не с чем, и рост такой статьи не виден никогда.
+    Поэтому окон два — короткое на всплески и длинное на месячные платежи.
+
+    Правило про число операций тоже пришлось поправить. «Одна запись — не
+    тренд» верно там, где окно способно вместить несколько; для аренды одна
+    запись в каждом окне — это и есть норма, и сравнивать прошлую аренду с
+    нынешней совершенно правильно. Поэтому одинаковое число операций с обеих
+    сторон снимает требование о минимуме: это сравнение платежа с платежом,
+    а не вывод по единственной точке.
     """
-    out = []
-    now = database.category_period(bid, "expense", days, 0)
-    was = database.category_period(bid, "expense", days, days)
-    for cat, cur in sorted(now.items(), key=lambda kv: -kv[1]["total"])[:6]:
-        old = was.get(cat)
-        if not old or old["total"] < MIN_BASE_MONEY:
+    out, seen, told = [], set(), set()
+    for window in (days, period):
+        if window in (0, None):
             continue
-        change = _pct(cur["total"], old["total"])
-        if change is None or abs(change) < CHANGE_CATEGORY:
-            continue
-        if cur["n"] < MIN_ENTRIES_CATEGORY:
-            gaps.append(f"Расходы на «{cat}» изменились, но это {_ops(cur['n'])} "
-                        f"за {days} дней. " + NOT_ENOUGH)
-            continue
-        out.append(_fact(
-            f"Расходы на «{cat}» {'выросли' if change > 0 else 'снизились'} "
-            f"на {abs(change)}% за последние {days} дней",
-            f"{_money(cur['total'])} против {_money(old['total'])} за предыдущие {days} дней.",
-            f"Расходы категории «{cat}» в разделе «Финансы»: {_ops(cur['n'])} "
-            f"в текущем окне против {_ops(old['n'])} в прошлом.",
-            level="warn" if change > 0 else "good", href="finance.html",
-            numbers={"category": cat, "now": cur["total"], "was": old["total"],
-                     "change": change, "days": days}, key="category"))
-    return out[:2]
+        now = database.category_period(bid, "expense", window, 0)
+        was = database.category_period(bid, "expense", window, window)
+        for cat, cur in sorted(now.items(), key=lambda kv: -kv[1]["total"])[:6]:
+            if cat in seen:
+                continue          # уже сказали про эту статью в коротком окне
+            old = was.get(cat)
+            if not old or old["total"] < MIN_BASE_MONEY:
+                continue
+            change = _pct(cur["total"], old["total"])
+            if change is None or abs(change) < CHANGE_CATEGORY:
+                continue
+            if cur["n"] < MIN_ENTRIES_CATEGORY and cur["n"] != old["n"]:
+                if cat not in told:
+                    told.add(cat)
+                    gaps.append(f"Расходы на «{cat}» изменились, но это "
+                                f"{_ops(cur['n'])} за {window} дней. " + NOT_ENOUGH)
+                continue
+            seen.add(cat)
+            out.append(_fact(
+                f"Расходы на «{cat}» {'выросли' if change > 0 else 'снизились'} "
+                f"на {abs(change)}% за последние {window} дней",
+                f"{_money(cur['total'])} против {_money(old['total'])} "
+                f"за предыдущие {window} дней.",
+                f"Расходы категории «{cat}» в разделе «Финансы»: в текущем "
+                f"окне {_ops(cur['n'])}, в прошлом {_ops(old['n'])}.",
+                level="warn" if change > 0 else "good", href="finance.html",
+                numbers={"category": cat, "now": cur["total"], "was": old["total"],
+                         "change": change, "days": window},
+                # Ключ несёт саму статью. Два вывода с одинаковым ключом —
+                # ловушка для всякого, кто разложит находки в словарь: второй
+                # молча затрёт первый, и часть разбора исчезнет без следа.
+                key="category:" + cat))
+    return out[:3]
 
 
 # ── РИСКИ ──────────────────────────────────────────────────────────────────
@@ -319,15 +390,29 @@ def _risks(bid, days, now, prev, comparable, sig, orders_now, gaps):
 
         inc_ch = _pct(now["income"], prev["income"]) if comparable else None
         exp_ch = _pct(now["expense"], prev["expense"]) if comparable else None
-        if (inc_ch is not None and exp_ch is not None
-                and exp_ch - inc_ch >= 15 and exp_ch > 0):
+        prof_ch = (_pct(now["profit"], prev["profit"])
+                   if comparable and prev["profit"] > 0 else None)
+        # Разрыв в SCISSORS_GAP пунктов — риск сам по себе, независимо от того,
+        # успел он ударить по прибыли или нет. Но одного круглого порога мало:
+        # на демо-клинике расходы шли +5%, выручка −7%, разрыв 12 — и раздел
+        # «Риски» оставался пустым под заголовком «прибыль −26%». Второе
+        # условие говорит не про размер разрыва, а про последствие: если
+        # ножницы уже съели прибыль, это риск и при меньшем разрыве.
+        gap = (exp_ch - inc_ch) if (inc_ch is not None and exp_ch is not None) else None
+        by_gap = gap is not None and gap >= SCISSORS_GAP
+        by_hit = (gap is not None and gap >= SCISSORS_SOFT
+                  and prof_ch is not None and prof_ch <= -PROFIT_HIT)
+        if exp_ch is not None and exp_ch > 0 and (by_gap or by_hit):
+            detail = (f"Расходы {exp_ch:+d}%, выручка {inc_ch:+d}% к предыдущим "
+                      f"{days} дн. Разрыв {gap} процентных пунктов.")
+            if by_hit and not by_gap:
+                detail += f" Прибыль от этого просела на {abs(prof_ch)}%."
             out.append(_fact(
-                "Расходы растут быстрее выручки",
-                f"Расходы {exp_ch:+d}%, выручка {inc_ch:+d}% к предыдущим {days} дн. "
-                f"Разрыв {exp_ch - inc_ch} процентных пунктов.",
+                "Расходы растут быстрее выручки", detail,
                 f"Два периода по {days} дн. в разделе «Финансы».",
                 level="urgent", href="finance.html",
-                numbers={"income_change": inc_ch, "expense_change": exp_ch}, key="scissors"))
+                numbers={"income_change": inc_ch, "expense_change": exp_ch,
+                         "gap": gap, "profit_change": prof_ch}, key="scissors"))
 
         # Убыточные категории: тратим больше, чем зарабатываем на этом же.
         for l in (database.growth_signals(bid).get("losing") or [])[:1]:
@@ -489,7 +574,9 @@ _ADVICE = {
 def _recommendations(risks, opportunities):
     out = []
     for f in list(risks) + list(opportunities):
-        tpl = _ADVICE.get(f["key"])
+        # Ключ может нести уточнение после двоеточия («category:аренда») —
+        # совет один на весь вид находки, поэтому смотрим и на вид тоже.
+        tpl = _ADVICE.get(f["key"]) or _ADVICE.get(str(f["key"]).split(":", 1)[0])
         if not tpl:
             continue
         title, detail, href = tpl
