@@ -217,6 +217,18 @@ def api_login(body: LoginIn, request: Request):
     raise HTTPException(status_code=401, detail="Неверный логин или пароль")
 
 
+def _is_own_business(login: str) -> bool:
+    """
+    Это логин нашей собственной компании внутри VELOR?
+
+    Читаем переменную окружения на каждый вызов, а не при запуске: иначе смена
+    настройки требовала бы перезапуска, а мы бы об этом забыли ровно в тот
+    момент, когда она понадобится.
+    """
+    want = (_os.getenv("OWNER_BUSINESS_LOGIN") or "").strip()
+    return bool(want) and (login or "").strip().lower() == want.lower()
+
+
 def require_owner(x_auth: str = Header(default="")):
     """Защита админ-эндпоинтов: пускаем только владельца по валидному access-токену."""
     payload = _auth_payload(x_auth)
@@ -685,8 +697,13 @@ def api_business_login(body: LoginIn, request: Request):
         ratelimit.note_login_fail(key)
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
     ratelimit.note_login_success(key)
+    # Своя компания входит тем же входом и тем же паролем, но получает пропуск
+    # владельца — с номером своего бизнеса внутри. Дальше она и свой кабинет
+    # открывает, и список клиентов видит, а отдельной админки не существует.
+    own = _is_own_business(body.login)
     return {"ok": True, "business_id": biz["id"], "name": biz["name"],
-            **_issue_tokens("business", biz["id"])}
+            "owner": own,
+            **_issue_tokens("owner" if own else "business", biz["id"])}
 
 
 @app.post("/api/refresh")
@@ -918,6 +935,14 @@ def _resolve_bid(x_auth: str, requested: int) -> int:
         _mark_seen(bid)
         return bid                      # бизнес — только свой, параметр не влияет
     if not requested or requested <= 0:
+        # Владелец не назвал компанию. Если у него есть своя — открываем её:
+        # это его собственный кабинет, и требовать от него номер там же, где
+        # клиент ничего не указывает, значило бы сделать свой продукт неудобнее
+        # чужого. Номер берём из пропуска, а не из запроса.
+        own = (_auth_payload(x_auth) or {}).get("bid")
+        if isinstance(own, int) and own > 0 and database.get_business(own):
+            _mark_seen(own)
+            return own
         raise HTTPException(status_code=400,
                             detail="Не указана компания — добавьте business_id.")
     if not database.get_business(requested):
