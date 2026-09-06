@@ -27,6 +27,25 @@
     .head .v-core-line{ justify-content:flex-start; }
     .head .v-acts > *{ flex:1 1 auto; justify-content:center; }
   }
+  /* Нить «почему»: ответ на главный вопрос владельца, поэтому идёт сразу под
+     заголовком, до подробностей. Шаги пронумерованы и соединены линией — по
+     ней видно, что это одно рассуждение, а не список независимых фактов.
+     Тупик помечен словом, а не только цветом: «дальше данных нет» слишком
+     важно, чтобы полагаться на оттенок. */
+  .chain{ margin:var(--sp-4) 0 var(--sp-6); padding-left:var(--sp-5);
+    border-left:2px solid var(--hairline-2); display:flex;
+    flex-direction:column; gap:var(--sp-3); }
+  .chain .st{ position:relative; }
+  .chain .st .n{ position:absolute; left:calc(-1 * var(--sp-5) - 11px); top:2px;
+    width:20px; height:20px; border-radius:50%; background:var(--surface-2);
+    border:1px solid var(--hairline-2); display:grid; place-items:center;
+    font-size:var(--fs-caption); color:var(--lilac); }
+  .chain .st .t{ font-size:var(--fs-body); line-height:1.5; }
+  .chain .st .s{ margin-top:3px; font-size:var(--fs-caption); color:var(--ash); }
+  .chain .st.gap .t{ color:var(--silver); }
+  .chain .st.gap .n{ color:var(--saffron); border-color:rgba(255,184,41,.4); }
+  .conf{ font-size:var(--fs-caption); color:var(--ash); margin-top:var(--sp-2); }
+
   .head .date{ font-weight:400; font-size:var(--fs-sm); letter-spacing:.04em;
     text-transform:lowercase; color:var(--ash); margin-bottom:var(--sp-2); }
   /* Порядок величин на главной = порядок вопросов.
@@ -381,6 +400,9 @@
     <p class="v-cap">Что происходит</p>
     <h2 class="brief-head" id="briefHead">Смотрю, что у вас происходит…</h2>
     <p class="brief-why" id="briefWhy"></p>
+    <!-- Ответ на «почему», собранный по шагам из посчитанного. Идёт до
+         подробностей: это главный вопрос владельца, а не примечание к нему. -->
+    <div class="chain" id="chain" hidden></div>
     <div class="brief-do" id="briefDo" hidden></div>
     <div class="gaps" id="gaps"></div>
   </section>
@@ -620,12 +642,31 @@ function paintBrief(dir){
   if (!dir){
     softText(head, 'Смотрю, что у вас происходит…');
     why.textContent = ''; doEl.hidden = true; gaps.innerHTML = '';
+    const c0 = document.getElementById('chain');
+    if (c0){ c0.innerHTML = ''; c0.hidden = true; }
     return;
   }
   softText(head, dir.headline || '');
+  const conf = dir.confidence || {};
   why.innerHTML = `<b>${esc(dir.why || '')}</b>` +
     (dir.ready && dir.days
-      ? ` Период: последние ${dir.days} дней, сравнение с предыдущими ${dir.days}.` : '');
+      ? ` Период: последние ${dir.days} дней, сравнение с предыдущими ${dir.days}.` : '')
+    + (conf.label
+      ? `<div class="conf">Насколько твёрдо: ${esc(conf.label)}. ${esc(conf.why || '')}</div>`
+      : '');
+
+  // Нить «почему». Каждый шаг — из посчитанного, с источником; последний
+  // может быть тупиком, и это тоже ответ.
+  const chainEl = document.getElementById('chain');
+  const steps = dir.chain || [];
+  chainEl.innerHTML = steps.map((st, i) => `
+    <div class="st${st.gap ? ' gap' : ''}">
+      <div class="n">${i + 1}</div>
+      <div class="t">${esc(st.text || '')}${st.gap
+        ? ' <b>— дальше данных нет</b>' : ''}</div>
+      <div class="s">${esc(st.source || '')}</div>
+    </div>`).join('');
+  chainEl.hidden = !steps.length;
 
   // Одна рекомендация, и только настоящая. Нет — блока нет: выдуманный совет
   // хуже отсутствующего, потому что по нему тоже действуют.

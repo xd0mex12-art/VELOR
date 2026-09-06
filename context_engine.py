@@ -348,6 +348,26 @@ def _director_block(bid: int):
            "Главное: " + _short(br.get("headline"), 200),
            _short(br.get("why"), 160)]
 
+    conf = br.get("confidence") or {}
+    if conf.get("label"):
+        out.append("Насколько твёрдо это стоит: %s. %s"
+                   % (conf["label"], _short(conf.get("why"), 120)))
+
+    # Нить «почему» идёт сразу за заголовком — это ответ на главный вопрос
+    # владельца, и лежать он должен раньше подробностей, а не после них.
+    chain = br.get("chain") or []
+    if chain:
+        out.append("\nПОЧЕМУ ТАК (посчитано по шагам, без догадок):")
+        for i, st in enumerate(chain, 1):
+            mark = "  %d. " % i
+            line = mark + _short(st.get("text"), 200)
+            if st.get("gap"):
+                line += "  ← дальше данных нет, так и говори"
+            out.append(line)
+            src = _short(st.get("source"), 90)
+            if src:
+                out.append("     источник: " + src)
+
     rows = []
     for m in (br.get("metrics") or [])[:8]:
         if not m.get("enough"):

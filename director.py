@@ -598,6 +598,203 @@ def _recommendations(risks, opportunities):
     return out[:4]
 
 
+# ── ПОЧЕМУ: НИТЬ ОТ ЗАГОЛОВКА ДО ПРИЧИНЫ ───────────────────────────────────
+#
+# Всё, что нужно для ответа «почему упала прибыль», Директор считал и раньше:
+# движение выручки, движение расходов, какая статья выросла, сколько закрыто
+# возможностей, какая конверсия, по каким причинам теряли. Но лежало это
+# порознь — семь отдельных фактов, между которыми владелец должен был провести
+# линию сам. Разложение «выручка −5%, расходы +5%» — это арифметика, а не
+# причина: оно говорит ГДЕ искать, но не отвечает ЗАЧЕМ.
+#
+# Нить проходит те же цифры сверху вниз и на каждом шаге спрашивает
+# «а это отчего?», пока данных хватает. Кончаются данные — так и сказано,
+# и это последний шаг: тупик, названный вслух, честнее вывода, придуманного
+# ради красивого финала.
+#
+# Модель здесь не участвует. Ни одного обращения, ни одной догадки: только
+# сравнение чисел, которые уже посчитаны выше.
+
+CHAIN_NOTABLE = 10        # % — с этого движение прибыли стоит объяснять
+LEAD_NOTABLE = 10         # % — с этого стоит объяснять движение конверсии
+
+
+def _signed(n):
+    """Разница деньгами со знаком: «+78 700 ₽», «−22 500 ₽».
+
+    Минус — типографский, а не дефис: в строке про деньги он читается как
+    знак числа, а не как перенос.
+    """
+    return ("+" if n >= 0 else "−") + _money(abs(int(n or 0)))
+
+
+def _step(text, source, *, gap=False):
+    return {"text": text, "source": source, "gap": bool(gap)}
+
+
+def _funnel_step(bid, days, out):
+    """Воронка: обращений стало меньше или закрывать стали хуже."""
+    now = database.leads_period(bid, days, 0)
+    was = database.leads_period(bid, days, days)
+    if not (now["closed"] or was["closed"]):
+        out.append(_step(
+            "Дальше по воронке сказать нечего: возможности не ведутся.",
+            "Раздел «Возможности» пуст за оба периода.", gap=True))
+        return
+
+    conv_now, conv_was = now["conversion"], was["conversion"]
+    if conv_now is not None and conv_was is not None and conv_was:
+        drop = conv_was - conv_now
+        if drop >= LEAD_NOTABLE:
+            out.append(_step(
+                f"Закрывать стали хуже: {conv_now}% вместо {conv_was}%. "
+                f"Закрыто {now['closed']} против {was['closed']}.",
+                f"Возможности за два периода по {days} дн.: выиграно "
+                f"{now['won']}, потеряно {now['lost']}."))
+            _reasons_step(now, out)
+            return
+
+    if was["created"] and now["created"] < was["created"]:
+        change = _pct(now["created"], was["created"])
+        out.append(_step(
+            f"Обращений стало меньше: {_num(now['created'])} против "
+            f"{_num(was['created'])}" + (f" ({change:+d}%)" if change is not None else "") + ".",
+            f"Новые возможности за два периода по {days} дн."))
+        # Почему их стало меньше — вопрос к источникам, а их у заявок нет.
+        out.append(_step(
+            "Откуда обращения приходили раньше и что изменилось — сказать "
+            "нельзя: источник у возможностей не размечен.",
+            "У возможностей заполнен канал (Telegram, ВКонтакте), но не то, "
+            "что привело человека: реклама, рекомендация, карта.", gap=True))
+        return
+
+    _reasons_step(now, out)
+
+
+def _reasons_step(now, out):
+    """Из-за чего именно теряли. Это последний шаг, дальше данных нет."""
+    reasons = now.get("lost_reasons") or {}
+    if not reasons:
+        out.append(_step("Причины отказов не записаны — сказать, из-за чего "
+                         "теряем, нельзя.",
+                         "Поле «причина» у проигранных возможностей пустое.", gap=True))
+        return
+    try:
+        import leads as _leads
+        names = _leads.LOST_REASONS
+    except Exception:
+        names = {}
+    top = sorted(reasons.items(), key=lambda kv: -kv[1])
+    said = ", ".join("%s — %d" % (names.get(k, k), v) for k, v in top[:3])
+    out.append(_step("Причины отказов: " + said + ".",
+                     "Причины, записанные у проигранных возможностей за период."))
+
+
+def _chain(bid, days, now, prev, orders_now, orders_prev, comparable, moves):
+    """
+    Нить «почему». Пустая — значит объяснять нечего: прибыль не двигалась.
+    """
+    if not comparable or prev["profit"] <= 0 or now["entries"] < MIN_ENTRIES_TREND:
+        return []
+    p_ch = _pct(now["profit"], prev["profit"])
+    if p_ch is None or abs(p_ch) < CHAIN_NOTABLE:
+        return []
+
+    out = [_step(
+        f"Прибыль {'выросла' if p_ch > 0 else 'упала'} на {abs(p_ch)}%: "
+        f"{_money(now['profit'])} против {_money(prev['profit'])}.",
+        f"Выручка минус расходы за два периода по {days} дн.")]
+
+    # Что перевесило. Считаем в рублях, а не в процентах: пять процентов
+    # расходов и пять процентов выручки — это разные деньги, и решает разницу
+    # именно сумма.
+    d_inc = now["income"] - prev["income"]
+    d_exp = now["expense"] - prev["expense"]
+    out.append(_step(
+        "Выручка изменилась на %s, расходы — на %s." % (_signed(d_inc), _signed(d_exp)),
+        f"Суммы доходов и расходов за два периода по {days} дн."))
+
+    expenses_lead = abs(d_exp) > abs(d_inc)
+    if expenses_lead:
+        # Расходы перевесили — ищем статью.
+        cat = next((f for f in moves if str(f.get("key", "")).startswith("category")
+                    and (f.get("numbers") or {}).get("change", 0) > 0), None)
+        if cat:
+            n = cat["numbers"]
+            out.append(_step(
+                "Сильнее всего выросла статья «%s»: %s против %s (%+d%%)."
+                % (n["category"], _money(n["now"]), _money(n["was"]), n["change"]),
+                "Расходы по категориям за два окна по %d дн." % n["days"]))
+            out.append(_step(
+                "Дальше по этой статье данных нет: от чего именно она выросла — "
+                "от цены или от объёма — в записях не видно.",
+                "У расходов есть категория и сумма, но нет количества.", gap=True))
+        else:
+            out.append(_step(
+                "Какая именно статья выросла — сказать нельзя: заметного "
+                "движения ни по одной категории не набралось.",
+                "Расходы по категориям за два окна.", gap=True))
+        return out
+
+    # Выручка перевесила — идём в заявки и воронку.
+    cnt_ch = _pct(orders_now["count"], orders_prev["count"])
+    avg_ch = (_pct(orders_now["avg"], orders_prev["avg"])
+              if orders_now["avg"] and orders_prev["avg"] else None)
+    if cnt_ch is not None and cnt_ch < 0 and (avg_ch is None or abs(cnt_ch) >= abs(avg_ch)):
+        out.append(_step(
+            "Заявок стало меньше: %s против %s (%+d%%)."
+            % (_num(orders_now["count"]), _num(orders_prev["count"]), cnt_ch),
+            f"Счёт заявок за два периода по {days} дн."))
+        _funnel_step(bid, days, out)
+        return out
+
+    if avg_ch is not None and avg_ch < 0:
+        out.append(_step(
+            "Заявок столько же, но чек ниже: %s против %s (%+d%%)."
+            % (_money(orders_now["avg"]), _money(orders_prev["avg"]), avg_ch),
+            "Сумма заявок делённая на их число за два периода."))
+        out.append(_step(
+            "Из-за чего упал чек — сказать нельзя: сравнить состав заявок по "
+            "услугам за два периода не на чем.",
+            "Выручка по услугам считается только за текущее окно.", gap=True))
+        return out
+
+    out.append(_step(
+        "Дальше причину не видно: ни число заявок, ни средний чек заметно не "
+        "менялись.",
+        f"Заявки за два периода по {days} дн.", gap=True))
+    return out
+
+
+def _confidence(now, span, orders_now):
+    """
+    Насколько твёрдо стоит вся сводка.
+
+    Не украшение и не проценты из воздуха: три состояния по двум измеримым
+    вещам — сколько операций легло в расчёт и за какой срок. Обещать точность
+    там, где за месяц было четыре записи, — тот же самый обман, только вежливый.
+    """
+    # Пороги не выдуманы под случай, а собраны из тех, что продукт уже
+    # использует. «Уверенно» — это когда ОБА сравниваемых периода покрыты
+    # целиком (два окна по days) и записей заметно больше, чем нужно, чтобы
+    # вообще говорить о тренде. «С осторожностью» — когда сравнение уже
+    # возможно, но с запасом на одну-две случайности.
+    ops = int(now.get("entries") or 0) + int(orders_now.get("count") or 0)
+    days = int((span or {}).get("days") or 0)
+    if ops >= MIN_ENTRIES_TREND * 5 and days >= 60:
+        return {"level": "high", "label": "уверенно",
+                "why": "%s и %s за %d дней данных."
+                       % (_ops(now.get("entries") or 0),
+                          "%d заявок" % (orders_now.get("count") or 0), days)}
+    if ops >= MIN_ENTRIES_TREND and days >= MIN_DAYS_FOR_TREND:
+        return {"level": "medium", "label": "с осторожностью",
+                "why": "Данных хватает на сравнение, но их немного: %s за %d дней."
+                       % (_ops(now.get("entries") or 0), days)}
+    return {"level": "low", "label": "предварительно",
+            "why": "Данных мало: %s за %d дней — выводы могут поменяться."
+                   % (_ops(now.get("entries") or 0), days)}
+
+
 # ── СБОРКА ─────────────────────────────────────────────────────────────────
 
 def briefing(business_id, days=30):
@@ -633,8 +830,9 @@ def briefing(business_id, days=30):
                 "headline": "Данных пока нет — и придумывать их я не стану.",
                 "why": "Как только появятся заявки, клиенты или операции, я начну "
                        "считать и сравнивать периоды.",
-                "metrics": metrics, "changed": [], "risks": [], "opportunities": [],
-                "recommendations": [],
+                "confidence": _confidence(now, span, orders_now),
+                "metrics": metrics, "changed": [], "chain": [], "risks": [],
+                "opportunities": [], "recommendations": [],
                 "gaps": [NOT_ENOUGH + " В базе нет ни заявок, ни клиентов, ни денег."],
                 "span": span, "generated_at": datetime.datetime.now().isoformat(timespec="seconds")}
 
@@ -643,11 +841,15 @@ def briefing(business_id, days=30):
     risks = _risks(bid, days, now, prev, comparable, sig, orders_now, gaps)
     opportunities = _opportunities(bid, days, now, sig, gaps)
     recommendations = _recommendations(risks, opportunities)
+    # Нить проходит по уже посчитанному, поэтому идёт последней: ей нужны
+    # движения категорий, которые нашёл _changed.
+    chain = _chain(bid, days, now, prev, orders_now, orders_prev, comparable, changed)
 
     return {"days": days, "ready": True,
             "headline": _headline(days, now, comparable, prev, orders_now, risks),
             "why": _why(span, now, orders_now),
-            "metrics": metrics, "changed": changed, "risks": risks,
+            "confidence": _confidence(now, span, orders_now),
+            "metrics": metrics, "changed": changed, "chain": chain, "risks": risks,
             "opportunities": opportunities, "recommendations": recommendations,
             "gaps": gaps, "span": span,
             "generated_at": datetime.datetime.now().isoformat(timespec="seconds")}

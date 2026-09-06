@@ -115,6 +115,17 @@ def metric(b, key):
     return next(m for m in b["metrics"] if m["key"] == key)
 
 
+def lead(bid, status, days_ago, reason=None):
+    """Возможность с датой события: воронку считают по ней, а не по созданию."""
+    when = day(days_ago) + " 12:00:00"
+    raw("""INSERT INTO leads (business_id, title, status, created_at, updated_at,
+                              converted_at, lost_at, lost_reason, value, currency)
+           VALUES (?,?,?,?,?,?,?,?,?,'RUB')""",
+        (bid, "Возможность", status, when, when,
+         when if status == "won" else None,
+         when if status == "lost" else None, reason, 50000))
+
+
 def find(b, section, key):
     return next((f for f in b[section] if f["key"] == key), None)
 
@@ -291,6 +302,109 @@ check("прибыль идёт первой — она в заголовке с�
       [f["key"] for f in b["changed"]])
 for f in b["changed"]:
     check(f"«{f['title'][:34]}…»: есть источник", bool((f["source"] or "").strip()))
+
+print("\n== НИТЬ «ПОЧЕМУ»: РАСХОДЫ ==")
+# Разложение «выручка −5%, расходы +5%» — арифметика, а не причина: оно
+# говорит ГДЕ искать, но не отвечает ЗАЧЕМ. Нить проходит те же цифры сверху
+# вниз и на каждом шаге спрашивает «а это отчего?», пока данных хватает.
+exp_bid, EXH = biz("dir_chain_exp")
+for k in range(6):
+    money(exp_bid, "income", 100000, "продажи", 3 + k)
+    money(exp_bid, "income", 105000, "продажи", 40 + k)
+money(exp_bid, "expense", 300000, "закупка", 6)
+money(exp_bid, "expense", 150000, "закупка", 41)
+money(exp_bid, "expense", 60000, "аренда", 7)
+money(exp_bid, "expense", 60000, "аренда", 42)
+cb = director.briefing(exp_bid)
+chain = cb.get("chain") or []
+check("нить построена", len(chain) >= 3, [c["text"][:40] for c in chain])
+check("первый шаг — про прибыль", chain and "рибыль" in chain[0]["text"], chain[:1])
+check("второй — что перевесило, в рублях",
+      len(chain) > 1 and "Выручка изменилась" in chain[1]["text"]
+      and "₽" in chain[1]["text"], chain[1:2])
+check("третий — какая статья выросла",
+      len(chain) > 2 and "закупка" in chain[2]["text"], chain[2:3])
+check("и назван процент по ней",
+      len(chain) > 2 and "%" in chain[2]["text"], chain[2:3])
+check("нить заканчивается честным тупиком",
+      chain and chain[-1]["gap"] is True, chain[-1:])
+check("у каждого шага есть источник",
+      all((c.get("source") or "").strip() for c in chain))
+check("ни один шаг не длиннее строки", all(len(c["text"]) < 220 for c in chain))
+
+print("\n== НИТЬ «ПОЧЕМУ»: ВЫРУЧКА И ВОРОНКА ==")
+# Другая ветка: расходы стоят, просела выручка. Тогда вопрос переходит к
+# заявкам, а от них — к воронке и причинам отказов.
+rev_bid, RVH = biz("dir_chain_rev")
+for k in range(4):
+    money(rev_bid, "income", 50000, "продажи", 3 + k)
+for k in range(9):
+    money(rev_bid, "income", 50000, "продажи", 38 + k)
+money(rev_bid, "expense", 90000, "аренда", 6)
+money(rev_bid, "expense", 90000, "аренда", 41)
+for k in range(4):
+    order(rev_bid, "Заказ", 50000, 3 + k)
+for k in range(9):
+    order(rev_bid, "Заказ", 50000, 38 + k)
+# Воронка: раньше закрывали 7 из 10, теперь 2 из 10 — и причины записаны.
+for k in range(7):
+    lead(rev_bid, "won", 40 + k)
+for k in range(3):
+    lead(rev_bid, "lost", 40 + k, reason="timing")
+for k in range(2):
+    lead(rev_bid, "won", 5 + k)
+for k in range(8):
+    lead(rev_bid, "lost", 5 + k % 7, reason="price" if k < 6 else "competitor")
+rb = director.briefing(rev_bid)
+rchain = rb.get("chain") or []
+texts = " | ".join(c["text"] for c in rchain)
+check("нить пошла в выручку, а не в расходы", "аявок стало меньше" in texts, texts[:200])
+check("и дошла до конверсии", "Закрывать стали хуже" in texts, texts[:300])
+check("и назвала причины отказов", "Причины отказов" in texts, texts[:400])
+check("причины названы по-человечески, а не кодами",
+      "Дорого" in texts and "price" not in texts, texts[-200:])
+
+print("\n== НИТЬ НЕ ВЫДУМЫВАЕТСЯ ==")
+# Неделя данных — не повод объяснять причины: сравнивать не с чем.
+new_bid, NBH = biz("dir_chain_new")
+for k in range(4):
+    money(new_bid, "income", 30000, "продажи", 1 + k)
+check("у молодого бизнеса нити нет",
+      (director.briefing(new_bid).get("chain") or []) == [],
+      director.briefing(new_bid).get("chain"))
+# Прибыль не двигалась — объяснять нечего, и придумывать движение нельзя.
+same_bid, SBH = biz("dir_chain_same")
+for k in range(6):
+    money(same_bid, "income", 100000, "продажи", 3 + k)
+    money(same_bid, "income", 100000, "продажи", 40 + k)
+    money(same_bid, "expense", 40000, "аренда", 4 + k)
+    money(same_bid, "expense", 40000, "аренда", 41 + k)
+check("и у бизнеса без движения прибыли тоже",
+      (director.briefing(same_bid).get("chain") or []) == [],
+      director.briefing(same_bid).get("chain"))
+
+print("\n== УВЕРЕННОСТЬ ==")
+# Обещать точность там, где за месяц было четыре записи, — тот же обман,
+# только вежливый.
+# У dir_main 53 дня истории: прошлый тридцатидневный период покрыт не
+# целиком, и «уверенно» здесь было бы обещанием сверх данных. «С
+# осторожностью» — ровно то, что есть.
+check("у бизнеса с неполным прошлым периодом — с осторожностью",
+      (b.get("confidence") or {}).get("level") == "medium", b.get("confidence"))
+# А там, где обоих периодов хватает целиком, — уверенно.
+full_bid, FBH = biz("dir_conf_full")
+for k in range(40):
+    money(full_bid, "income", 20000, "продажи", 1 + k * 2)
+check("при полных двух периодах — уверенно",
+      (director.briefing(full_bid).get("confidence") or {}).get("level") == "high",
+      director.briefing(full_bid).get("confidence"))
+check("у молодого — предварительно",
+      (director.briefing(new_bid).get("confidence") or {}).get("level") == "low",
+      director.briefing(new_bid).get("confidence"))
+check("и сказано, из чего это следует",
+      "дней" in (b.get("confidence") or {}).get("why", ""), b.get("confidence"))
+check("пустая сводка тоже несёт уверенность и нить",
+      "confidence" in director.briefing(empty_bid) and "chain" in director.briefing(empty_bid))
 
 print("\n== РИСКИ ==")
 check("заявки без суммы замечены", find(b, "risks", "no_amount") is not None,
