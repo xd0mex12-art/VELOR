@@ -248,7 +248,7 @@ function demoHTML(d){
     return `<div style="border:1px solid rgba(47,212,178,.35); border-radius:var(--r-lg);
                         padding:20px 22px; background:rgba(47,212,178,.06)">
       <div style="font-size:var(--fs-lead); margin-bottom:10px">Демо-клиника собрана</div>
-      <div class="caption" style="margin-bottom:14px">Пациентов ${DEMO_CREDS.clients},
+      <div class="caption" style="margin-bottom:14px">Клиентов ${DEMO_CREDS.clients},
         возможностей ${DEMO_CREDS.leads}${DEMO_CREDS.flaws === 0
           ? ', противоречий нет' : ''}.</div>
       <div class="f" style="margin-bottom:10px"><label>Логин</label>
@@ -259,17 +259,31 @@ function demoHTML(d){
         <button class="ghost" id="demoHide" type="button">Записал, скрыть</button>
       </div></div>`;
   }
-  if (!d.exists) {
-    return `<div class="muted" style="padding:0 0 14px">Стоматология «Дентарика» с
-      трёхмесячной историей: пациенты, переписка, воронка и деньги. Отдельный
-      кабинет со своим логином — можно показывать, ничего не рассказывая про
-      остальных клиентов.</div>
-      <button class="pill" id="demoBuild">Собрать демо-клинику</button>`;
-  }
-  return `<div class="muted" style="padding:0 0 14px">«${esc(d.name || '')}» —
-    пациентов ${d.clients}, возможностей ${d.leads}. Вход под её собственным
-    логином; пароль показывался один раз при сборке.</div>
-    <button class="del" id="demoClean">Удалить демо-клинику</button>`;
+  // Вид бизнеса пишется словами, а не выбирается из списка: список пришлось
+  // бы угадывать заранее, а перед звонком нужен ровно тот бизнес, который на
+  // том конце. Знакомые отрасли берутся из готового каталога, незнакомые —
+  // собираются под запрос.
+  const ASK = `<div class="muted" style="padding:0 0 14px">Компания с трёхмесячной
+      историей: клиенты, переписка, воронка и деньги. Отдельный кабинет со своим
+      логином — можно показывать, ничего не рассказывая про остальных клиентов.
+      Напишите, чем занимается бизнес.</div>
+    <div class="f" style="max-width:420px; margin-bottom:12px">
+      <label for="demoKind">Вид бизнеса</label>
+      <input id="demoKind" placeholder="автосервис, юридическая компания, салон красоты…"
+             autocomplete="off"></div>
+    <button class="pill" id="demoBuild">Собрать демо</button>`;
+
+  const list = (d.demos || []).map(x => `<div class="muted" style="padding:0 0 8px">
+      «${esc(x.name || '')}» — клиентов ${x.clients}, возможностей ${x.leads}.
+      <button class="del" data-drop="${x.business_id}" type="button"
+              style="margin-left:8px">Удалить</button></div>`).join('');
+
+  if (!d.exists) return ASK;
+  // Наборов может быть несколько: перед звонками разным отраслям удобно
+  // держать готовыми и стоматологию, и автосервис.
+  return list + `<div class="caption" style="margin:10px 0 14px">Вход под
+    собственным логином набора; пароль показывался один раз при сборке.</div>`
+    + ASK;
 }
 
 async function loadDemo(){
@@ -287,7 +301,12 @@ document.addEventListener('click', async e => {
     const b = e.target;
     b.disabled = true; b.textContent = 'Собираю… это до минуты';
     try{
-      DEMO_CREDS = await api('/api/admin/demo', { method:'POST' });
+      const kindEl = document.getElementById('demoKind');
+      const kind = (kindEl && kindEl.value.trim()) || 'стоматологическая клиника';
+      DEMO_CREDS = await api('/api/admin/demo', {
+        method:'POST', headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify({ kind })
+      });
       toast('Демо-клиника готова — запишите пароль');
       await loadDemo(); await load();
     }catch(err){
@@ -297,12 +316,18 @@ document.addEventListener('click', async e => {
     return;
   }
   if (e.target.id === 'demoHide'){ DEMO_CREDS = null; loadDemo(); return; }
-  if (e.target.id === 'demoClean'){
-    if (!confirm('Удалить демо-клинику со всеми её данными? Настоящих клиентов это не затронет.')) return;
-    const b = e.target;
-    b.disabled = true; b.textContent = 'Удаляю…';
-    try{ await api('/api/admin/demo', { method:'DELETE' }); toast('Демо удалено'); }
-    catch(err){ toast('Не удалилось'); }
+  // Удаляем ровно тот набор, на кнопке которого номер: рядом могут лежать
+  // наборы под разные отрасли, и убрать надо отработавший, а не все сразу.
+  const drop = e.target.closest('[data-drop]');
+  if (drop){
+    if (!confirm('Удалить этот демо-набор со всеми его данными? '
+               + 'Настоящих клиентов это не затронет.')) return;
+    drop.disabled = true; drop.textContent = 'Удаляю…';
+    try{
+      await api('/api/admin/demo?business_id=' + encodeURIComponent(drop.dataset.drop),
+                { method:'DELETE' });
+      toast('Демо удалено');
+    } catch(err){ toast('Не удалилось'); }
     DEMO_CREDS = null;
     await loadDemo(); await load();
   }

@@ -45,7 +45,7 @@ os.chdir(ROOT)
 
 from fastapi.testclient import TestClient                            # noqa: E402
 import server, database, context_engine, verify, ai                  # noqa: E402
-import demo_dental                                                   # noqa: E402
+import demo_business                                                 # noqa: E402
 
 ok = fail = 0
 
@@ -59,7 +59,7 @@ def check(name, cond, extra=""):
 
 
 database.init_db()
-bid = demo_dental.build("verify-clinic", "verify-pass-1")
+bid = demo_business.build("verify-clinic", "verify-pass-1")["business_id"]
 
 GROUND = """Показатели за 30 дн.:
   Выручка: 1 318 400 ₽ · -7% к прошлому периоду

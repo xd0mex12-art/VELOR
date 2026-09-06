@@ -23,7 +23,7 @@ import time as _time
 import requests
 
 from fastapi import (FastAPI, Header, HTTPException, UploadFile, File, Form,
-                     Request)
+                     Request, Body)
 from fastapi.responses import FileResponse, Response, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -196,6 +196,12 @@ _DUPLICATE_TEXT = {
 class LoginIn(BaseModel):
     login: str
     password: str
+
+
+class DemoIn(BaseModel):
+    # Вид бизнеса словами владельца: «автосервис», «юридическая компания».
+    # Тело запроса необязательно — прежние вызовы без него должны работать.
+    kind: str = ""
 
 
 class RefreshIn(BaseModel):
@@ -693,27 +699,33 @@ def _demo_tool():
     tools = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "tools")
     if tools not in sys.path:
         sys.path.append(tools)
-    import demo_dental
-    return demo_dental
+    import demo_business
+    return demo_business
 
 
 @app.get("/api/admin/demo")
 def api_admin_demo_state(x_auth: str = Header(default="")):
-    """Есть ли демо-клиника и что она собой представляет."""
+    """Какие демо-наборы собраны сейчас.
+
+    Их может быть несколько: перед звонками разным отраслям удобно держать
+    готовыми и стоматологию, и автосервис, не пересобирая набор каждый раз.
+    """
     require_owner(x_auth)
     try:
-        b = _demo_tool().find_demo()
+        found = _demo_tool().find_demos()
     except Exception as e:
         raise HTTPException(status_code=500, detail="Сборщик демо не читается: %s" % e)
-    if not b:
-        return {"exists": False}
-    return {"exists": True, "business_id": b["id"], "name": b.get("name"),
-            "clients": database.count_clients(b["id"]),
-            "leads": database.count_leads(b["id"])}
+    demos = [{"business_id": b["id"], "name": b.get("name"),
+              "clients": database.count_clients(b["id"]),
+              "leads": database.count_leads(b["id"])} for b in found]
+    return {"exists": bool(demos), "demos": demos,
+            # Прежние поля оставлены: на них смотрит уже написанный экран.
+            **(demos[0] if demos else {})}
 
 
 @app.post("/api/admin/demo")
-def api_admin_demo_build(x_auth: str = Header(default="")):
+def api_admin_demo_build(body: DemoIn = Body(default=None),
+                         x_auth: str = Header(default="")):
     """
     Собрать демо-клинику. Пароль возвращается ОДИН раз и нигде не хранится.
 
@@ -724,18 +736,19 @@ def api_admin_demo_build(x_auth: str = Header(default="")):
     """
     require_owner(x_auth)
     tool = _demo_tool()
-    if tool.find_demo():
-        raise HTTPException(status_code=409,
-                            detail="Демо-клиника уже есть — сначала удалите её.")
-    password = secrets.token_urlsafe(9)
-    login = "demo-dental"
+    # Вид бизнеса владелец пишет своими словами: «автосервис», «юридическая
+    # компания», «студия керамики». VELOR не медицинский продукт, и показывать
+    # автосервису стоматологию значит заставлять его переводить каждый экран.
+    kind = (getattr(body, "kind", None) or "стоматологическая клиника").strip()[:80]
     try:
-        bid = tool.build(login, password)
+        got = tool.build(request=kind)
     except Exception as e:
-        log.exception("Демо-клиника не собралась")
+        log.exception("Демо-набор не собрался")
         raise HTTPException(status_code=500, detail="Не собралось: %s" % str(e)[:200])
-    if not bid:
-        raise HTTPException(status_code=409, detail="Демо-клиника уже есть.")
+    if not got:
+        raise HTTPException(status_code=409,
+                            detail="Такой демо-набор уже есть — сначала удалите его.")
+    bid, login, password = got["business_id"], got["login"], got["password"]
     # Сверка звеньев — часть ответа, а не украшение: набор, на котором продукт
     # сам находит противоречия, показывать нельзя, и знать об этом надо сразу.
     try:
@@ -749,15 +762,16 @@ def api_admin_demo_build(x_auth: str = Header(default="")):
 
 
 @app.delete("/api/admin/demo")
-def api_admin_demo_clean(x_auth: str = Header(default="")):
-    """Убрать демо и только демо: у сборщика на это два признака вместо одного."""
+def api_admin_demo_clean(business_id: int = 0, x_auth: str = Header(default="")):
+    """Убрать демо и только демо: признак — отметка в описании, и ничего кроме.
+
+    Без номера убираются все наборы, с номером — один. Второе нужно, когда
+    рядом лежат наборы под разные отрасли и убрать надо только отработавший.
+    """
     require_owner(x_auth)
     tool = _demo_tool()
-    b = tool.find_demo()
-    if not b:
-        return {"ok": True, "removed": False}
-    tool.clean()
-    return {"ok": True, "removed": tool.find_demo() is None}
+    removed = tool.clean(business_id or None)
+    return {"ok": True, "removed": bool(removed), "count": len(removed)}
 
 
 @app.post("/api/business-login")

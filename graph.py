@@ -67,6 +67,46 @@ def mention_score(title, text):
     return hit / len(words)
 
 
+def _matched_words(title, text):
+    """Какие именно значимые слова названия прозвучали в заявке."""
+    hay = " ".join(_norm(text))
+    return {w for w in _significant(title)
+            if re.search(r"\b" + re.escape(_stem(w)), hay)}
+
+
+def _distinctive(candidates):
+    """
+    Оставить те совпадения, которые приносят что-то своё.
+
+    У бизнеса, где услуги называются «Косметический ремонт», «Капитальный
+    ремонт» и «Ремонт под ключ», заявка на любую из них попадала во все три
+    сразу: общего слова «ремонт» хватало ровно на половину названия, а половина
+    и была порогом. В выручке по услугам появлялись три одинаковых числа —
+    первое, что заметит владелец, и первое, чему он перестанет верить.
+
+    Правило: совпадение засчитывается, если в нём есть слово, которого нет ни
+    в одном другом сработавшем названии. «Косметический» такое слово даёт,
+    голый «ремонт» — нет. Заявка «чистка и отбеливание» при этом сохраняет обе
+    услуги: каждая опознана своим словом.
+    """
+    if len(candidates) < 2:
+        return candidates
+    out = []
+    for c in candidates:
+        others = set()
+        for o in candidates:
+            if o is not c:
+                others |= set(_significant(o["title"] or ""))
+        if c["words"] - others:
+            out.append(c)
+    # Если своего слова не оказалось ни у кого, названия просто синонимичны.
+    # Тогда честнее оставить самое полное совпадение, чем не оставить ничего.
+    if not out:
+        best = max(c["score"] for c in candidates)
+        out = [c for c in candidates if c["score"] >= best]
+    return out
+
+
 def link_order_items(business_id, order_id, text, min_score=0.5):
     """
     Из чего состоит заявка. Сопоставляем текст заявки с услугами и товарами,
@@ -83,17 +123,22 @@ def link_order_items(business_id, order_id, text, min_score=0.5):
         # руками, машина затирать не должна.
         database.drop_entity_links(business_id, "order", order_id,
                                    kind="includes", source="auto")
+        found = []
         for kind in ("service", "product"):
             for row in database.list_facts(business_id, kind):
                 score = mention_score(row.get("title"), text)
                 if score < min_score:
                     continue
-                database.add_entity_link(
-                    business_id, "order", order_id, kind, row["id"],
-                    kind="includes", confidence=round(score, 2), source="auto",
-                    note="узнано по тексту заявки")
-                linked.append({"type": kind, "id": row["id"],
-                               "title": row.get("title"), "score": round(score, 2)})
+                found.append({"kind": kind, "id": row["id"], "title": row.get("title"),
+                              "score": score,
+                              "words": _matched_words(row.get("title"), text)})
+        for c in _distinctive(found):
+            database.add_entity_link(
+                business_id, "order", order_id, c["kind"], c["id"],
+                kind="includes", confidence=round(c["score"], 2), source="auto",
+                note="узнано по тексту заявки")
+            linked.append({"type": c["kind"], "id": c["id"],
+                           "title": c["title"], "score": round(c["score"], 2)})
     except Exception:
         return linked
     return linked

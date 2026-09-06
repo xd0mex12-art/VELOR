@@ -207,15 +207,28 @@ check("этим логином и паролем действительно пу
 check("но полномочий владельца у демо нет",
       role_of(login(dm["login"], dm["password"]).json()["token"]) == "business")
 
-check("повторная сборка отклоняется, а не плодит второе демо",
-      c.post("/api/admin/demo", headers=OWND).status_code == 409)
+# Наборов может быть несколько — под разные отрасли: перед звонками удобно
+# держать готовыми и стоматологию, и автосервис. А вот двух одинаковых быть не
+# должно: у них совпал бы вход.
+check("тот же вид бизнеса второй раз не собирается",
+      c.post("/api/admin/demo", headers=OWND,
+             json={"kind": "стоматологическая клиника"}).status_code == 409)
+r2 = c.post("/api/admin/demo", headers=OWND, json={"kind": "автосервис"})
+check("другой вид бизнеса собирается рядом", r2.status_code == 200, r2.text[:200])
+check("и это отдельный кабинет со своим логином",
+      r2.status_code == 200 and r2.json().get("login") != dm.get("login"),
+      r2.json().get("login") if r2.status_code == 200 else r2.text[:120])
+state = c.get("/api/admin/demo", headers=OWND).json()
+check("владелец видит оба набора", len(state.get("demos") or []) == 2, state)
 
 before = len(database.list_businesses_with_stats())
 r = c.delete("/api/admin/demo", headers=OWND)
 check("удаление прошло", r.status_code == 200 and r.json().get("removed") is True,
       r.text[:200])
-check("бизнесов стало на один меньше",
-      len(database.list_businesses_with_stats()) == before - 1)
+check("без номера уносятся все наборы сразу", r.json().get("count") == 2, r.text[:200])
+check("бизнесов стало на два меньше — ровно по числу наборов",
+      len(database.list_businesses_with_stats()) == before - 2,
+      len(database.list_businesses_with_stats()))
 check("а живые клиенты на месте", database.get_business(alien) is not None)
 check("повторное удаление — тихий отказ",
       c.delete("/api/admin/demo", headers=OWND).json().get("removed") is False)
