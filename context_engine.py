@@ -23,12 +23,14 @@ Pipeline (respond):
 """
 from __future__ import annotations
 
+import datetime
 import json
 import re
 import time
 
 import ai
 import database
+import director
 import graph
 import prompt_engine
 
@@ -252,6 +254,25 @@ def _client_block(bid: int, client_id, with_messages: bool = True) -> str:
             + "\n".join(lines) + (dossier or ""))
 
 
+def _found_text(it) -> str:
+    """Строка о найденном: заголовок И содержание, а не что-то одно.
+
+    Поля перебирались по очереди, и первое непустое побеждало. У записи памяти
+    title стоит раньше body — до модели доезжал голый заголовок «Цель месяца»,
+    а сама цель терялась по дороге. Заголовок без тела — это не факт, а намёк
+    на факт: сказать по нему нечего, и модели остаётся домысливать.
+    """
+    if not isinstance(it, dict):
+        return " ".join(str(it).split())[:140]
+    head = " ".join(str(it.get("title") or it.get("filename") or "").split())[:60]
+    body = " ".join(str(it.get("text") or it.get("body") or it.get("content")
+                        or it.get("excerpt") or "").split())[:140]
+    if head and body:
+        # Заголовок часто дословно начинает тело — тогда он лишний.
+        return body if body.lower().startswith(head.lower()) else head + " — " + body
+    return head or body
+
+
 def _memory_block(bid: int, question: str) -> str:
     """Memory Builder: похожие ситуации в базе по теме запроса (заявки, документы,
     переписка, память, клиенты). Только релевантное — по ключевым словам вопроса."""
@@ -268,11 +289,7 @@ def _memory_block(bid: int, question: str) -> str:
             continue
         sample = []
         for it in items[:3]:
-            if isinstance(it, dict):
-                txt = it.get("text") or it.get("content") or it.get("title") or it.get("body") or ""
-            else:
-                txt = str(it)
-            txt = str(txt).strip()[:90]
+            txt = _found_text(it)
             if txt:
                 sample.append(txt)
         if sample:
@@ -281,6 +298,201 @@ def _memory_block(bid: int, question: str) -> str:
         return ""
     return ("\n\nПОХОЖЕЕ В БАЗЕ (по теме запроса — используй, если уместно):\n"
             + "\n".join(frag))
+
+
+# ============================================================
+#  ЧТО VELOR ПОСЧИТАЛ САМ — В ПРОМПТ
+#
+#  Директор и детекторы находок разбирают бизнес БЕЗ единого обращения к
+#  модели: сравнивают периоды, ловят риски, считают потерянные деньги и у
+#  каждого числа держат источник. Всё это оставалось на своих страницах и до
+#  модели не доезжало — поэтому на вопрос «почему упала прибыль» ассистент
+#  получал итоги за всё время и ни одного сравнения периодов. Ответить верно он
+#  не мог физически: оставалось либо «не знаю», либо выдумка.
+#
+#  Здесь посчитанное отдаётся модели как ФАКТЫ — вместе с источником каждого
+#  числа и, что не менее важно, вместе со списком того, чего посчитать НЕ
+#  удалось. Границы здесь не вежливость: это единственное, что стоит между
+#  честным «столько данных нет» и придуманным ответом.
+#
+#  Чего здесь намеренно НЕТ: поля hypothesis у находок. Это догадка модели о
+#  причине, и хранится она отдельно именно потому, что фактом не является.
+#  Подложить её обратно в промпт значило бы отмыть догадку до факта — ровно то,
+#  ради чего разделение и заводили.
+# ============================================================
+
+def _short(s, cap: int) -> str:
+    s = " ".join(str(s or "").split())
+    return s if len(s) <= cap else s[:cap - 1].rstrip(" ,.;-") + "…"
+
+
+def _briefing(bid: int) -> dict:
+    """Брифинг стоит десятков запросов, а вопросы владелец задаёт подряд —
+    поэтому через тот же короткий кэш, что и финансы."""
+    return _cached(("brief", bid), lambda: _safe(lambda: director.briefing(bid), {})) or {}
+
+
+def _director_block(bid: int):
+    """Сводка Директора словами. Возвращает текст и набор заголовков — чтобы
+    находки ниже не повторяли то же самое второй раз."""
+    br = _briefing(bid)
+    if not br.get("ready"):
+        return "", set()
+
+    days = br.get("days") or 30
+    out = ["\n\nЧТО VELOR УЖЕ ПОСЧИТАЛ САМ ПО БАЗЕ (это факты, не догадки: "
+           "опирайся на них, называй источник, цифры не пересчитывай и не "
+           "округляй по-своему):",
+           "Сегодня " + datetime.date.today().isoformat() + ".",
+           "Главное: " + _short(br.get("headline"), 200),
+           _short(br.get("why"), 160)]
+
+    rows = []
+    for m in (br.get("metrics") or [])[:8]:
+        if not m.get("enough"):
+            continue
+        d = m.get("delta")
+        delta = (" · %+d%% к прошлому периоду" % d) if isinstance(d, int) else ""
+        rows.append("  · %s: %s%s · откуда: %s"
+                    % (m.get("label"), m.get("display"), delta,
+                       _short(m.get("source"), 90)))
+    if rows:
+        out.append("\nПоказатели за %d дн.:" % days)
+        out += rows
+
+    titles = set()
+
+    def section(key, head, cap):
+        items = br.get(key) or []
+        if not items:
+            return
+        out.append("\n" + head)
+        for f in items[:cap]:
+            titles.add((f.get("title") or "").strip().lower())
+            lvl = ""
+            if f.get("level") == "urgent":
+                lvl = "[срочно] "
+            elif f.get("level") == "warn":
+                lvl = "[важно] "
+            line = "  · " + lvl + _short(f.get("title"), 110)
+            det = _short(f.get("detail"), 170)
+            if det:
+                line += " — " + det
+            src = _short(f.get("source"), 80)
+            if src:
+                line += " (источник: " + src + ")"
+            out.append(line)
+
+    section("changed", "Что изменилось за период:", 4)
+    section("risks", "Риски (посчитаны, а не предположены):", 4)
+    section("opportunities", "Возможности:", 3)
+
+    gaps = [_short(g, 170) for g in (br.get("gaps") or []) if str(g).strip()]
+    if gaps:
+        # Самая важная часть блока. Без неё модель, не найдя разбивки по
+        # услугам, придумает её: данные ведь «где-то рядом».
+        out.append("\nЧЕГО ПОСЧИТАТЬ НЕЛЬЗЯ — так и говори прямо, не подменяй "
+                   "догадкой и не предлагай цифру «примерно»:")
+        out += ["  · " + g for g in gaps[:5]]
+
+    return "\n".join(x for x in out if x), titles
+
+
+def _numbers_text(nums: dict) -> str:
+    """Доказательства числами — читаемой строкой.
+
+    Внутри бывает вложенный разбор (например, причины отказов кодами). Отдать
+    его питоновским repr значило бы положить в промпт {'price': 4} — модель
+    прочтёт, но владельцу такое потом и процитируют. Коды переводим тем же
+    словарём, которым их показывает воронка: двух названий одной причины в
+    продукте быть не должно.
+    """
+    try:
+        import leads
+        ru = leads.LOST_REASONS
+    except Exception:
+        ru = {}
+    out = []
+    for k, v in list(nums.items())[:6]:
+        if isinstance(v, dict):
+            inner = ", ".join("%s %s" % (ru.get(ik, ik), iv) for ik, iv in list(v.items())[:6])
+            if inner:
+                out.append("%s — %s" % (k, inner))
+        elif isinstance(v, (list, tuple)):
+            out.append("%s %d" % (k, len(v)))
+        else:
+            out.append("%s %s" % (k, v))
+    return ", ".join(out)
+
+
+def _findings_block(bid: int, seen: set) -> str:
+    """Находки детекторов. Они видят то, чего не видит Директор (например
+    падение конверсии), и несут доказательства: период, числа, цену вопроса."""
+    rows = _safe(lambda: database.list_initiatives(bid, live=True, limit=8), []) or []
+    lines = []
+    for f in rows:
+        title = (f.get("title") or "").strip()
+        if not title or title.lower() in seen:
+            continue
+        line = "  · " + _short(title, 110)
+        s = _short(f.get("summary"), 170)
+        if s:
+            line += " — " + s
+        ev = f.get("evidence") or {}
+        bits = []
+        if ev.get("window"):
+            bits.append("период " + str(ev["window"]))
+        nums = ev.get("numbers")
+        if isinstance(nums, dict) and nums:
+            bits.append(_numbers_text(nums))
+        if f.get("impact"):
+            bits.append("на кону %d ₽" % int(f["impact"]))
+        if bits:
+            line += " (%s)" % _short("; ".join(bits), 150)
+        lines.append(line)
+        if len(lines) >= 5:
+            break
+    if not lines:
+        return ""
+    return ("\n\nНАХОДКИ ПО БАЗЕ (посчитаны детекторами, с доказательствами):\n"
+            + "\n".join(lines))
+
+
+def _goals_block(bid: int) -> str:
+    """Цели владельца.
+
+    Таблица целей есть с самого начала, но в промпт не попадала ни разу — и два
+    бизнеса с одинаковой выручкой, но разными целями получали одинаковые
+    советы. Совет, не сверенный с целью, — это совет вообще не этой компании.
+    """
+    goals = _safe(lambda: database.list_goals(bid, only_active=True), []) or []
+    if not goals:
+        return ""
+    lines = []
+    for g in goals[:4]:
+        unit = (" " + g["unit"]) if g.get("unit") else ""
+        line = "  · «%s» (%s): %s%s из %s%s — %s%%" % (
+            _short(g.get("title"), 60), g.get("metric_name") or g.get("metric"),
+            g.get("current"), unit, g.get("target"), unit, g.get("percent"))
+        if isinstance(g.get("days_left"), int):
+            line += ", осталось %d дн." % g["days_left"]
+        if g.get("pace") == "behind":
+            line += ", ОТСТАЁМ от графика"
+        elif g.get("pace") == "ahead":
+            line += ", идём с опережением"
+        lines.append(line)
+    return ("\n\nЦЕЛИ ВЛАДЕЛЬЦА (любой совет сверяй с ними: то, что цели не "
+            "двигает, предлагать не надо):\n" + "\n".join(lines))
+
+
+def _analysis_block(bid: int) -> str:
+    """Весь посчитанный разбор одним куском — для системного промпта."""
+    if not bid:
+        return ""
+    text, seen = _safe(lambda: _director_block(bid), ("", set()))
+    return (text
+            + _safe(lambda: _findings_block(bid, seen), "")
+            + _safe(lambda: _goals_block(bid), ""))
 
 
 def _docs_block(bid: int, question: str) -> str:
@@ -324,6 +536,9 @@ def build_system(business: dict, question: str, *, role: str | None = None,
     ctx += ai._knowledge_block(business)                       # товары/услуги/цены + guardrail
     ctx += ai._timeline_block(_safe(lambda: database.timeline_digest(bid), ""))
     ctx += _finance_block(bid)
+    # Разбор идёт сразу за цифрами, из которых он посчитан: модель видит и
+    # число, и то, что VELOR о нём уже знает, не перескакивая между блоками.
+    ctx += _analysis_block(bid)
     ctx += _memory_source_block(bid)
     ctx += _crm_block(bid)
     ctx += _sources_block(bid)
