@@ -164,6 +164,79 @@ row = conn.execute("SELECT date(COALESCE(b, a)) AS d, strftime('%Y-%m', a) AS m 
 check("SQLite по-прежнему понимает date(COALESCE(...))", bool(row and row[0]))
 check("SQLite по-прежнему понимает strftime", bool(row and row[1]))
 conn.close()
+print("")
+print("== ГРУППИРОВКА: ЧЕГО POSTGRES НЕ ПРОСТИТ ==")
+# Эта ошибка стоила боевого сбоя, и найти её раньше было нельзя ничем из
+# написанного: она не про синтаксис. Подзапрос внутри SELECT тянулся за
+# колонкой внешней таблицы, которой нет в GROUP BY. SQLite подставляет
+# значение из случайной строки группы и отвечает; Postgres отвечает
+# GroupingError и не выполняет запрос вовсе.
+#
+# Коварство в том, что на пустой таблице ошибки не видно — запрос отрабатывает
+# и без строк. Она дожидается первых настоящих данных, то есть первого клиента.
+
+
+def _outer_aliases(q):
+    """Псевдонимы таблиц запроса: FROM orders o, JOIN clients c."""
+    out = {}
+    for m in re.finditer(r"\b(?:from|join)\s+([a-z_][a-z0-9_]*)\s+(?:as\s+)?([a-z][a-z0-9_]*)\b",
+                         q, re.I):
+        alias = m.group(2).lower()
+        if alias in ("on", "where", "group", "order", "left", "inner", "join",
+                     "and", "or", "limit", "using", "set"):
+            continue
+        out[alias] = m.group(1).lower()
+    return out
+
+
+def _subqueries(q):
+    """Куски (SELECT ...) — по скобкам, а не регуляркой: вложенность считать надо."""
+    low, i = q.lower(), 0
+    while True:
+        j = low.find("(select", i)
+        if j < 0:
+            return
+        depth, k = 0, j
+        while k < len(q):
+            if q[k] == "(":
+                depth += 1
+            elif q[k] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        if k >= len(q):
+            return
+        yield q[j + 1:k]
+        i = j + 1
+
+
+bad_grouping = []
+for path in FILES:
+  for lineno, sql in sql_literals(path):
+      q = " ".join(sql.split())
+      if not re.search(r"\bgroup\s+by\b", q, re.I):
+          continue
+      gm = re.search(r"\bgroup\s+by\s+(.*?)(?:\border\s+by\b|\bhaving\b|\blimit\b|\)\s*(?:as\b|$)|$)",
+                     q, re.I)
+      grouped = (gm.group(1) if gm else "").lower()
+      aliases = _outer_aliases(q)
+      if not aliases:
+          continue
+      for sub in _subqueries(q):
+          inner = set(_outer_aliases(sub))
+          for m in re.finditer(r"\b([a-z][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b", sub, re.I):
+              alias, col = m.group(1).lower(), m.group(2).lower()
+              if alias not in aliases or alias in inner:
+                  continue
+              if (alias + "." + col) in grouped or re.search(r"\b" + re.escape(col) + r"\b", grouped):
+                  continue
+              bad_grouping.append("%s:%s — подзапрос тянет %s.%s мимо GROUP BY"
+                                  % (path.name, lineno, alias, col))
+
+check("ни один подзапрос не тянет колонку мимо GROUP BY",
+      not bad_grouping, bad_grouping[:3])
+
 
 print("\nИТОГО: успешно %d, провалено %d" % (ok, fail))
 sys.exit(1 if fail else 0)

@@ -1851,8 +1851,16 @@ def clients_split(business_id, days=30, offset=0):
                    SUM(CASE WHEN prior > 0 THEN 1 ELSE 0 END) AS came_back
                  FROM (
                    SELECT o.client_id,
+                          -- Номер компании берём ПАРАМЕТРОМ, а не из внешней
+                          -- строки. Ссылка на o.business_id была лишней: он и
+                          -- так один на весь запрос. Зато из-за неё подзапрос
+                          -- тянулся за колонкой, которой нет в GROUP BY, —
+                          -- SQLite это прощал и брал значение из случайной
+                          -- строки группы, а Postgres отвечал GroupingError и
+                          -- не выполнял запрос вовсе. На пустой таблице ошибка
+                          -- не проявлялась: она ждала первых настоящих данных.
                           (SELECT COUNT(*) FROM orders p
-                            WHERE p.business_id = o.business_id
+                            WHERE p.business_id = ?
                               AND p.client_id = o.client_id
                               AND p.status <> ?
                               AND date(p.created_at) < date('now', ?)) AS prior
@@ -1863,7 +1871,8 @@ def clients_split(business_id, days=30, offset=0):
                       AND date(o.created_at) <  date('now', ?)
                     GROUP BY o.client_id
                  ) AS in_window""",
-            (ORDER_CANCELLED, frm, business_id, ORDER_CANCELLED, frm, to)).fetchone()
+            (business_id, ORDER_CANCELLED, frm,
+             business_id, ORDER_CANCELLED, frm, to)).fetchone()
     active = int(row["active"] or 0)
     returning = int(row["came_back"] or 0)
     return {"active": active, "returning": returning, "new": active - returning}
