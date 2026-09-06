@@ -27,6 +27,7 @@ import logging
 import connectors
 import database
 import instagram as instagram_api
+import vk as vk_api
 from connectors.base import ConnectorError
 
 log = logging.getLogger("velor.connections")
@@ -396,6 +397,83 @@ def _expired(stamp_str) -> bool:
         return False
 
 
+class VkAdapter(Adapter):
+    """
+    Сообщения сообщества ВКонтакте.
+
+    Ключ приносит владелец — тот самый, что он выдал себе в своём сообществе.
+    Никакого приложения VELOR в ВК не заводит и никакой проверки не проходит:
+    это та же схема, что в Telegram, и именно поэтому канал доступен всем, а
+    не только тем, за кого мы поручились.
+
+    Ключ проверяется живым вызовом ДО сохранения. Принять ключ, не спросив у ВК,
+    чей он, значит записать «подключено» и узнать правду в момент, когда придёт
+    первый клиент, — то есть в худший из возможных.
+    """
+    kind = "api"
+
+    def can_sync(self) -> bool:
+        return True
+
+    def live(self, business_id):
+        row = database.get_connection(business_id, self.id)
+        if not row:
+            return {"status": DISCONNECTED, "connected_at": None, "last_sync": None,
+                    "error": None, "configuration": {}, "items_total": 0,
+                    "hint": self.note}
+        if (row.get("status") or "") == "requires_auth":
+            status = REQUIRES_AUTH
+        elif row.get("last_error"):
+            status = ERROR
+        else:
+            status = CONNECTED
+        config = dict(row.get("config") or {})
+        # Пока ВК ни разу не позвонил, «подключено» означает только «ключ
+        # принят». Разница важная: ключ может быть верным, а Callback API —
+        # не настроенным, и тогда сообщения не придут никогда.
+        if not row.get("last_sync_at"):
+            config["Callback API"] = "ещё ни одного события"
+        return {"status": status,
+                "connected_at": row.get("connected_at"),
+                "last_sync": row.get("last_sync_at"),
+                "error": row.get("last_error"),
+                "configuration": config,
+                "permissions": row.get("permissions") or [],
+                "items_total": row.get("items_total") or 0,
+                "hint": self.note,
+                "meta": row.get("meta") or {}}
+
+    def connect(self, business_id, config):
+        config = config or {}
+        # Ключ копируют мышкой из чужого кабинета, и вместе с ним приезжают
+        # пробелы и перевод строки. Глазами это не видно, а ВК отвечает
+        # «неверный ключ», и владелец ищет ошибку не там.
+        token = str(config.get("token") or "").replace(chr(160), " ").strip()
+        confirmation = str(config.get("confirmation") or "").replace(chr(160), " ").strip()
+        if not token:
+            raise NotAvailable("Вставьте ключ доступа сообщества.")
+        if not confirmation:
+            raise NotAvailable(
+                "Вставьте строку подтверждения — ВК показывает её в настройках "
+                "Callback API вашего сообщества.")
+        try:
+            info = vk_api.group_info(token)
+        except ConnectorError as e:
+            raise NotAvailable(str(e))
+        # Одно сообщество — один бизнес. Иначе события чужого сообщества
+        # попадали бы в чужую переписку, а это утечка, а не неудобство.
+        other = database.find_business_by_vk_group(info.get("group_id"))
+        if other and int(other["id"]) != int(business_id):
+            raise NotAvailable("Это сообщество уже подключено к другой компании.")
+        vk_api.save_access(business_id, token, confirmation, info)
+
+    def disconnect(self, business_id):
+        database.delete_connection(business_id, self.id)
+
+    def sync(self, business_id):
+        return vk_api.pull_recent(business_id)
+
+
 class PlannedAdapter(Adapter):
     """
     Интеграции ещё нет.
@@ -594,6 +672,30 @@ def _build():
             ["читать сообщения бота", "отвечать от имени бизнеса"],
             howto="Токен бота вводится в разделе «Бот в Telegram».",
             manage_href="guide.html"),
+        VkAdapter(
+            "vk", "ВКонтакте", COMMUNICATION, "Мессенджеры",
+            "Сообщения сообщества попадают в те же обращения: VELOR отвечает, "
+            "заводит клиента и заявку, а вы в любой момент берёте разговор на "
+            "себя.",
+            vk_api.PERMISSIONS_RU,
+            fields=[
+                {"key": "token", "label": "Ключ доступа сообщества",
+                 "required": True, "secret": True, "placeholder": "vk1.a....",
+                 "hint": "Управление → Работа с API → Ключи доступа. Нужно право "
+                         "«Сообщения сообщества». Хранится зашифрованным."},
+                {"key": "confirmation", "label": "Строка подтверждения",
+                 "required": True, "placeholder": "например, a1b2c3d4",
+                 "hint": "Управление → Работа с API → Callback API. ВК показывает "
+                         "её сам — просто перенесите сюда."},
+            ],
+            howto="Нужно сообщество ВКонтакте с включёнными сообщениями. Сначала "
+                  "вставьте сюда ключ и строку подтверждения, и только потом "
+                  "нажимайте «Подтвердить» в самом ВК: он проверяет адрес сразу, "
+                  "и к этому моменту мы уже должны знать, чьё это сообщество.",
+            note="Написать человеку первым ВКонтакте не даёт, пока он сам не "
+                 "написал сообществу или не разрешил сообщения. Истории за время "
+                 "до подключения там тоже нет.",
+            manage_href="vk.html"),
         InstagramAdapter(
             "instagram", "Instagram", COMMUNICATION, "Мессенджеры",
             "Директ попадает в те же обращения: VELOR отвечает, заводит клиента "

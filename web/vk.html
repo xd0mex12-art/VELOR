@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — ВКонтакте</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Страница отвечает на два вопроса: кто пишет прямо сейчас и кто ему
+     отвечает — VELOR или человек. Второе продублировано словом, а не только
+     цветом: «отвечает человек» слишком дорого перепутать.
+
+     Пока канал не подключён, здесь не пустота, а инструкция — и порядок шагов
+     в ней не косметика. ВК проверяет адрес сразу, как только владелец нажмёт
+     «Подтвердить», поэтому ключ вписывается ДО этого нажатия. Шаги переставить
+     нельзя. Скелет, кнопки и токены — из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ text-decoration:none; color:inherit; }
+  button, textarea{ font-family:inherit; }
+  button{ cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  .split{ display:grid; grid-template-columns:minmax(0,340px) minmax(0,1fr);
+    gap:var(--sp-4); align-items:start; }
+  /* Ячейка сетки не ужимается меньше содержимого, и на телефоне длинная реплика
+     распирала бы страницу вбок. Разрешаем ужиматься. */
+  .split > *{ min-width:0; }
+
+  .panel{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); }
+  .panel .hd{ padding:var(--sp-4) var(--sp-5); border-bottom:1px solid var(--hairline);
+    font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); display:flex; gap:var(--sp-2);
+    align-items:baseline; }
+  .panel .hd .n{ color:var(--lilac); }
+
+  .threads{ max-height:min(70vh,620px); overflow-y:auto; }
+  .th{ width:100%; text-align:left; background:none; border:0; color:inherit;
+    display:block; padding:var(--sp-4) var(--sp-5); min-height:64px;
+    border-bottom:1px solid var(--hairline); transition:background var(--dur-fast); }
+  .th:last-child{ border-bottom:0; }
+  .th:hover{ background:var(--surface-2); }
+  .th[aria-current="true"]{ background:var(--tint-iris);
+    box-shadow:inset 2px 0 0 var(--iris); }
+  .th:focus-visible{ outline:2px solid var(--ring); outline-offset:-2px; }
+  .th .who{ display:flex; align-items:baseline; gap:var(--sp-2); min-width:0; }
+  .th .who b{ font-weight:var(--fw-med); font-size:var(--fs-body);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .th .who .at{ font-size:var(--fs-caption); color:var(--ash); flex:none; }
+  /* Блок, а не inline: у inline ни многоточие, ни обрезка не работают, и
+     длинный ответ заводил бы в списке горизонтальную прокрутку. */
+  .th .last{ display:block; margin-top:4px; font-size:var(--fs-sm); color:var(--silver);
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .th .meta{ margin-top:6px; display:flex; gap:var(--sp-2); flex-wrap:wrap;
+    font-size:var(--fs-caption); color:var(--ash); align-items:center; }
+
+  .tag{ display:inline-flex; align-items:center; gap:6px; padding:3px 9px;
+    border-radius:var(--r-pill); border:1px solid var(--hairline);
+    background:var(--surface-2); font-size:var(--fs-caption); color:var(--silver); }
+  .tag.human{ border-color:rgba(255,184,41,.4); color:var(--saffron); }
+
+  .talk{ display:flex; flex-direction:column; max-height:min(70vh,620px); }
+  .msgs{ flex:1; overflow-y:auto; padding:var(--sp-5); display:flex;
+    flex-direction:column; gap:var(--sp-3); }
+  .msg{ max-width:min(78%,620px); padding:10px 14px; border-radius:var(--r-md);
+    font-size:var(--fs-sm); line-height:1.55; white-space:pre-wrap;
+    overflow-wrap:anywhere; }
+  .msg.user{ align-self:flex-start; background:var(--surface-2);
+    border:1px solid var(--hairline); }
+  .msg.assistant{ align-self:flex-end; background:var(--tint-iris);
+    border:1px solid rgba(128,82,255,.28); }
+  .msg .t{ display:block; margin-top:6px; font-size:var(--fs-caption); color:var(--ash); }
+
+  .say{ border-top:1px solid var(--hairline); padding:var(--sp-4) var(--sp-5);
+    display:flex; flex-direction:column; gap:var(--sp-3); }
+  .say textarea{ width:100%; min-height:74px; resize:vertical; padding:12px 14px;
+    border-radius:var(--r-md); border:1px solid var(--hairline);
+    background:var(--surface-2); color:var(--bone); font-size:var(--fs-sm);
+    line-height:1.55; }
+  .say textarea:focus{ outline:2px solid var(--ring); outline-offset:-1px; }
+  .say .row{ display:flex; gap:var(--sp-3); align-items:center; flex-wrap:wrap; }
+  .say .row .grow{ flex:1; min-width:0; }
+
+  .draft{ border:1px dashed var(--hairline-2); border-radius:var(--r-md);
+    padding:var(--sp-3) var(--sp-4); font-size:var(--fs-sm); color:var(--silver);
+    line-height:1.55; }
+  .draft b{ display:block; font-weight:var(--fw-med); color:var(--bone);
+    margin-bottom:4px; font-size:var(--fs-caption); text-transform:uppercase;
+    letter-spacing:.14em; }
+
+  .limits{ margin-top:var(--sp-8); }
+  .limits h3{ font-weight:var(--fw-semi); font-size:var(--fs-micro);
+    letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
+    margin-bottom:var(--sp-3); }
+  .limits li{ list-style:none; font-size:var(--fs-sm); color:var(--silver);
+    line-height:1.6; padding-left:var(--sp-4); position:relative; }
+  .limits li::before{ content:'—'; position:absolute; left:0; color:var(--ash); }
+
+  .empty{ padding:var(--sp-8) var(--sp-5); text-align:center; }
+  .empty .t{ font-size:var(--fs-lead); letter-spacing:-.02em; }
+  .empty .d{ margin-top:var(--sp-2); font-size:var(--fs-sm); color:var(--ash);
+    line-height:1.6; max-width:52ch; margin-left:auto; margin-right:auto; }
+  .empty .go{ margin-top:var(--sp-5); display:inline-flex; }
+
+  .steps{ margin:var(--sp-6) auto 0; max-width:56ch; text-align:left;
+    display:flex; flex-direction:column; gap:var(--sp-4); }
+  .step{ display:flex; gap:var(--sp-4); }
+  .step .n{ flex:none; width:26px; height:26px; border-radius:50%;
+    border:1px solid var(--hairline-2); display:grid; place-items:center;
+    font-size:var(--fs-caption); color:var(--lilac); }
+  .step .b{ min-width:0; font-size:var(--fs-sm); color:var(--silver); line-height:1.6; }
+  .step .b b{ color:var(--bone); font-weight:var(--fw-med); }
+  .copy{ margin-top:8px; display:flex; gap:var(--sp-2); align-items:center; }
+  .copy code{ flex:1; min-width:0; padding:8px 11px; border-radius:var(--r-sm);
+    background:var(--surface-2); border:1px solid var(--hairline);
+    font-size:var(--fs-caption); word-break:break-all; }
+
+  #toast{ position:fixed; left:50%; bottom:28px; transform:translate(-50%,20px);
+    background:var(--sheet); border:1px solid var(--hairline-2); border-radius:var(--r-pill);
+    padding:12px 22px; font-size:var(--fs-sm); opacity:0; pointer-events:none;
+    transition:opacity var(--dur), transform var(--dur); z-index:120; max-width:92vw; }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:860px){
+    .split{ grid-template-columns:1fr; }
+    .threads{ max-height:none; }
+  }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css?v=19">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>ВКонтакте</h1>
+      <p class="v-lead">Сообщения сообщества приходят сюда же, где живут остальные
+        обращения: клиент заводится, история помнится, заявка оформляется.
+        В любом разговоре его можно забрать себе — VELOR замолчит.</p>
+      <div class="v-state" id="state" aria-live="polite">
+        <span class="v-badge calm"><i></i>Смотрю разговоры…</span>
+      </div>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+  <div id="body"><div class="v-sk panel"></div></div>
+
+  <section class="limits" id="limits" hidden>
+    <h3>Что ВКонтакте не разрешает</h3>
+    <ul>
+      <li>Написать человеку первым, если он сам не писал сообществу или не
+        разрешил сообщения. VELOR отвечает — но заговаривает не он.</li>
+      <li>Отдать переписку за время до подключения: в сообществе её просто нет.</li>
+      <li>Отдать телефон или почту собеседника. Они появятся, только если человек
+        напишет их сам.</li>
+    </ul>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="velor-field.js?v=19"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+function when(iso){
+  if (!iso) return '';
+  const d = new Date(String(iso).replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+function shortWhen(iso){
+  if (!iso) return '';
+  const d = new Date(String(iso).replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days === 0) return d.toLocaleTimeString('ru-RU', { hour:'2-digit', minute:'2-digit' });
+  if (days === 1) return 'вчера';
+  return d.toLocaleDateString('ru-RU', { day:'numeric', month:'short' });
+}
+
+let TOAST_T = null;
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(TOAST_T);
+  TOAST_T = setTimeout(() => el.classList.remove('show'), 3600);
+}
+
+let OPEN = null;      // какой разговор открыт
+let THREADS = [];
+
+function paintState(c){
+  const box = document.getElementById('state');
+  const tone = c.status === 'CONNECTED' ? 'good'
+             : (c.status === 'ERROR' || c.status === 'REQUIRES_AUTH' ? 'warn' : 'calm');
+  const group = (c.configuration || {})['Сообщество'] || '';
+  const n = THREADS.length;
+  // Пока канал не подключён, счётчик разговоров рядом со словом «Не подключено»
+  // читается как противоречие. Разговоры при этом никуда не делись — они просто
+  // не про сейчас, и на пустом экране о них речи нет.
+  const count = (c.status === 'DISCONNECTED' || !n) ? ''
+    : `<span>${n} ${plural(n, 'разговор', 'разговора', 'разговоров')}</span>`;
+  box.innerHTML = `<span class="v-badge ${tone}"><i></i>${esc(c.status_label || 'Не подключено')}</span>
+    ${group ? `<span>${esc(group)}</span>` : ''}${count}`;
+}
+
+// ── не подключено: не пустота, а инструкция ────────────────────────────────
+function offHTML(d){
+  const c = d.connection || {};
+  const s = d.setup || {};
+  const line = (label, value) => value ? `
+    <div class="copy"><code>${esc(value)}</code>
+      <button class="v-btn ghost sm" type="button" data-copy="${esc(value)}">Копировать</button></div>` : '';
+
+  return `<div class="panel"><div class="empty">
+    <div class="t">Сообщество ещё не подключено</div>
+    <div class="d">${esc(c.note || '')}</div>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><div class="b">
+        В своём сообществе: <b>Управление → Сообщения</b> — включите сообщения
+        сообщества и разрешите ботам писать.</div></div>
+      <div class="step"><div class="n">2</div><div class="b">
+        <b>Работа с API → Ключи доступа</b> — создайте ключ с правом
+        «Сообщения сообщества». Вставьте его в разделе «Подключения» вместе со
+        строкой подтверждения из следующего шага.</div></div>
+      <div class="step"><div class="n">3</div><div class="b">
+        <b>Работа с API → Callback API</b>. Вот что туда вписать:
+        ${line('Адрес сервера', s.callback_url)}
+        ${line('Секретный ключ', s.secret)}
+        ${line('Версия API', s.api_version)}
+        <div style="margin-top:10px">Нажимайте «Подтвердить» <b>только после</b>
+        того, как ключ и строка подтверждения уже сохранены в VELOR: ВК проверяет
+        адрес сразу, и к этому моменту мы должны знать, чьё это сообщество.</div>
+      </div></div>
+      <div class="step"><div class="n">4</div><div class="b">
+        В типах событий отметьте <b>«Входящее сообщение»</b> и
+        <b>«Исходящее сообщение»</b>. Второе нужно, чтобы VELOR слышал, когда вы
+        отвечаете человеку сами, и замолкал.</div></div>
+    </div>
+    <a class="v-btn go" href="connections.html">Открыть подключения</a>
+  </div></div>`;
+}
+
+function emptyThreadsHTML(){
+  return `<div class="empty">
+    <div class="t">Пока никто не написал</div>
+    <div class="d">ВКонтакте не разрешает писать человеку первым, пока он сам не
+      обратился в сообщество. Как только придёт сообщение, оно появится здесь.</div>
+  </div>`;
+}
+
+function threadHTML(t){
+  const paused = !!t.ai_paused;
+  const name = t.name || t.client_name || ('id' + t.peer_id);
+  return `<button class="th" type="button" data-peer="${esc(t.peer_id)}"
+      aria-current="${OPEN === String(t.peer_id)}">
+    <span class="who"><b>${esc(name)}</b>
+      ${t.screen_name ? `<span class="at">@${esc(t.screen_name)}</span>` : ''}</span>
+    <span class="last">${esc(t.last_text || '—')}</span>
+    <span class="meta">
+      <span>${esc(shortWhen(t.last_in_at || t.last_out_at || t.created_at))}</span>
+      ${paused ? '<span class="tag human">отвечает человек</span>' : ''}
+    </span>
+  </button>`;
+}
+
+function talkHTML(){
+  return `<div class="panel talk">
+    <div class="hd" id="talkHead">Разговор</div>
+    <div class="msgs" id="msgs"><div class="v-sk"></div></div>
+    <div class="say">
+      <div id="draftBox"></div>
+      <textarea id="text" placeholder="Ответить своими словами…"
+        aria-label="Ваш ответ"></textarea>
+      <div class="row">
+        <button class="v-btn" type="button" id="send">Отправить</button>
+        <span class="grow"></span>
+        <button class="v-btn ghost sm" type="button" id="handoff"></button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function openThread(peer){
+  OPEN = String(peer);
+  document.querySelectorAll('.th').forEach(b =>
+    b.setAttribute('aria-current', String(b.dataset.peer === OPEN)));
+  const msgs = document.getElementById('msgs');
+  msgs.innerHTML = '<div class="v-sk"></div>';
+  let d;
+  try{
+    const r = await fetch('/api/vk/thread/' + encodeURIComponent(peer));
+    if (!r.ok) throw new Error('http');
+    d = await r.json();
+  }catch{
+    msgs.innerHTML = '<div class="v-empty">Разговор не загрузился.</div>';
+    return;
+  }
+  const t = d.thread || {};
+  document.getElementById('talkHead').innerHTML =
+    `${esc(t.name || t.client_name || ('id' + t.peer_id))}
+     ${t.screen_name ? `<span class="n">@${esc(t.screen_name)}</span>` : ''}`;
+
+  msgs.innerHTML = (d.messages || []).map(m => `
+    <div class="msg ${m.role === 'user' ? 'user' : 'assistant'}">${esc(m.content)}
+      <span class="t">${esc(when(m.created_at))}</span></div>`).join('')
+    || '<div class="v-empty">Сообщений пока нет.</div>';
+  msgs.scrollTop = msgs.scrollHeight;
+
+  // Черновик показываем только когда VELOR сам отступил: тогда в нём обычно
+  // ровно та цена или условие, которых не хватает в памяти бизнеса.
+  const draft = document.getElementById('draftBox');
+  draft.innerHTML = (t.ai_paused && (t.paused_why || t.ai_draft)) ? `
+    <div class="draft"><b>VELOR отступил</b>
+      ${esc(t.paused_why || '')}
+      ${t.ai_draft ? `<div style="margin-top:8px">Хотел ответить: «${esc(t.ai_draft)}»</div>` : ''}
+    </div>` : '';
+
+  const h = document.getElementById('handoff');
+  h.textContent = t.ai_paused ? 'Вернуть VELOR' : 'Взять разговор на себя';
+  h.dataset.paused = t.ai_paused ? '1' : '';
+}
+
+async function send(){
+  const box = document.getElementById('text');
+  const text = (box.value || '').trim();
+  if (!text || !OPEN) return;
+  const btn = document.getElementById('send');
+  btn.disabled = true;
+  try{
+    const r = await fetch('/api/vk/thread/' + encodeURIComponent(OPEN) + '/reply', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text })
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.detail || 'Не отправилось.');
+    box.value = '';
+    toast('Отправлено');
+    await openThread(OPEN);
+    await load(true);
+  }catch(e){ toast(e.message); }
+  finally{ btn.disabled = false; }
+}
+
+async function handoff(){
+  if (!OPEN) return;
+  const h = document.getElementById('handoff');
+  const paused = !h.dataset.paused;      // включаем обратное текущему
+  h.disabled = true;
+  try{
+    const r = await fetch('/api/vk/thread/' + encodeURIComponent(OPEN) + '/handoff', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ paused })
+    });
+    if (!r.ok) throw new Error('Не получилось.');
+    toast(paused ? 'Разговор за вами — VELOR молчит' : 'Разговор снова у VELOR');
+    await openThread(OPEN);
+    await load(true);
+  }catch(e){ toast(e.message); }
+  finally{ h.disabled = false; }
+}
+
+function paintFail(msg){
+  document.getElementById('failZone').innerHTML = `
+    <div class="v-fail"><div><div class="t">Разговоры не загрузились</div>
+      <div class="d">${esc(msg)}</div></div>
+      <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+  document.getElementById('retry').addEventListener('click', () => {
+    document.getElementById('failZone').innerHTML = ''; load();
+  });
+}
+
+async function load(quiet){
+  let d;
+  try{
+    const r = await fetch('/api/vk/threads');
+    if (!r.ok) throw new Error('http');
+    d = await r.json();
+  }catch{
+    if (!quiet){ paintFail('Сервер не ответил на запрос разговоров.');
+                 document.getElementById('body').innerHTML = ''; }
+    return;
+  }
+  THREADS = d.threads || [];
+  const c = d.connection || {};
+  paintState(c);
+  document.getElementById('limits').hidden = false;
+
+  const body = document.getElementById('body');
+  if (c.status === 'DISCONNECTED'){
+    // Настройку спрашиваем только на пустом экране — чтобы было видно, что
+    // именно вписывать. Подключённому она уже не нужна.
+    try{ d.setup = await (await fetch('/api/vk/setup')).json(); }catch{ d.setup = {}; }
+    body.innerHTML = offHTML(d);
+    return;
+  }
+
+  body.innerHTML = `<div class="split">
+    <div class="panel"><div class="hd">Разговоры <span class="n num">${THREADS.length}</span></div>
+      <div class="threads" id="list">${
+        THREADS.length ? THREADS.map(threadHTML).join('') : emptyThreadsHTML()}</div></div>
+    ${THREADS.length ? talkHTML() : ''}
+  </div>`;
+
+  if (THREADS.length){
+    const first = OPEN && THREADS.some(t => String(t.peer_id) === OPEN)
+      ? OPEN : String(THREADS[0].peer_id);
+    openThread(first);
+  }
+}
+
+document.addEventListener('click', e => {
+  const th = e.target.closest('.th');
+  if (th){ openThread(th.dataset.peer); return; }
+  const cp = e.target.closest('[data-copy]');
+  if (cp){
+    navigator.clipboard.writeText(cp.dataset.copy)
+      .then(() => toast('Скопировано'))
+      .catch(() => toast('Не вышло скопировать — выделите вручную'));
+    return;
+  }
+  if (e.target.id === 'send'){ send(); return; }
+  if (e.target.id === 'handoff'){ handoff(); }
+});
+
+document.addEventListener('keydown', e => {
+  // Ctrl/⌘+Enter — привычный способ отправить, не убирая рук с клавиатуры.
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && e.target.id === 'text') send();
+});
+
+load();
+// Тихое обновление: список сам подтягивает новые сообщения, но экран при этом
+// не мигает и открытый разговор не закрывается.
+setInterval(() => load(true), 30000);
+</script>
+</body>
+</html>

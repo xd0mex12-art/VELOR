@@ -348,7 +348,7 @@ def raw_modes(business_id) -> dict:
 # Каналы, по которым VELOR разговаривает с клиентами. Список нужен, чтобы
 # спросить «а не разрешено ли это уже где-нибудь», и держится здесь, а не
 # перебирается по базе: канал, которого нет в коде, всё равно ничего не умеет.
-CHANNELS = ("telegram", "instagram")
+CHANNELS = ("telegram", "vk", "instagram")
 
 
 def _granted_anywhere(business_id) -> set:

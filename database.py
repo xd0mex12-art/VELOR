@@ -1026,6 +1026,49 @@ def init_db():
                )"""
         )
 
+        # ── ВКОНТАКТЕ ──────────────────────────────────────────────────
+        # Разговор в сообществе. В отличие от Instagram, у ВК нет ни окна
+        # ответа, ни запрета писать первым — значит и полей под них нет.
+        # Осталось то, без чего канал не работает: кто это, кем он записан у
+        # нас и не взял ли разговор на себя человек.
+        #
+        # Сообщения сюда НЕ копируются: они в общей messages, как в Telegram и
+        # Instagram. Две правды об одном разговоре — это память клиента,
+        # разошедшаяся с тем, что видит ИИ.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS vk_threads (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id  INTEGER NOT NULL,
+                   peer_id      TEXT NOT NULL,      -- собеседник в ВК (он же from_id)
+                   client_id    INTEGER NOT NULL,   -- он же в базе клиентов VELOR
+                   screen_name  TEXT,
+                   name         TEXT,
+                   avatar       TEXT,
+                   last_in_at   TEXT,
+                   last_out_at  TEXT,
+                   ai_paused    INTEGER DEFAULT 0,  -- разговор ведёт человек
+                   paused_by    TEXT,
+                   paused_at    TEXT,
+                   paused_why   TEXT,               -- чего не хватило VELOR
+                   ai_draft     TEXT,               -- что он хотел ответить
+                   created_at   TEXT DEFAULT (datetime('now')),
+                   UNIQUE(business_id, peer_id)
+               )"""
+        )
+        # Уже виденные события ВК. Callback API ждёт ответа «ok» за несколько
+        # секунд и повторяет доставку, если не дождался, — а мы к тому моменту
+        # уже могли ответить клиенту. Без этой отметки он получил бы второй
+        # такой же ответ, а из повторного message_new родилась бы вторая
+        # заявка на ту же просьбу.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS vk_seen (
+                   business_id INTEGER NOT NULL,
+                   event_id    TEXT NOT NULL,
+                   created_at  TEXT DEFAULT (datetime('now')),
+                   PRIMARY KEY (business_id, event_id)
+               )"""
+        )
+
         # Обработанные апдейты Telegram — защита от повторной доставки (webhook).
         # Telegram при таймауте/ошибке повторяет апдейт; по (business_id, update_id)
         # отсекаем дубли, чтобы не создавать повторные заявки и не слать повторный ответ.
@@ -1226,6 +1269,7 @@ def init_db():
             ("idx_orders_biz_client",    "orders",          "business_id, client_id"),
             ("idx_clients_biz",          "clients",         "business_id"),
             ("idx_ig_threads_biz",       "ig_threads",      "business_id"),
+            ("idx_vk_threads_biz",       "vk_threads",      "business_id"),
             ("idx_timeline_biz_created", "timeline",        "business_id, created_at"),
             ("idx_finance_biz_created",  "finance_entries", "business_id, created_at"),
             ("idx_documents_biz",        "documents",       "business_id"),
@@ -2382,7 +2426,8 @@ def delete_business(business_id):
         # Без этого от удалённой компании оставался бы её журнал происхождения.
         for tbl in ("memory_links", "entity_links", "inbox_decisions", "inbox_results",
                     "inbox_blobs", "inbox_items", "module_state", "connections",
-                    "ig_threads", "ig_seen", "ai_policy", "leads", "followups",
+                    "ig_threads", "ig_seen", "vk_threads", "vk_seen",
+                    "ai_policy", "leads", "followups",
                     "actions", "initiatives", "outputs"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
@@ -4447,6 +4492,192 @@ def ig_threads_list(business_id, limit=100):
                LIMIT ?""",
             (business_id, int(limit))).fetchall()
     return [dict(r) for r in rows]
+
+
+# ── ВКОНТАКТЕ ──────────────────────────────────────────────────────────────
+#
+# Блок намеренно повторяет соседний блок Instagram, а не переиспользует его.
+# Слить их в один параметризованный набор было бы короче, но это правка
+# работающего канала ради красоты соседнего: у Instagram 191 проверка и живые
+# ограничения Meta, и трогать его, чтобы завести ВК, — плохой размен. Если
+# каналов станет четыре, сливать будем осознанно и отдельной работой.
+
+
+def vk_seen_event(business_id, event_id):
+    """
+    Видели это событие раньше? Заодно помечаем как виденное.
+
+    Помечаем ДО обработки. Callback API ждёт «ok» несколько секунд и повторяет
+    доставку, не дождавшись, — а мы к тому времени уже могли ответить клиенту.
+    """
+    event_id = str(event_id or "").strip()
+    if not event_id:
+        return False
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM vk_seen WHERE business_id = ? AND event_id = ?",
+            (business_id, event_id)).fetchone()
+        if row:
+            return True
+        try:
+            conn.execute("INSERT INTO vk_seen (business_id, event_id) VALUES (?, ?)",
+                         (business_id, event_id))
+        except Exception:
+            return True          # кто-то вставил параллельно — значит, уже видели
+        return False
+
+
+def vk_thread(business_id, peer_id):
+    """Один разговор в сообществе. None — такого ещё не было."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM vk_threads WHERE business_id = ? AND peer_id = ?",
+            (business_id, str(peer_id))).fetchone()
+    return dict(row) if row else None
+
+
+def vk_thread_of_client(business_id, client_id):
+    """Разговор этого клиента: когда есть человек в базе, а нужен его id в ВК."""
+    if not client_id:
+        return None
+    with _connect() as conn:
+        row = conn.execute(
+            """SELECT * FROM vk_threads WHERE business_id = ? AND client_id = ?
+                ORDER BY COALESCE(last_in_at, created_at) DESC LIMIT 1""",
+            (business_id, int(client_id))).fetchone()
+    return dict(row) if row else None
+
+
+def vk_thread_upsert(business_id, peer_id, client_id, screen_name=None, name=None,
+                     avatar=None, last_in_at=None, last_out_at=None):
+    """
+    Завести или дополнить разговор.
+
+    Дополняем только пустое: имя, узнанное при первом сообщении, не должно
+    затираться пустым ответом профиля в следующий раз.
+    """
+    peer_id = str(peer_id)
+    existing = vk_thread(business_id, peer_id)
+    with _connect() as conn:
+        if not existing:
+            conn.execute(
+                """INSERT INTO vk_threads (business_id, peer_id, client_id, screen_name,
+                                           name, avatar, last_in_at, last_out_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (business_id, peer_id, client_id, screen_name, name, avatar,
+                 last_in_at, last_out_at))
+            return
+        sets, params = [], []
+        for col, val in (("screen_name", screen_name), ("name", name), ("avatar", avatar)):
+            if val and not existing.get(col):
+                sets.append(f"{col} = ?")
+                params.append(val)
+        for col, val in (("last_in_at", last_in_at), ("last_out_at", last_out_at)):
+            if val:
+                sets.append(f"{col} = ?")
+                params.append(val)
+        if sets:
+            conn.execute("UPDATE vk_threads SET " + ", ".join(sets)
+                         + " WHERE business_id = ? AND peer_id = ?",
+                         (*params, business_id, peer_id))
+
+
+def vk_thread_mark(business_id, peer_id, last_in_at=None, last_out_at=None):
+    """Отметить время последнего входящего или исходящего."""
+    sets, params = [], []
+    if last_in_at:
+        sets.append("last_in_at = ?")
+        params.append(last_in_at)
+    if last_out_at:
+        sets.append("last_out_at = ?")
+        params.append(last_out_at)
+    if not sets:
+        return
+    with _connect() as conn:
+        conn.execute("UPDATE vk_threads SET " + ", ".join(sets)
+                     + " WHERE business_id = ? AND peer_id = ?",
+                     (*params, business_id, str(peer_id)))
+
+
+def vk_thread_pause(business_id, peer_id, paused=True, by="owner"):
+    """
+    Передать разговор человеку — или вернуть его VELOR.
+
+    Кто взял разговор, записываем: «владелец нажал кнопку» и «владелец ответил
+    из самого ВК» — разные события, и по ним видно, где людям приходится
+    вмешиваться чаще всего.
+    """
+    on = 1 if paused else 0
+    with _connect() as conn:
+        # Возвращая разговор VELOR, стираем причину и черновик: они относились
+        # к прошлой остановке и, оставшись висеть, объясняли бы владельцу то,
+        # чего уже нет.
+        conn.execute(
+            """UPDATE vk_threads SET ai_paused = ?, paused_by = ?,
+                   paused_at = CASE WHEN ? = 1 THEN datetime('now') ELSE NULL END,
+                   paused_why = CASE WHEN ? = 1 THEN paused_why ELSE NULL END,
+                   ai_draft   = CASE WHEN ? = 1 THEN ai_draft   ELSE NULL END
+               WHERE business_id = ? AND peer_id = ?""",
+            (on, by if paused else None, on, on, on, business_id, str(peer_id)))
+
+
+def vk_thread_paused(business_id, peer_id):
+    t = vk_thread(business_id, peer_id)
+    return bool(t and t.get("ai_paused"))
+
+
+def vk_thread_reason(business_id, peer_id, why=None, draft=None):
+    """Чего не хватило VELOR и что он хотел ответить — владельцу на экран."""
+    with _connect() as conn:
+        conn.execute(
+            """UPDATE vk_threads SET paused_why = ?, ai_draft = ?
+               WHERE business_id = ? AND peer_id = ?""",
+            (why, draft, business_id, str(peer_id)))
+
+
+def vk_threads_list(business_id, limit=100):
+    """Все разговоры сообщества — свежие сверху, с последней репликой."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT t.*, c.name AS client_name, c.phone AS client_phone,
+                      (SELECT content FROM messages m WHERE m.business_id = t.business_id
+                        AND m.client_id = t.client_id ORDER BY m.id DESC LIMIT 1) AS last_text,
+                      (SELECT role FROM messages m WHERE m.business_id = t.business_id
+                        AND m.client_id = t.client_id ORDER BY m.id DESC LIMIT 1) AS last_role,
+                      (SELECT COUNT(*) FROM messages m WHERE m.business_id = t.business_id
+                        AND m.client_id = t.client_id) AS msgs
+               FROM vk_threads t
+               LEFT JOIN clients c ON c.id = t.client_id
+               WHERE t.business_id = ?
+               ORDER BY COALESCE(t.last_in_at, t.last_out_at, t.created_at) DESC
+               LIMIT ?""",
+            (business_id, int(limit))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def find_business_by_vk_group(group_id):
+    """
+    Чьё это сообщество.
+
+    Адрес Callback API у нас один на всех, а сообществ много: в событии приходит
+    только group_id, и по нему нужно попасть ровно в тот бизнес, которому оно
+    принадлежит. Ошибиться здесь — показать переписку чужой компании, поэтому
+    ищем по точному совпадению записанного при подключении номера.
+    """
+    group_id = str(group_id or "").strip()
+    if not group_id:
+        return None
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT business_id, meta FROM connections WHERE provider = 'vk'").fetchall()
+    for r in rows:
+        try:
+            meta = _json.loads(r["meta"] or "{}")
+        except (ValueError, TypeError):
+            continue
+        if str(meta.get("group_id") or "") == group_id:
+            return get_business(r["business_id"])
+    return None
 
 
 def get_history(business_id, client_id, limit=20):

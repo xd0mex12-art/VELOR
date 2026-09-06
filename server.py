@@ -51,6 +51,7 @@ import graph
 import director
 import connections
 import instagram
+import vk
 import sales
 import leads
 import actions
@@ -6019,6 +6020,114 @@ def api_instagram_handoff(igsid: str, body: IgHandoffIn,
     database.ig_thread_pause(bid, igsid, bool(body.paused), by="owner")
     return {"ok": True, "paused": bool(body.paused),
             "thread": database.ig_thread(bid, igsid)}
+
+
+# ============================================================
+#  ВКОНТАКТЕ: СООБЩЕНИЯ СООБЩЕСТВА
+# ============================================================
+# Адрес Callback API один на всех сообществ: в каждом событии приходит
+# group_id, и по нему находится бизнес. Разделять адреса по компаниям
+# незачем — секретное слово у каждой своё, и подделать чужое событие,
+# зная только своё, нельзя.
+
+
+@app.post("/api/vk/callback")
+async def api_vk_callback(request: Request):
+    """
+    Событие из сообщества: новое сообщение, эхо ответа, проверка адреса.
+
+    Отвечаем ВСЕГДА и обычным текстом. ВК ждёт ответа несколько секунд и, не
+    дождавшись, повторяет доставку; после нескольких неудач он молча отключает
+    адрес у сообщества — и канал перестаёт работать без единой ошибки в логах.
+    Поэтому наружу здесь не бывает ни 500, ни 403: разбираться с нашими бедами
+    повторным звонком бессмысленно, а дубли уже отсечены по event_id.
+    """
+    try:
+        payload = json.loads((await request.body()).decode("utf-8") or "{}")
+    except (ValueError, UnicodeDecodeError):
+        return Response(content="ok", media_type="text/plain")
+    try:
+        res = vk.handle_event(payload if isinstance(payload, dict) else {})
+    except Exception:
+        logging.exception("ВК: событие не разобрано")
+        res = {"reply": "ok"}
+    return Response(content=str(res.get("reply") or "ok"), media_type="text/plain")
+
+
+@app.get("/api/vk/setup")
+def api_vk_setup(business_id: int = 0, x_auth: str = Header(default="")):
+    """
+    Что владелец вписывает в настройки Callback API своего сообщества.
+
+    Секретное слово здесь у каждой компании своё, поэтому показывать его
+    владельцу можно и нужно: без него ВК не сможет доказать, что событие от
+    него, а мы — что оно про его сообщество.
+    """
+    bid = _resolve_bid(x_auth, business_id)
+    base = (_os.getenv("PUBLIC_URL") or _os.getenv("RENDER_EXTERNAL_URL") or "").strip()
+    return {"callback_url": vk.callback_url(base) if base else "",
+            "secret": vk.callback_secret(bid),
+            "api_version": vk.API_VERSION,
+            "events": ["message_new", "message_reply"],
+            "connection": connections.state(bid, "vk")}
+
+
+@app.get("/api/vk/threads")
+def api_vk_threads(business_id: int = 0, x_auth: str = Header(default="")):
+    """Все разговоры сообщества: кто написал, когда, кто сейчас отвечает."""
+    bid = _resolve_bid(x_auth, business_id)
+    return {"connection": connections.state(bid, "vk"),
+            "threads": database.vk_threads_list(bid)}
+
+
+@app.get("/api/vk/thread/{peer_id}")
+def api_vk_thread(peer_id: str, business_id: int = 0,
+                  x_auth: str = Header(default="")):
+    """Один разговор целиком — так, как его сохранил VELOR."""
+    bid = _resolve_bid(x_auth, business_id)
+    t = database.vk_thread(bid, peer_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Такого разговора нет.")
+    return {"thread": t,
+            "client": database.get_client(t["client_id"], bid),
+            "messages": database.get_client_messages(t["client_id"], bid, limit=200),
+            "policy": sales.policy(bid, "vk")}
+
+
+class VkReplyIn(BaseModel):
+    text: str = ""
+    business_id: int = 0
+
+
+@app.post("/api/vk/thread/{peer_id}/reply")
+def api_vk_reply(peer_id: str, body: VkReplyIn, x_auth: str = Header(default="")):
+    """Ответ владельца своими словами — обычным сообщением сообщества."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    try:
+        res = vk.reply_as_human(bid, peer_id, body.text)
+    except connectors.AuthError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except connectors.ConnectorError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **res}
+
+
+class VkHandoffIn(BaseModel):
+    paused: bool = True
+    business_id: int = 0
+
+
+@app.post("/api/vk/thread/{peer_id}/handoff")
+def api_vk_handoff(peer_id: str, body: VkHandoffIn, x_auth: str = Header(default="")):
+    """Взять разговор на себя — или вернуть его VELOR."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_active(bid)
+    if not database.vk_thread(bid, peer_id):
+        raise HTTPException(status_code=404, detail="Такого разговора нет.")
+    database.vk_thread_pause(bid, peer_id, bool(body.paused), by="owner")
+    return {"ok": True, "paused": bool(body.paused),
+            "thread": database.vk_thread(bid, peer_id)}
 
 
 # ============================================================
