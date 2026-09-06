@@ -134,6 +134,23 @@
         <button class="v-btn ghost" type="button" id="peek" aria-pressed="false">Показать</button>
       </div>
     </div>
+
+    <div class="f">
+      <label for="morning_push">Утреннее письмо</label>
+      <span class="hint">VELOR сам напишет вам в Telegram, если появилось что-то
+        важное: зависшие заявки, отставание от цели, риск по деньгам. Когда
+        сообщать нечего — письма не будет, и вчерашняя новость второй раз не
+        придёт. Нужен подключённый бот и подтверждённый личный Telegram.</span>
+      <select id="morning_push" name="morning_push">
+        <option value="off">Не писать</option>
+        <option value="7">Писать в 7:00</option>
+        <option value="8">Писать в 8:00</option>
+        <option value="9">Писать в 9:00</option>
+        <option value="10">Писать в 10:00</option>
+        <option value="12">Писать в 12:00</option>
+        <option value="18">Писать в 18:00</option>
+      </select>
+    </div>
   </form>
 </main>
 
@@ -157,7 +174,8 @@ function toast(msg){
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3200);
 }
 
-const FIELDS = ['name', 'about', 'greeting', 'knowledge', 'tg_bot_token'];
+const FIELDS = ['name', 'about', 'greeting', 'knowledge', 'tg_bot_token',
+                'morning_push'];
 const el = id => document.getElementById(id);
 let saved = {};            // что лежит на сервере — с этим сравниваем
 let selectedTone = '';
@@ -209,6 +227,9 @@ function syncBar(){
 
 function fill(b){
   FIELDS.forEach(f => el(f).value = b[f] || '');
+  // Пусто в базе означает «не писать»: рассылку никто не включал, и молчание
+  // тут — не «настройка по умолчанию», а отсутствие согласия.
+  if (!el('morning_push').value) el('morning_push').value = 'off';
   selectedTone = b.tone || '';
   document.querySelectorAll('.tone').forEach(t =>
     t.setAttribute('aria-pressed', String(t.dataset.tone === selectedTone)));

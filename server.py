@@ -1904,6 +1904,7 @@ class BusinessPatch(BaseModel):
     ai_avatar: str | None = None       # символ аватара
     ai_traits: str | None = None       # черты характера через запятую
     ai_desc: str | None = None         # описание характера своими словами
+    morning_push: str | None = None    # утреннее письмо: off / on / час (6..22)
     business_id: int = 0
 
 
@@ -3819,6 +3820,13 @@ def _sync_worker():
             _followup_round()
         except Exception:
             logging.exception("Обход касаний не удался")
+        try:
+            # VELOR пишет владельцу первым. Обход дешёвый: у выключенных и у
+            # тех, кому сегодня уже писали, он обрывается на первой проверке.
+            import outreach
+            outreach.round_all()
+        except Exception:
+            logging.exception("Обход утренних писем не удался")
         _time.sleep(max(5, SYNC_EVERY_MIN) * 60)
 
 

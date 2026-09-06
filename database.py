@@ -473,6 +473,15 @@ def _migrate_columns(conn):
         # таблицу ради трёх слов на действие значило бы завести вторую правду —
         # и однажды они разошлись бы.
         ("ai_policy", "modes", "TEXT"),
+        # ── VELOR пишет владельцу первым ────────────────────────────────────
+        # Час отправки и отметка «за какой день уже написали» живут в строке
+        # бизнеса, а не в отдельной таблице: это две короткие настройки одного
+        # владельца, и ради них заводить вторую правду не за что.
+        # push_lines — отпечатки строк прошлого письма: по ним вчерашние
+        # новости не приходят второй раз.
+        ("businesses", "morning_push", "TEXT"),
+        ("businesses", "push_sent_on", "TEXT"),
+        ("businesses", "push_lines", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -2408,7 +2417,11 @@ def update_business(business_id, **fields):
                # VELOR» не могла сработать никогда.
                "tg_verify_code", "owner_verified",
                # Условия первых компаний и факт оплаты настройки.
-               "founder_pilot", "setup_paid"}
+               "founder_pilot", "setup_paid",
+               # Утреннее письмо владельцу: «off», «on» или час отправки.
+               # push_sent_on и push_lines сюда НЕ входят намеренно: это
+               # состояние рассылки, и менять его должна только сама рассылка.
+               "morning_push"}
     sets = {k: v for k, v in fields.items() if k in allowed}
     if not sets:
         return
@@ -3409,6 +3422,40 @@ def journal_days(business_id):
 
 
 # ---------- ИСТОРИЯ БИЗНЕСА (timeline) ----------
+
+def owner_identity(business_id):
+    """Личность владельца — короткое имя для той же записи, что и upsert."""
+    return owner_identity_get(business_id)
+
+
+def get_push_state(business_id):
+    """За какой день владельцу уже писали и о чём."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT push_sent_on AS sent_on, push_lines AS lines FROM businesses WHERE id = ?",
+            (business_id,)).fetchone()
+    return dict(row) if row else {}
+
+
+def save_push_state(business_id, *, sent_on=None, lines=None):
+    """
+    Запомнить, что и когда отправили.
+
+    sent_on=None не означает «забудь»: письмо могло не уйти именно потому, что
+    сообщать было нечего, и отпечатки строк всё равно надо запомнить — иначе
+    завтра они уйдут как новость.
+    """
+    sets, args = [], []
+    if sent_on is not None:
+        sets.append("push_sent_on = ?"); args.append(sent_on)
+    if lines is not None:
+        sets.append("push_lines = ?"); args.append(lines)
+    if not sets:
+        return
+    args.append(business_id)
+    with _connect() as conn:
+        conn.execute("UPDATE businesses SET " + ", ".join(sets) + " WHERE id = ?", args)
+
 
 def log_event(business_id, kind, title, detail=None, level="info", once_key=None):
     """
