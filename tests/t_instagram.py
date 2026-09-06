@@ -594,6 +594,101 @@ check("а читать переписку можно — это его данн�
 database.update_business(bid, trial_start=None, trial_end=None,
                          subscription_status="trial", trial_used=0)
 
+print("")
+print("== ЗВОНОК META: ОТКЛЮЧЕНИЕ И УДАЛЕНИЕ ==")
+# Meta требует эти два адреса обязательным полем, но проверяем мы не букву
+# требования. Без первого владелец убирает VELOR у себя в Instagram, а кабинет
+# продолжает писать «Подключено» над мёртвым токеном — и первым о поломке
+# узнаёт клиент, которому никто не ответил.
+
+
+def signed(payload, secret=None, algo="HMAC-SHA256"):
+    """Собрать signed_request так же, как его собирает Meta."""
+    body = dict(payload)
+    body["algorithm"] = algo
+    raw = base64.urlsafe_b64encode(
+        json.dumps(body).encode()).decode().rstrip("=")
+    key = (secret if secret is not None else instagram.app_secret()).encode()
+    sig = base64.urlsafe_b64encode(
+        hmac.new(key, raw.encode(), hashlib.sha256).digest()).decode().rstrip("=")
+    return sig + "." + raw
+
+
+def deauth(sr):
+    return c.post("/api/instagram/deauthorize", data={"signed_request": sr})
+
+
+# Подпись — единственное, что отделяет звонок Meta от звонка постороннего.
+# А по этому звонку мы отключаем бизнесу канал продаж.
+alive_before = instagram.token_of(bid)
+check("токен на месте до проверок", alive_before == TOKEN_LONG + "-R", alive_before)
+for name, bad in [("мусор вместо запроса", "не-подпись"),
+                  ("подпись чужим секретом", signed({"user_id": IG_ID}, secret="чужой")),
+                  ("чужой алгоритм подписи", signed({"user_id": IG_ID}, algo="PLAINTEXT")),
+                  ("пустое поле", "")]:
+    r = deauth(bad)
+    check("не отключаемся: " + name,
+          r.status_code == 200 and instagram.token_of(bid) is not None, r.status_code)
+
+check("подделку разбор отвергает сам",
+      instagram.read_signed_request(signed({"user_id": IG_ID}, secret="чужой")) is None)
+check("а настоящий запрос читает",
+      (instagram.read_signed_request(signed({"user_id": IG_ID})) or {}).get("user_id") == IG_ID)
+
+# Звонок про аккаунт, которого у нас нет, не должен ни падать, ни задевать чужой
+# канал: вебхук у приложения Meta один на всех, ошибиться тут — отключить не ту
+# компанию.
+r = deauth(signed({"user_id": "17841499999999999"}))
+check("звонок про незнакомый аккаунт принят и никого не задел",
+      r.status_code == 200 and instagram.token_of(bid) is not None)
+
+msgs_kept_meta = len(msgs_of(bid, th["client_id"]))
+r = deauth(signed({"user_id": IG_ID}))
+check("настоящий звонок принят", r.status_code == 200, r.text)
+check("доступ отозван — токена больше нет", instagram.token_of(bid) is None)
+check("и кабинет говорит «Не подключено», а не «Подключено»",
+      card()["status"] == connections.DISCONNECTED, card()["status"])
+check("переписка при этом цела — это записи бизнеса",
+      len(msgs_of(bid, th["client_id"])) == msgs_kept_meta, msgs_kept_meta)
+check("и клиент цел", database.get_client(th["client_id"], bid) is not None)
+
+# ── запрос на удаление данных ──────────────────────────────────────────────
+r = c.post("/api/instagram/data-deletion", data={"signed_request": "мусор"})
+check("удаление без верной подписи отклонено", r.status_code == 400, r.status_code)
+
+r = c.post("/api/instagram/data-deletion", data={"signed_request": signed({"user_id": IG_ID})})
+check("на запрос об удалении отвечаем", r.status_code == 200, r.text)
+dj = r.json() if r.status_code == 200 else {}
+check("Meta получает адрес состояния", "/api/instagram/deletion-status" in (dj.get("url") or ""), dj)
+check("и код подтверждения", len(dj.get("confirmation_code") or "") == 16, dj)
+r2 = c.post("/api/instagram/data-deletion", data={"signed_request": signed({"user_id": IG_ID})})
+check("повторный запрос того же человека даёт тот же код",
+      r2.json().get("confirmation_code") == dj.get("confirmation_code"))
+check("а другому аккаунту — другой",
+      instagram.deletion_code("17841400000000001") != dj.get("confirmation_code"))
+check("сам id аккаунта в адрес не попадает", IG_ID not in (dj.get("url") or ""), dj.get("url"))
+
+page = c.get("/api/instagram/deletion-status?code=" + (dj.get("confirmation_code") or ""))
+check("страница состояния открывается", page.status_code == 200, page.status_code)
+check("и показывает код", (dj.get("confirmation_code") or "") in page.text)
+# Код приходит из адресной строки, то есть от кого угодно. Печатать его на
+# странице как есть — обычный способ пустить чужой скрипт на свой домен.
+bad = c.get("/api/instagram/deletion-status?code=<script>alert(1)</script>")
+check("посторонний код на страницу не проходит",
+      "<script>alert" not in bad.text, bad.text[:120])
+
+# ── адреса для кабинета Meta ───────────────────────────────────────────────
+stm = instagram.setup_state()
+check("кабинету показан адрес отключения",
+      stm["deauthorize_url"].endswith("/api/instagram/deauthorize"), stm)
+check("и адрес запроса на удаление",
+      stm["deletion_url"].endswith("/api/instagram/data-deletion"), stm)
+
+# Возвращаем канал на место: следующие проверки идут с живым подключением.
+instagram.save_token(bid, TOKEN_LONG, 60 * 24 * 3600, {"ig_id": IG_ID, "username": "flowers"})
+check("канал восстановлен для дальнейших проверок",
+      instagram.token_of(bid) == TOKEN_LONG)
+
 print("\n== ОТКЛЮЧЕНИЕ ==")
 msgs_kept = len(msgs_of(bid, th["client_id"]))
 r = c.post("/api/connections/instagram/disconnect", headers=H)

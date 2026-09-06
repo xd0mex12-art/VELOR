@@ -44,6 +44,7 @@ instagram_business_manage_messages (читать директ и отвечат�
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -156,9 +157,15 @@ def setup_state() -> dict:
         missing.append("INSTAGRAM_APP_SECRET")
     if not redirect_uri():
         missing.append("PUBLIC_URL (или INSTAGRAM_REDIRECT_URI)")
+    base = public_base()
     return {"ready": not missing, "missing": missing,
             "redirect_uri": redirect_uri(),
-            "webhook_url": (public_base() + "/api/instagram/webhook") if public_base() else "",
+            "webhook_url": (base + "/api/instagram/webhook") if base else "",
+            # Эти два Meta спрашивает обязательным полем, и оба должны отвечать
+            # ДО подачи заявки на проверку. Показываем их рядом с остальными,
+            # чтобы не искать по документации, что ещё вписать.
+            "deauthorize_url": (base + "/api/instagram/deauthorize") if base else "",
+            "deletion_url": (base + "/api/instagram/data-deletion") if base else "",
             "verify_token": verify_token() if configured() else "",
             "scopes": list(SCOPES)}
 
@@ -444,6 +451,100 @@ def verify_signature(raw_body: bytes, header: str) -> bool:
         sent = sent[7:]
     good = hmac.new(secret.encode(), raw_body or b"", hashlib.sha256).hexdigest()
     return hmac.compare_digest(sent, good)
+
+
+# ── обратные звонки Meta: отключение и удаление данных ─────────────────────
+#
+# Meta требует у приложения с Instagram Login два адреса, и оба обязаны
+# работать до подачи заявки на проверку. Но дело не в требовании. Без первого
+# из них владелец убирает VELOR из своего инстаграма — а кабинет продолжает
+# писать «Подключено» над мёртвым токеном. Это молчаливый сбой: самый дорогой
+# вид, потому что о нём узнают последними и по чужой жалобе.
+#
+# Подпись здесь устроена иначе, чем у вебхука: не заголовок над телом запроса,
+# а поле формы вида «подпись.тело», и подписана СЫРАЯ строка тела до разбора.
+# Разобрать, а потом подписать разобранное — обычный способ проглядеть подделку.
+
+def _b64url(part: str) -> bytes:
+    """base64url от Meta приходит без хвостовых «=» — дополняем сами."""
+    return base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))
+
+
+def read_signed_request(raw: str) -> dict | None:
+    """
+    Разобрать signed_request от Meta. Подпись не сошлась — None и никаких действий.
+
+    На эти адреса может постучаться кто угодно: они публичные по определению.
+    А по такому звонку мы отключаем бизнесу канал продаж, поэтому «похоже на
+    правду» здесь недостаточно — только совпавшая подпись нашим же секретом.
+    """
+    secret = app_secret()
+    if not secret or not raw or "." not in str(raw):
+        return None
+    sig_part, body_part = str(raw).split(".", 1)
+    try:
+        sent = _b64url(sig_part)
+        payload = json.loads(_b64url(body_part).decode("utf-8"))
+    except (ValueError, TypeError, UnicodeDecodeError, binascii.Error):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    # Алгоритм Meta присылает в теле. Принимаем только тот, который проверяем
+    # сами: чужое имя алгоритма означает чужой формат подписи.
+    if str(payload.get("algorithm") or "").upper().replace("-", "") != "HMACSHA256":
+        return None
+    good = hmac.new(secret.encode(), body_part.encode(), hashlib.sha256).digest()
+    if not hmac.compare_digest(sent, good):
+        return None
+    return payload
+
+
+def deletion_code(ig_user_id: str) -> str:
+    """
+    Код подтверждения для запроса на удаление.
+
+    Выводим из id аккаунта нашим же секретом, а не берём случайный: тогда его
+    не надо нигде хранить, повторный запрос того же человека даёт тот же код,
+    а сам id в адресную строку не попадает.
+    """
+    return hmac.new((app_secret() or "velor").encode(),
+                    ("velor-ig-delete|" + str(ig_user_id or "")).encode(),
+                    hashlib.sha256).hexdigest()[:16]
+
+
+def forget(business_id: int, why: str) -> bool:
+    """
+    Отозвать доступ к Instagram: токена больше нет, канал отключён.
+
+    Переписки при этом остаются. Они рассказывают о покупателях бизнеса и
+    принадлежат бизнесу — это его записи, а не полученные от Meta данные о
+    том, кто вошёл. Стереть их по звонку извне значило бы отдать чужой
+    компании её собственную историю продаж на удаление.
+    """
+    token = token_of(business_id)
+    if token:
+        try:
+            unsubscribe(token)
+        except Exception:
+            # Токен уже мёртв — обычное дело, ради этого звонок и пришёл.
+            log.info("Instagram: отписка не удалась, бизнес %s", business_id)
+    database.delete_connection(business_id, PROVIDER)
+    database.log_event(business_id, "integration", "Instagram отключён", why,
+                       level="important")
+    return True
+
+
+def forget_by_ig_id(ig_user_id: str, why: str) -> int | None:
+    """Найти бизнес по id аккаунта Instagram и отключить канал."""
+    biz = database.find_business_by_ig_id(ig_user_id)
+    if not biz:
+        # Не нашли — говорим вслух. Meta прислала звонок про аккаунт, которого
+        # у нас нет: либо канал отключили раньше, либо звонок не наш. Оба
+        # случая надо видеть, а не проглатывать.
+        log.warning("Instagram: звонок Meta про незнакомый аккаунт %s", ig_user_id)
+        return None
+    forget(int(biz["id"]), why)
+    return int(biz["id"])
 
 
 ATTACH_RU = {

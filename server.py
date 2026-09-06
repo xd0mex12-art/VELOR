@@ -16,6 +16,7 @@ import re
 # Модульный импорт вместо трёх локальных: потоки нужны и на уровне модуля
 # (замок на дописывание брифинга), а не только внутри функций.
 import threading
+import urllib.parse
 import time as _time
 
 import requests
@@ -5779,6 +5780,114 @@ async def api_instagram_webhook(request: Request):
     except Exception:
         logging.exception("Instagram: разбор события не удался")
     return {"ok": True}
+
+
+async def _signed_request_of(request: Request) -> dict | None:
+    """
+    Достать signed_request из запроса Meta и проверить подпись.
+
+    Meta шлёт его полем формы, иногда — телом JSON. Принимаем оба вида, но
+    доверять содержимому до проверки подписи нельзя: по этому звонку мы
+    отключаем бизнесу канал продаж.
+    """
+    # Тело читаем ОДИН раз и разбираем сами. Спросить сначала форму, а потом
+    # тело нельзя: поток уже прочитан, и второй запрос падает — на этом и
+    # поймали себя тесты.
+    try:
+        body = (await request.body()).decode("utf-8", "replace")
+    except Exception:
+        return None
+    raw = ""
+    if body.lstrip().startswith("{"):
+        try:
+            raw = (json.loads(body) or {}).get("signed_request") or ""
+        except ValueError:
+            raw = ""
+    if not raw:
+        # Обычный вид от Meta — поле формы application/x-www-form-urlencoded.
+        raw = (urllib.parse.parse_qs(body).get("signed_request") or [""])[0]
+    return instagram.read_signed_request(str(raw))
+
+
+@app.post("/api/instagram/deauthorize")
+async def api_instagram_deauthorize(request: Request):
+    """
+    Владелец убрал VELOR из своего Instagram. Meta сообщает об этом сюда.
+
+    Без этого адреса кабинет продолжал бы писать «Подключено» над мёртвым
+    токеном, а первым о поломке узнавал бы клиент, которому никто не ответил.
+
+    Наружу всегда 200: Meta на любой другой ответ звонит повторно, а
+    повторный звонок наших бед не исправит.
+    """
+    data = await _signed_request_of(request)
+    if not data:
+        log.warning("Instagram: звонок об отключении без верной подписи")
+        return {"ok": True}
+    try:
+        instagram.forget_by_ig_id(
+            data.get("user_id"),
+            "Доступ отозван в самом Instagram. Чтобы канал заработал снова, "
+            "подключите аккаунт заново.")
+    except Exception:
+        log.exception("Instagram: отключение по звонку Meta не удалось")
+    return {"ok": True}
+
+
+@app.post("/api/instagram/data-deletion")
+async def api_instagram_data_deletion(request: Request):
+    """
+    Запрос на удаление данных. Meta ждёт в ответ адрес и код подтверждения.
+
+    Что удаляем: доступ к аккаунту Instagram — токен и саму связь. Что НЕ
+    удаляем: переписки с покупателями. Это записи бизнеса о его собственных
+    клиентах, а не полученные от Meta сведения о том, кто вошёл; стирать их по
+    звонку извне значило бы отдать компании её историю продаж на удаление.
+    Владелец в любой момент может удалить их сам в настройках.
+    """
+    data = await _signed_request_of(request)
+    if not data:
+        raise HTTPException(status_code=400, detail="Подпись не совпала.")
+    uid = str(data.get("user_id") or "")
+    try:
+        instagram.forget_by_ig_id(uid, "Данные доступа удалены по запросу через Meta.")
+    except Exception:
+        log.exception("Instagram: удаление доступа по запросу не удалось")
+    code = instagram.deletion_code(uid)
+    base = instagram.public_base() or str(request.base_url).rstrip("/")
+    return {"url": base + "/api/instagram/deletion-status?code=" + code,
+            "confirmation_code": code}
+
+
+@app.get("/api/instagram/deletion-status")
+def api_instagram_deletion_status(code: str = ""):
+    """
+    Страница состояния, которую Meta показывает человеку по коду.
+
+    Удаление у нас происходит сразу в момент запроса, а не ставится в очередь.
+    Поэтому страница может сказать правду, ничего не разыскивая: раз код на
+    руках — доступ уже отозван. Изображать поиск по коду, которого мы нигде не
+    храним, было бы спектаклем.
+    """
+    safe = "".join(ch for ch in str(code)[:32] if ch.isalnum())
+    return Response(media_type="text/html", content=(
+        "<!doctype html><html lang=ru><meta charset=utf-8>"
+        "<meta name=viewport content='width=device-width, initial-scale=1'>"
+        "<title>VELOR — удаление данных Instagram</title>"
+        "<body style=\"margin:0;background:#000;color:#e8e8e8;"
+        "font:300 16px/1.65 Inter,system-ui,sans-serif\">"
+        "<main style='max-width:640px;margin:0 auto;padding:64px 24px'>"
+        "<h1 style='font-weight:500;font-size:26px;margin:0 0 18px'>Данные доступа удалены</h1>"
+        "<p style='color:#9a9a9a'>Код подтверждения: <b style='color:#e8e8e8'>"
+        + (safe or "—") + "</b></p>"
+        "<p style='color:#9a9a9a'>Запросы на удаление мы выполняем сразу в момент "
+        "обращения, без очереди. Доступ VELOR к этому аккаунту Instagram отозван: "
+        "токен удалён, читать директ мы больше не можем.</p>"
+        "<p style='color:#9a9a9a'>Переписки с покупателями остаются у компании — "
+        "это её собственные записи о клиентах. Удалить их может владелец кабинета "
+        "в настройках.</p>"
+        "<p style='margin-top:30px'><a href='/privacy.html' style='color:#a99cff'>"
+        "Политика конфиденциальности</a></p></main></body></html>"))
 
 
 class AiPolicyIn(BaseModel):

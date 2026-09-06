@@ -300,6 +300,10 @@ function offHTML(d){
   const rows = [];
   if (s.redirect_uri) rows.push(['Адрес возврата для Meta', s.redirect_uri]);
   if (s.webhook_url)  rows.push(['Адрес вебхука', s.webhook_url]);
+  // Эти два Meta спрашивает обязательным полем при настройке приложения.
+  // Показываем их здесь же, чтобы не искать по документации, что ещё вписать.
+  if (s.deauthorize_url) rows.push(['Адрес отключения', s.deauthorize_url]);
+  if (s.deletion_url)    rows.push(['Адрес запроса на удаление', s.deletion_url]);
   if (s.verify_token) rows.push(['Проверочное слово', s.verify_token]);
   if ((s.scopes || []).length) rows.push(['Запрашиваемые права', s.scopes.join(', ')]);
   return `<div class="panel"><div class="empty">
