@@ -30,7 +30,7 @@
 <div class="card">
   <div class="logo"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 1 L17 16 L1 16 Z" fill="#8052ff"/></svg>VELOR AI</div>
   <h1>Личный кабинет</h1>
-  <p class="sub">Вход для владельца сервиса</p>
+  <p class="sub">Запасной вход для владельца сервиса.<br>Обычный вход — <a href="biz-login.html" style="color:#a99cff">здесь</a>.</p>
   <form id="f" autocomplete="off">
     <input id="login" placeholder="Логин" autocomplete="username">
     <input id="pass" type="password" placeholder="Пароль" autocomplete="current-password">
@@ -39,7 +39,7 @@
   </form>
 </div>
 <script>
-if (localStorage.getItem('coreon_token')) location.replace('admin.html');
+if (localStorage.getItem('coreon_biz_token')) location.replace('owner.html');
 document.getElementById('f').addEventListener('submit', async e => {
   e.preventDefault();
   const btn = document.getElementById('btn'), err = document.getElementById('err');
@@ -51,9 +51,9 @@ document.getElementById('f').addEventListener('submit', async e => {
     });
     if (r.ok){
       const d = await r.json();
-      localStorage.setItem('coreon_token', d.token);
-      if (d.refresh_token) localStorage.setItem('coreon_refresh', d.refresh_token);
-      location.replace('admin.html');
+      localStorage.setItem('coreon_biz_token', d.token);
+      if (d.refresh_token) localStorage.setItem('coreon_biz_refresh', d.refresh_token);
+      location.replace('owner.html');
     } else if (r.status === 429) {
       const d = await r.json().catch(() => ({}));
       err.textContent = d.detail || 'Слишком много попыток. Попробуйте позже.';

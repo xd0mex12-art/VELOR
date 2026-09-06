@@ -81,6 +81,31 @@
     ] },
   ];
 
+  // Раздел владельца сервиса. Показывается ТОЛЬКО своему аккаунту и добавляется
+  // к обычным разделам, а не заменяет их: свой продукт надо каждый день видеть
+  // глазами клиента — иначе его болячки замечаешь последним.
+  var OWNER_SECTION = { t: 'VELOR', h: 'owner.html', kids: [
+    { t: 'Клиенты VELOR', h: 'owner.html' },
+    { t: 'Журнал ошибок', h: 'errors.html' },
+  ] };
+
+  // Роль читаем из самого пропуска. Это решение только про то, что РИСОВАТЬ:
+  // доступ проверяет сервер на каждом запросе, и подделанный здесь ответ не
+  // откроет ни одной чужой строки — только нарисует пункт меню, который потом
+  // ответит отказом.
+  function isOwner() {
+    try {
+      var t = localStorage.getItem('coreon_biz_token') || '';
+      var body = t.split('.')[1];
+      if (!body) return false;
+      var json = atob(body.replace(/-/g, '+').replace(/_/g, '/')
+                          + '==='.slice((body.length + 3) % 4));
+      return JSON.parse(decodeURIComponent(escape(json))).role === 'owner';
+    } catch (e) { return false; }
+  }
+
+  if (isOwner()) SECTIONS.push(OWNER_SECTION);
+
   // Страницы, которых нет в меню, всё равно должны подсвечивать «свой»
   // раздел — иначе, открыв «Экспорт» со страницы «Ещё», человек видит
   // навигацию без единой активной вкладки и перестаёт понимать, где он.
@@ -95,6 +120,8 @@
     // VELOR. Страница жива по прямой ссылке и подсвечивает «Работу».
     'growth.html': 'work.html',
     'tools.html': 'work.html',
+    // Журнал ошибок — служебная страница владельца сервиса.
+    'errors.html': 'owner.html',
   };
 
   var here = (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();

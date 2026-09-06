@@ -61,11 +61,28 @@ HOME_OF = dict(re.findall(r"'([a-z0-9_-]+\.html)':\s*'([a-z0-9_-]+\.html)'",
                           NAV[NAV.index("var HOME_OF"):NAV.index("  var here =")]))
 
 print("\n== ШЕСТЬ РАЗДЕЛОВ ==")
-check("разделов ровно шесть", len(SECS) == 6, [s["title"] for s in SECS])
+# Клиент видит ровно шесть. Седьмой — «VELOR» — существует в коде, но
+# добавляется в меню только своему аккаунту: он про управление сервисом, а не
+# про бизнес клиента. Проверяем и то, и другое: и что клиенту их шесть, и что
+# седьмой не показывается кому попало.
+CLIENT_SECS = [s for s in SECS if s["title"] != "VELOR"]
+check("клиенту разделов ровно шесть", len(CLIENT_SECS) == 6,
+      [s["title"] for s in CLIENT_SECS])
 check("названия — вопросы владельца, а не сущности продукта",
-      [s["title"] for s in SECS] ==
+      [s["title"] for s in CLIENT_SECS] ==
       ["Брифинг", "Входящие", "Реестр", "Работа", "Знание", "Ещё"],
-      [s["title"] for s in SECS])
+      [s["title"] for s in CLIENT_SECS])
+check("раздел владельца сервиса в меню есть",
+      any(s["title"] == "VELOR" for s in SECS), [s["title"] for s in SECS])
+check("и он добавляется только под условием, а не всем подряд",
+      "if (isOwner()) SECTIONS.push(OWNER_SECTION)" in NAV)
+check("роль читается из пропуска, а не из отдельного флага",
+      "function isOwner" in NAV and "coreon_biz_token" in NAV)
+# Решение о показе пункта меню — не про доступ. Если бы страница полагалась на
+# него, подделанный в браузере ответ открывал бы чужие данные. Поэтому рядом
+# написано, что проверяет сервер.
+check("в коде сказано, что доступ проверяет сервер",
+      "доступ проверяет сервер" in NAV)
 for s in SECS:
     check(f"«{s['title']}» ведёт на существующую страницу", s["href"] in PAGES, s["href"])
 check("каждый подраздел существует",

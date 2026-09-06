@@ -15,6 +15,7 @@ import logging
 import re
 # Модульный импорт вместо трёх локальных: потоки нужны и на уровне модуля
 # (замок на дописывание брифинга), а не только внутри функций.
+import sys
 import threading
 import urllib.parse
 import time as _time
@@ -681,6 +682,82 @@ def api_admin_trial_overview(x_auth: str = Header(default="")):
             counts["silent"] = counts.get("silent", 0) + 1
     return {"counts": counts, "funnel": database.trial_funnel(),
             "plans": plans.public(), "businesses": items}
+
+
+def _demo_tool():
+    """
+    Сборщик демо-набора. Импортируем лениво: на боевом сервере он не нужен
+    никому, кроме этих трёх ручек, а тянуть его при каждом запуске — платить
+    памятью за то, чем пользуются раз в месяц.
+    """
+    tools = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "tools")
+    if tools not in sys.path:
+        sys.path.append(tools)
+    import demo_dental
+    return demo_dental
+
+
+@app.get("/api/admin/demo")
+def api_admin_demo_state(x_auth: str = Header(default="")):
+    """Есть ли демо-клиника и что она собой представляет."""
+    require_owner(x_auth)
+    try:
+        b = _demo_tool().find_demo()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Сборщик демо не читается: %s" % e)
+    if not b:
+        return {"exists": False}
+    return {"exists": True, "business_id": b["id"], "name": b.get("name"),
+            "clients": database.count_clients(b["id"]),
+            "leads": database.count_leads(b["id"])}
+
+
+@app.post("/api/admin/demo")
+def api_admin_demo_build(x_auth: str = Header(default="")):
+    """
+    Собрать демо-клинику. Пароль возвращается ОДИН раз и нигде не хранится.
+
+    Набор пишется в ту же боевую базу, что и настоящие клиенты, — иначе
+    показывать его было бы негде. Поэтому он помечен, отделён и удаляется
+    целиком одной кнопкой: демо, которое нельзя убрать, однажды окажется в
+    отчёте о выручке.
+    """
+    require_owner(x_auth)
+    tool = _demo_tool()
+    if tool.find_demo():
+        raise HTTPException(status_code=409,
+                            detail="Демо-клиника уже есть — сначала удалите её.")
+    password = secrets.token_urlsafe(9)
+    login = "demo-dental"
+    try:
+        bid = tool.build(login, password)
+    except Exception as e:
+        log.exception("Демо-клиника не собралась")
+        raise HTTPException(status_code=500, detail="Не собралось: %s" % str(e)[:200])
+    if not bid:
+        raise HTTPException(status_code=409, detail="Демо-клиника уже есть.")
+    # Сверка звеньев — часть ответа, а не украшение: набор, на котором продукт
+    # сам находит противоречия, показывать нельзя, и знать об этом надо сразу.
+    try:
+        import leads as _leads
+        flaws = len(_leads.reconcile(bid))
+    except Exception:
+        flaws = None
+    return {"ok": True, "business_id": bid, "login": login, "password": password,
+            "clients": database.count_clients(bid), "leads": database.count_leads(bid),
+            "flaws": flaws}
+
+
+@app.delete("/api/admin/demo")
+def api_admin_demo_clean(x_auth: str = Header(default="")):
+    """Убрать демо и только демо: у сборщика на это два признака вместо одного."""
+    require_owner(x_auth)
+    tool = _demo_tool()
+    b = tool.find_demo()
+    if not b:
+        return {"ok": True, "removed": False}
+    tool.clean()
+    return {"ok": True, "removed": tool.find_demo() is None}
 
 
 @app.post("/api/business-login")

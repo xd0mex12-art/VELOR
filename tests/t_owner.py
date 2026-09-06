@@ -171,6 +171,55 @@ check("пустая переменная не делает владельцем 
       role_of(login("velor-own").json()["token"]) == "business")
 check("и тем более никого другого",
       role_of(login("alien-shop").json()["token"]) == "business")
+print("")
+print("== ДЕМО-КЛИНИКА ОДНОЙ КНОПКОЙ ==")
+# Набор пишется в ту же базу, где живут настоящие клиенты, — иначе показывать
+# его было бы негде. Значит собирать и убирать его должен уметь только
+# владелец, и «убрать» обязано работать: демо, которое нельзя удалить,
+# однажды окажется в отчёте о выручке.
+os.environ["OWNER_BUSINESS_LOGIN"] = "velor-own"
+OWND = {"X-Auth": login("velor-own").json()["token"]}
+
+check("клиенту состояние демо не показывают",
+      c.get("/api/admin/demo", headers=HA).status_code in (401, 403))
+check("и собрать он его не может",
+      c.post("/api/admin/demo", headers=HA).status_code in (401, 403))
+check("и удалить тоже",
+      c.delete("/api/admin/demo", headers=HA).status_code in (401, 403))
+check("без входа — тем более", c.post("/api/admin/demo").status_code == 401)
+
+r = c.get("/api/admin/demo", headers=OWND)
+check("владельцу видно, что демо ещё нет",
+      r.status_code == 200 and r.json()["exists"] is False, r.text[:200])
+
+r = c.post("/api/admin/demo", headers=OWND)
+check("сборка прошла", r.status_code == 200, r.text[:300])
+dm = r.json() if r.status_code == 200 else {}
+check("логин отдан", bool(dm.get("login")), dm)
+check("пароль отдан — и только сейчас", len(dm.get("password") or "") >= 8, dm)
+check("пациенты появились", (dm.get("clients") or 0) > 20, dm)
+# Сверка звеньев — часть ответа, а не украшение: набор, на котором продукт сам
+# находит противоречия, показывать нельзя.
+check("и противоречий в наборе нет", dm.get("flaws") == 0, dm.get("flaws"))
+
+check("этим логином и паролем действительно пускает",
+      login(dm["login"], dm["password"]).status_code == 200)
+check("но полномочий владельца у демо нет",
+      role_of(login(dm["login"], dm["password"]).json()["token"]) == "business")
+
+check("повторная сборка отклоняется, а не плодит второе демо",
+      c.post("/api/admin/demo", headers=OWND).status_code == 409)
+
+before = len(database.list_businesses_with_stats())
+r = c.delete("/api/admin/demo", headers=OWND)
+check("удаление прошло", r.status_code == 200 and r.json().get("removed") is True,
+      r.text[:200])
+check("бизнесов стало на один меньше",
+      len(database.list_businesses_with_stats()) == before - 1)
+check("а живые клиенты на месте", database.get_business(alien) is not None)
+check("повторное удаление — тихий отказ",
+      c.delete("/api/admin/demo", headers=OWND).json().get("removed") is False)
+
 
 print("\n== СТАРЫЙ ВХОД ВЛАДЕЛЬЦА ЖИВ ==")
 # Это запасная дверь. Если переменную впишут с опечаткой, она — единственный
