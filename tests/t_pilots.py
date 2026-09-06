@@ -192,5 +192,35 @@ for stale in ("1 990", "4 990", "9 990 ₽ / мес"):
 check("и цен в вёрстке карточек нет вовсе",
       "₽ / мес" not in land.split("<script>")[0])
 
+print("")
+print("== АДМИНКА НЕ ВЫДУМЫВАЕТ ТАРИФ ==")
+# В списке бизнесов под каждым стояло «тариф Старт»: печаталось поле
+# businesses.plan, оставшееся от первой версии. Оно есть у всех, не меняется и
+# ничего не решает — доступом управляет trial.access. Врать владельцу его же
+# интерфейсом хуже, чем не писать ничего.
+adm = pathlib.Path("web/admin.html").read_text(encoding="utf-8")
+check("старое поле в списке больше не печатается", "esc(b.plan)" not in adm)
+check("и правкой его больше не предлагают", 'name="plan"' not in adm)
+check("состояние берётся из сводки доступа", "accessLabel(ACCESS[b.id])" in adm)
+check("список ждёт сводку, а не гонится с ней", "await loadPilots()" in adm)
+
+# Показывать надо ровно то, что решает доступ, — и во всех фазах.
+bidC, HC = new_business("pilot-c", "Пилот В")
+rows, _ = overview()
+check("у нового аккаунта фаза онбординга", rows[bidC]["phase"] == "onboarding")
+trial.launch(bidC)
+rows, _ = overview()
+check("после запуска — триал с остатком",
+      rows[bidC]["phase"] == "trial" and isinstance(rows[bidC]["days_left"], int))
+trial.activate_subscription(bidC, "start", months=1)
+rows, _ = overview()
+check("после оплаты видно и фазу, и настоящий тариф",
+      rows[bidC]["phase"] == "subscribed" and rows[bidC]["plan"] == "start",
+      (rows[bidC]["phase"], rows[bidC]["plan"]))
+# Схему при этом не трогали: поле осталось в базе, мы лишь перестали выдавать
+# его за правду.
+check("а старое поле в базе так и лежит нетронутым",
+      "plan" in (database.get_business(bidC) or {}))
+
 print("\nИТОГО: успешно %d, провалено %d" % (ok, fail))
 sys.exit(1 if fail else 0)

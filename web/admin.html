@@ -233,11 +233,31 @@ function ttv(hours){
   return Math.round(hours / 24) + ' дн.';
 }
 
+// Настоящее состояние доступа по каждому бизнесу: id → фаза, тариф, остаток.
+// Считает его trial.access на сервере — единственный, кто вправе на этот вопрос
+// отвечать. Список ниже берёт готовое, а не выводит заново.
+let ACCESS = {};
+
+function accessLabel(a){
+  // Раньше здесь печаталось поле businesses.plan. Оно осталось от первой версии,
+  // стоит «Старт» у всех подряд и не значит ничего: доступом уже давно управляет
+  // триал/подписка. Показывать его владельцу — врать ему его же интерфейсом.
+  if (!a) return 'состояние неизвестно';
+  if (a.phase === 'subscribed') return 'подписка ' + String(a.plan || '').toUpperCase();
+  if (a.phase === 'trial') return a.days_left === null || a.days_left === undefined
+      ? 'триал' : 'триал, осталось ' + a.days_left + ' дн.';
+  if (a.phase === 'locked') return 'доступ закрыт';
+  return PHASE_RU[a.phase] || a.phase;
+}
+
 async function loadPilots(){
   const box = document.getElementById('pilots');
   let d;
   try{ d = await api('/api/admin/trial-overview'); }
   catch(e){ if (e.message !== 'auth') box.innerHTML = '<div class="muted">Сводка не загрузилась.</div>'; return; }
+
+  ACCESS = {};
+  (d.businesses || []).forEach(b => { ACCESS[b.id] = b; });
 
   const c = d.counts || {};
   document.getElementById('pilotSummary').textContent =
@@ -278,7 +298,7 @@ async function loadPilots(){
 
 async function load(){
   const list = document.getElementById('list');
-  loadPilots();
+  await loadPilots();          // ждём: список печатает то, что она посчитала
   let data;
   try{ data = await api('/api/admin/overview'); }
   catch(e){ if(e.message!=='auth') list.innerHTML = '<div class="muted">Сервер не отвечает — запусти python server.py</div>'; return; }
@@ -293,7 +313,7 @@ async function load(){
   list.innerHTML = data.businesses.map(b => `
     <div class="biz" data-id="${b.id}">
       <div class="row" role="button" tabindex="0">
-        <div><div class="nm">${esc(b.name)}</div><div class="about">${esc(b.about) || 'без описания'} · тариф ${esc(b.plan)||'—'}</div></div>
+        <div><div class="nm">${esc(b.name)}</div><div class="about">${esc(b.about) || 'без описания'} · ${esc(accessLabel(ACCESS[b.id]))}</div></div>
         <div class="m"><div class="mv num">${b.clients_count}</div><div class="ml">клиентов</div></div>
         <div class="m turn"><div class="mv num">${money(b.turnover)} ₽</div><div class="ml">оборот</div></div>
         <div class="m fee"><div class="mv num">${money(b.fee)} ₽</div><div class="ml">абонплата</div></div>
@@ -307,7 +327,6 @@ async function load(){
         <div class="pane set active">
           <div class="fields">
             <div class="f"><label>Название</label><input name="name" value="${esc(b.name)}"></div>
-            <div class="f"><label>Тариф</label><input name="plan" value="${esc(b.plan)}"></div>
             <div class="f"><label>Абонплата ₽/мес</label><input name="fee" type="number" value="${b.fee||0}"></div>
             <div class="f"><label>Токен бота (Telegram)</label><input name="tg_bot_token" value="${esc(b.tg_bot_token)}" placeholder="от @BotFather"></div>
             <div class="f"><label>Логин входа бизнеса</label><input name="login" value="${esc(b.login)}" placeholder="логин сотрудника"></div>
