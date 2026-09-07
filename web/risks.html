@@ -54,6 +54,8 @@
   .cat{ font-size:var(--fs-caption); color:var(--ash); }
   .r-title{ font-weight:400; font-size:var(--fs-h3); letter-spacing:-.02em; line-height:1.3; margin-bottom:12px; }
   .r-why{ color:var(--silver); font-weight:200; font-size:var(--fs-body); line-height:1.6; }
+  /* Откуда взялось число. Без адреса пересчёта это не вывод, а мнение. */
+  .r-src{ margin-top:var(--sp-3); font-size:var(--fs-sm); color:var(--ash); }
   .r-act{ margin-top:14px; padding:14px 16px; border-radius:var(--r-sm); background:rgba(47,212,178,.07);
     border:1px solid rgba(47,212,178,.2); }
   .r-act .t{ font-weight:600; font-size:var(--fs-micro); letter-spacing:.16em; text-transform:uppercase;
@@ -129,6 +131,23 @@ function trends(s){
   ].join('');
 }
 
+// Посчитанный риск. От предложенного моделью отличается двумя вещами:
+// подписью, откуда он взялся, и отсутствием кнопки «не актуально». Отменить
+// нажатием можно предложение, а не вычитание одного числа из другого.
+const LVC = { urgent:'важно сейчас', warn:'стоит посмотреть', info:'к сведению' };
+function computedCard(r, i){
+  return `<article class="risk ${r.level === 'urgent' ? 'l1' : 'l2'}"
+      style="animation-delay:${Math.min(i,8)*70}ms">
+    <div class="r-head">
+      <span class="lv">${esc(LVC[r.level] || 'сигнал')}</span>
+      <span class="cat">посчитано по вашим цифрам</span>
+    </div>
+    <div class="r-title">${esc(r.title)}</div>
+    ${r.why ? `<div class="r-why">${esc(r.why)}</div>` : ''}
+    ${r.source ? `<div class="r-src">${esc(r.source)}</div>` : ''}
+  </article>`;
+}
+
 function card(r, i){
   return `<article class="risk l${r.level}" style="animation-delay:${Math.min(i,8)*70}ms" data-id="${r.id}">
     <div class="r-head">
@@ -147,10 +166,13 @@ async function load(){
   try{
     const d = await (await fetch('/api/risks')).json();
     document.getElementById('trends').innerHTML = trends(d.signals);
-    box.innerHTML = d.items && d.items.length
-      ? d.items.map(card).join('')
-      : `<div class="calm"><span class="ic">✓</span><div class="p">Проверка ещё не запускалась.
-         Нажмите «Проверить риски» — VELOR сравнит два периода и скажет, что настораживает.</div></div>`;
+    // Сначала посчитанное: оно есть всегда, когда есть цифры, и не требует
+    // ни ключа, ни нажатия. Потом — разобранное моделью.
+    const head = (d.computed || []).map(computedCard).join('');
+    const rest = d.items && d.items.length ? d.items.map(card).join('') : '';
+    box.innerHTML = (head + rest) || `<div class="calm"><span class="ic">✓</span>
+      <div class="p">Ничего тревожного в цифрах не вижу. Нажмите «Проверить риски» —
+      VELOR разберёт картину подробнее.</div></div>`;
   }catch{ box.innerHTML = '<div class="empty">Не удалось загрузить.</div>'; }
 }
 

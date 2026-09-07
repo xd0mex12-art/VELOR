@@ -225,7 +225,7 @@ function supHTML(s){
   return `<div class="sup">
     <span class="who">${esc(s.name)}
       <i>${esc(s.top_category || '')} · ${esc(String(s.ops))} ${
-        plural(s.ops, 'платёж', 'платежа', 'платежей')} · ${esc(String(s.share))}% закупок</i></span>
+        plural(s.ops, 'платёж', 'платежа', 'платежей')} · ${esc(String(s.share))}% расходов</i></span>
     <span class="v num">${esc(money(s.total))}</span>
     <span class="ch${cls}">${esc(chTxt)}</span>
   </div>`;

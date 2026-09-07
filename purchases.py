@@ -111,7 +111,13 @@ def dependence(business_id, days=90):
     for cat, box in by_cat.items():
         if box["total"] < DEPENDENCE_MIN_SUM or box["ops"] < DEPENDENCE_MIN_OPS:
             continue
-        if len(box["who"]) < 1:
+        # Зависимость есть только там, где есть ВЫБОР. У аренды один
+        # арендодатель, у зарплаты один зарплатный проект, у налогов одна
+        # налоговая — сто процентов одному там не риск, а устройство жизни.
+        # Говорить об этом значит будить владельца ради того, чего он не может
+        # изменить, и приучать не читать список. Разговор начинается, когда
+        # поставщиков несколько, а деньги всё равно уходят одному.
+        if len(box["who"]) < 2:
             continue
         who = max(box["who"], key=box["who"].get)
         share = round(box["who"][who] * 100 / box["total"])

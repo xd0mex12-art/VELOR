@@ -2384,7 +2384,17 @@ def _risk_text(business, s):
 def api_risks(business_id: int = 0, x_auth: str = Header(default="")):
     """Сохранённые риски + сами тренды, чтобы владелец видел цифры."""
     bid = _resolve_bid(x_auth, business_id)
-    return {"items": database.list_risks(bid), "signals": database.risk_signals(bid)}
+    # Плюс то, что Директор посчитал сам. Без этого вкладка «Риски» пустовала
+    # ровно тогда, когда главная в ту же минуту показывала риск крупно.
+    computed = []
+    got = _safe_director(bid)
+    if got:
+        computed = [{"level": r.get("level"), "title": r.get("title"),
+                     "why": r.get("detail"), "source": r.get("source"),
+                     "href": r.get("href") or "finance.html"}
+                    for r in (got.get("risks") or [])]
+    return {"items": database.list_risks(bid), "computed": computed,
+            "signals": database.risk_signals(bid)}
 
 
 @app.post("/api/risks/scan")
@@ -3181,6 +3191,17 @@ def _briefing_numbers(bid):
 
     opp = next((o for o in database.list_opportunities(bid) if o["status"] == "new"), None)
     risk = next((r for r in database.list_risks(bid) if r["status"] == "new"), None)
+    # Ничего не записано разбором — берём посчитанное. «Явных угроз не вижу» в
+    # брифинге рядом с риском на главной — это не осторожность, это две правды
+    # на одном кабинете.
+    if not risk or not opp:
+        got = _safe_director(bid) or {}
+        if not risk and (got.get("risks") or []):
+            top = got["risks"][0]
+            risk = {"title": top.get("title"), "action": top.get("detail")}
+        if not opp and (got.get("opportunities") or []):
+            top = got["opportunities"][0]
+            opp = {"title": top.get("title"), "action": top.get("detail")}
 
     return {
         "date": today.isoformat(),
