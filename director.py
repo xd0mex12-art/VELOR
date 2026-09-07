@@ -19,8 +19,13 @@ AI Director — ответ на вопрос «что происходит с б
 сможет. Все формулировки собираются из шаблонов по посчитанным числам.
 """
 import datetime
+import logging
 
 import database
+
+# Разбор закупок необязателен: если он сорвётся, нить должна закончиться
+# честным тупиком, а не уронить всю сводку.
+log = logging.getLogger("velor")
 
 # ── пороги. Названы и объяснены: молчаливая константа в коде — это решение,
 # которое никто не принимал ────────────────────────────────────────────────
@@ -725,10 +730,7 @@ def _chain(bid, days, now, prev, orders_now, orders_prev, comparable, moves):
                 "Сильнее всего выросла статья «%s»: %s против %s (%+d%%)."
                 % (n["category"], _money(n["now"]), _money(n["was"]), n["change"]),
                 "Расходы по категориям за два окна по %d дн." % n["days"]))
-            out.append(_step(
-                "Дальше по этой статье данных нет: от чего именно она выросла — "
-                "от цены или от объёма — в записях не видно.",
-                "У расходов есть категория и сумма, но нет количества.", gap=True))
+            _spend_step(bid, n["category"], n["days"], out)
         else:
             out.append(_step(
                 "Какая именно статья выросла — сказать нельзя: заметного "
@@ -764,6 +766,71 @@ def _chain(bid, days, now, prev, orders_now, orders_prev, comparable, moves):
         "менялись.",
         f"Заявки за два периода по {days} дн.", gap=True))
     return out
+
+
+def _spend_step(bid, category, days, out):
+    """
+    Почему статья выросла: цена или объём — и чем это подтверждается.
+
+    Раньше нить здесь заканчивалась словами «дальше данных нет». Данных
+    действительно не хватает на полный ответ — количества в записях нет, — но
+    на половину ответа хватает: если платежей столько же, а денег больше, то
+    растёт точно не их число. Тупик остаётся тупиком, только на шаг глубже, и
+    названо в нём уже не «неизвестно что», а конкретно чего не хватает.
+
+    Если владелец дал VELOR ссылку на страницу поставщика и цена там выросла —
+    догадка становится прочитанным фактом с адресом и датой. Это единственное
+    место во всей нити, где VELOR смотрит наружу.
+    """
+    try:
+        import purchases
+        split = purchases.price_or_volume(bid, category, days)
+        up = purchases.risen(bid, days)
+    except Exception:
+        log.exception("Разбор закупок не удался (biz %s)", bid)
+        split, up = None, []
+
+    if split and split["verdict"] == "price":
+        out.append(_step(
+            "Закупок по ней столько же — %s против %s, — а средний платёж вырос "
+            "с %s до %s (%+d%%). Значит, растёт не число закупок."
+            % (_num(split["ops"]), _num(split["ops_was"]),
+               _money(split["average_was"]), _money(split["average"]),
+               split["average_change"]),
+            "Расходы по статье «%s» за два окна по %d дн.: суммы и число записей."
+            % (category, days)))
+    elif split and split["verdict"] == "volume":
+        out.append(_step(
+            "Закупать стали чаще: %s платежей против %s (%+d%%), а средний "
+            "платёж почти прежний. Значит, растёт объём, а не цена."
+            % (_num(split["ops"]), _num(split["ops_was"]), split["ops_change"]),
+            "Расходы по статье «%s» за два окна по %d дн." % (category, days)))
+        return
+    elif split and split["verdict"] == "mixed":
+        out.append(_step(
+            "Выросло и то и другое: платежей %s против %s (%+d%%), средний "
+            "платёж — с %s до %s (%+d%%)."
+            % (_num(split["ops"]), _num(split["ops_was"]), split["ops_change"],
+               _money(split["average_was"]), _money(split["average"]),
+               split["average_change"]),
+            "Расходы по статье «%s» за два окна по %d дн." % (category, days)))
+
+    if up:
+        top = up[0]
+        who = (" у поставщика «%s»" % top["supplier"]) if top["supplier"] else ""
+        out.append(_step(
+            "И это видно на стороне поставщика: «%s»%s подорожало с %s до %s "
+            "(%+d%%) — прочитано на его странице %s."
+            % (top["item"], who, _money(top["was"]), _money(top["price"]),
+               top["change"], str(top["seen_at"] or "")[:10]),
+            "Страница поставщика: %s" % (top["url"] or "")))
+        return
+
+    out.append(_step(
+        "Дальше нужна цена за единицу — в записях её нет: у расхода есть "
+        "статья и сумма, но нет количества. Дайте ссылку на страницу "
+        "поставщика в разделе «Закупки», и я буду читать цену сам.",
+        "Наблюдаемых страниц по этой статье пока нет.", gap=True))
 
 
 def _confidence(now, span, orders_now):

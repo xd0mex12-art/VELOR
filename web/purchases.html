@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Закупки</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Закупки: у кого покупаем, почём и где то же дешевле.
+     Порядок блоков — порядок вопросов владельца. Сначала «где я переплачиваю»
+     (это деньги прямо сейчас), потом «за чем я слежу», потом «кому вообще
+     плачу». Скелет, кнопки и цвета берутся из velor.css. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  a{ color:inherit; }
+  button{ font-family:inherit; cursor:pointer; }
+  ::selection{ background:rgba(128,82,255,.4); color:#fff; }
+  .num{ font-variant-numeric:tabular-nums; }
+  section{ margin-bottom:var(--sp-8); }
+  .sec-h{ font-weight:var(--fw-semi); font-size:var(--fs-micro); letter-spacing:.16em;
+    text-transform:uppercase; color:var(--ash); margin-bottom:var(--sp-4);
+    display:flex; align-items:baseline; gap:var(--sp-2); }
+  .sec-h .n{ color:var(--lilac); }
+  .sec-h .note{ text-transform:none; letter-spacing:0; font-weight:var(--fw-thin);
+    font-size:var(--fs-sm); color:var(--ash); }
+
+  /* ── сравнение по позиции ── */
+  .cmp{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5) var(--sp-6); margin-bottom:var(--sp-4); }
+  .cmp .t{ font-weight:var(--fw-med); font-size:var(--fs-base); }
+  .cmp .gap{ margin-top:var(--sp-2); font-size:var(--fs-body); color:var(--silver); }
+  .cmp .gap b{ color:var(--lilac-2); font-weight:var(--fw-med); }
+  .cmp .rows{ margin-top:var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-2); }
+  .cmp .r{ display:flex; align-items:baseline; gap:var(--sp-3); flex-wrap:wrap;
+    padding:var(--sp-2) 0; border-bottom:1px solid var(--hairline); }
+  .cmp .r:last-child{ border-bottom:none; }
+  .cmp .r .who{ flex:1; min-width:140px; font-size:var(--fs-body); }
+  .cmp .r .p{ font-size:var(--fs-base); font-variant-numeric:tabular-nums; }
+  .cmp .r.low .p{ color:var(--ink-verdant); }
+  .cmp .r .src{ font-size:var(--fs-caption); color:var(--ash); }
+
+  /* ── наблюдаемая страница ── */
+  .w{ display:flex; align-items:flex-start; gap:var(--sp-3); flex-wrap:wrap;
+    padding:var(--sp-4) 0; border-bottom:1px solid var(--hairline); }
+  .w:last-child{ border-bottom:none; }
+  .w .b{ flex:1; min-width:220px; }
+  .w .t{ font-size:var(--fs-body); }
+  .w .d{ margin-top:3px; font-size:var(--fs-sm); color:var(--ash); font-weight:var(--fw-thin);
+    word-break:break-word; }
+  /* Кусок страницы вокруг цены. Владелец должен видеть, ЧТО именно VELOR
+     принял за цену, — иначе число приходится принимать на веру. */
+  .w .q{ margin-top:var(--sp-2); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-sm);
+    background:var(--surface-2); color:var(--silver); font-size:var(--fs-caption);
+    font-weight:var(--fw-thin); }
+  .w .p{ font-size:var(--fs-base); font-variant-numeric:tabular-nums; }
+  .w .bad{ color:var(--ink-coral); font-size:var(--fs-sm); margin-top:3px; }
+  .w .acts{ display:flex; gap:var(--sp-2); }
+
+  /* ── поставщики ── */
+  .sup{ display:flex; align-items:baseline; gap:var(--sp-3); flex-wrap:wrap;
+    padding:var(--sp-3) 0; border-bottom:1px solid var(--hairline); }
+  .sup:last-child{ border-bottom:none; }
+  .sup .who{ flex:1; min-width:160px; font-size:var(--fs-body); }
+  .sup .who i{ display:block; font-style:normal; font-size:var(--fs-caption); color:var(--ash); }
+  .sup .v{ font-variant-numeric:tabular-nums; font-size:var(--fs-body); }
+  .sup .ch{ font-size:var(--fs-sm); color:var(--ash); min-width:64px; text-align:right; }
+  .sup .ch.up{ color:var(--ink-coral); }
+  .sup .ch.down{ color:var(--ink-verdant); }
+
+  /* ── форма ── */
+  .add{ border:1px solid var(--hairline); border-radius:var(--r-lg);
+    background:var(--surface); padding:var(--sp-5) var(--sp-6); }
+  .add .row{ display:flex; gap:var(--sp-3); flex-wrap:wrap; margin-top:var(--sp-3); }
+  .add label{ flex:1; min-width:200px; display:block; }
+  .add .cap{ font-size:var(--fs-caption); color:var(--ash); margin-bottom:6px; }
+  .add input{ width:100%; min-height:44px; background:var(--surface-2);
+    border:1px solid var(--hairline); border-radius:var(--r-sm);
+    padding:11px 14px; color:var(--bone); font-family:inherit;
+    font-weight:var(--fw-thin); font-size:var(--fs-body); }
+  .add input:focus{ border-color:var(--iris); outline:none; }
+  .add .hint{ margin-top:var(--sp-3); font-size:var(--fs-sm); color:var(--ash);
+    font-weight:var(--fw-thin); }
+
+  #toast{ position:fixed; bottom:32px; left:50%; transform:translate(-50%,20px); z-index:130;
+    background:rgba(0,0,0,.78); backdrop-filter:blur(8px); color:var(--bone);
+    font-size:var(--fs-body); padding:14px 26px; border-radius:var(--r-pill);
+    opacity:0; pointer-events:none; transition:var(--dur); }
+  #toast.show{ opacity:1; transform:translate(-50%,0); }
+
+  @media(max-width:760px){ .cmp{ padding:var(--sp-4); } .add{ padding:var(--sp-4); } }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+</style>
+<link rel="stylesheet" href="velor.css?v=19">
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Закупки</h1>
+      <p class="v-lead">У кого вы покупаете, как менялись платежи и где то же
+        самое стоит дешевле. Цены читаются со страниц, которые вы назвали, —
+        с адресом и датой проверки.</p>
+    </div>
+    <div class="v-state" id="state" aria-live="polite">
+      <span class="v-badge"><i></i>Смотрю…</span>
+    </div>
+  </header>
+
+  <div id="failZone" role="alert"></div>
+
+  <section id="cmpZone">
+    <div class="sec-h">Где дешевле <span class="n" id="nCmp"></span></div>
+    <div id="cmp"><div class="v-sk row"></div></div>
+  </section>
+
+  <section>
+    <div class="sec-h">Страницы под наблюдением
+      <span class="note">перечитываю сам, не чаще раза в 12 часов</span></div>
+    <div id="watches"></div>
+    <div class="add" style="margin-top:var(--sp-4)">
+      <div class="cap">Добавить страницу поставщика</div>
+      <div class="row">
+        <label><div class="cap">Что это за позиция</div>
+          <input id="wItem" placeholder="Перчатки нитриловые, 100 шт"></label>
+        <label><div class="cap">Поставщик</div>
+          <input id="wSup" placeholder="МедТорг"></label>
+      </div>
+      <div class="row">
+        <label><div class="cap">Ссылка на страницу с ценой</div>
+          <input id="wUrl" placeholder="https://..."></label>
+      </div>
+      <div class="row">
+        <button class="v-btn" type="button" id="wAdd">Добавить и прочитать</button>
+      </div>
+      <p class="hint">Название позиции пишите так, как оно написано на самой
+        странице: по нему я нахожу цену. Чтобы сравнить поставщиков, добавьте
+        ОДНУ И ТУ ЖЕ позицию у двух-трёх — сравнивать разные товары
+        бессмысленно.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h">Кому платим <span class="note" id="supNote"></span></div>
+    <div id="sups"></div>
+  </section>
+
+  <section id="depZone" hidden>
+    <div class="sec-h">Всё держится на одном</div>
+    <div id="dep"></div>
+  </section>
+</main>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="velor-field.js?v=19"></script>
+<script src="velor-state.js?v=19"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const plural = (n, one, few, many) => {
+  const a = Math.abs(n) % 100, b = a % 10;
+  if (a > 10 && a < 20) return many;
+  if (b > 1 && b < 5) return few;
+  return b === 1 ? one : many;
+};
+const money = n => (Number(n) || 0).toLocaleString('ru-RU') + ' ₽';
+function when(iso){
+  const d = new Date(String(iso || '').replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return '';
+  return d.toLocaleString('ru-RU', { day:'numeric', month:'long', hour:'2-digit', minute:'2-digit' });
+}
+let toastT;
+function toast(m){
+  const t = document.getElementById('toast');
+  t.textContent = m; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3600);
+}
+
+let data = { compare: [], watches: [], suppliers: [], dependence: [], risen: [], total: 0, days: 30 };
+
+// ── где дешевле ──
+// Первым блоком намеренно: это единственное место страницы, где цифра —
+// деньги владельца прямо сейчас, а не сведения о прошлом.
+function cmpHTML(c){
+  return `<div class="cmp">
+    <div class="t">${esc(c.item)}</div>
+    <div class="gap">Разница <b>${esc(c.diff_ru)}</b> на одной покупке — это
+      ${esc(String(c.gap))}% от дешёвой цены.</div>
+    <div class="rows">${c.rows.map((r, i) => `
+      <div class="r${i === 0 ? ' low' : ''}">
+        <span class="who">${esc(r.supplier || 'без названия')}</span>
+        <span class="p num">${esc(r.price_ru)}</span>
+        <a class="src" href="${esc(r.url)}" target="_blank" rel="noopener noreferrer nofollow"
+          >страница</a>
+        <span class="src">${esc(when(r.checked_at))}</span>
+      </div>`).join('')}</div>
+  </div>`;
+}
+
+function watchHTML(w){
+  return `<div class="w">
+    <div class="b">
+      <div class="t">${esc(w.item)}${w.supplier ? ' · ' + esc(w.supplier) : ''}</div>
+      <div class="d"><a href="${esc(w.url)}" target="_blank"
+        rel="noopener noreferrer nofollow">${esc(w.url)}</a></div>
+      ${w.context ? `<div class="q">Прочитано на странице: «${esc(w.context)}»</div>` : ''}
+      ${w.error ? `<div class="bad">${esc(w.error)}</div>` : ''}
+      <div class="d">${w.checked_at ? 'Проверено ' + esc(when(w.checked_at)) : 'Ещё не проверял'}</div>
+    </div>
+    <div class="p num">${esc(w.price_ru || '—')}</div>
+    <div class="acts">
+      <button class="v-btn ghost" type="button" data-check="${w.id}">Перечитать</button>
+      <button class="v-btn ghost" type="button" data-drop="${w.id}">Убрать</button>
+    </div>
+  </div>`;
+}
+
+function supHTML(s){
+  const ch = s.change;
+  const cls = ch === null || ch === undefined ? '' : (ch > 0 ? ' up' : (ch < 0 ? ' down' : ''));
+  const chTxt = (ch === null || ch === undefined) ? 'впервые'
+    : (ch > 0 ? '+' : '') + ch + '%';
+  return `<div class="sup">
+    <span class="who">${esc(s.name)}
+      <i>${esc(s.top_category || '')} · ${esc(String(s.ops))} ${
+        plural(s.ops, 'платёж', 'платежа', 'платежей')} · ${esc(String(s.share))}% закупок</i></span>
+    <span class="v num">${esc(money(s.total))}</span>
+    <span class="ch${cls}">${esc(chTxt)}</span>
+  </div>`;
+}
+
+function depHTML(d){
+  return `<div class="sup">
+    <span class="who">${esc(d.category)}
+      <i>${esc(d.supplier)} — ${esc(String(d.share))}% за ${esc(String(d.days))} дней${
+        d.others ? '. Другие поставщики: ' + esc(String(d.others)) : '. Других поставщиков нет'}</i></span>
+    <span class="v num">${esc(money(d.spent))}</span>
+  </div>`;
+}
+
+function paint(){
+  const cmp = document.getElementById('cmp');
+  cmp.innerHTML = data.compare.length
+    ? data.compare.map(cmpHTML).join('')
+    : `<div class="v-empty"><strong>Сравнивать пока не с чем</strong>
+        Добавьте одну и ту же позицию у двух поставщиков — покажу разницу
+        и буду следить за ней сам.</div>`;
+  document.getElementById('nCmp').textContent = data.compare.length || '';
+
+  document.getElementById('watches').innerHTML = data.watches.length
+    ? data.watches.map(watchHTML).join('')
+    : `<div class="v-empty"><strong>Ни одной страницы под наблюдением</strong>
+        Дайте ссылку на страницу поставщика с ценой — читать её я буду сам.
+        Искать поставщиков в интернете я пока не умею.</div>`;
+
+  document.getElementById('sups').innerHTML = data.suppliers.length
+    ? data.suppliers.map(supHTML).join('')
+    : `<div class="v-empty"><strong>Закупки не видны</strong>
+        В расходах не указан контрагент — без него сказать, кому уходят
+        деньги, нельзя. Он проставляется при импорте выписки и в карточке
+        операции.</div>`;
+  document.getElementById('supNote').textContent =
+    data.total ? 'за ' + data.days + ' дней · ' + money(data.total) : '';
+
+  const dep = document.getElementById('dep');
+  document.getElementById('depZone').hidden = !data.dependence.length;
+  dep.innerHTML = data.dependence.map(depHTML).join('');
+
+  const box = document.getElementById('state');
+  const risen = data.risen.length;
+  box.innerHTML = risen
+    ? `<span class="v-badge warn"><i></i>${risen} ${plural(risen, 'позиция подорожала',
+        'позиции подорожали', 'позиций подорожало')}</span>`
+    : `<span class="v-badge good"><i></i>Цены не росли</span>`;
+}
+
+async function load(){
+  try{
+    const r = await fetch('/api/purchases?days=30');
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    document.getElementById('failZone').innerHTML = '';
+    data = Object.assign(data, d);
+    paint();
+  }catch{
+    document.getElementById('failZone').innerHTML =
+      `<div class="v-fail"><div><div class="t">Не загрузилось</div>
+        <div class="d">Сервер не ответил. Наблюдения при этом никуда не делись.</div></div>
+        <button class="v-btn" type="button" id="retry">Повторить</button></div>`;
+    document.getElementById('retry').addEventListener('click', load);
+  }
+}
+
+document.getElementById('wAdd').addEventListener('click', async e => {
+  const item = document.getElementById('wItem').value.trim();
+  const url = document.getElementById('wUrl').value.trim();
+  const sup = document.getElementById('wSup').value.trim();
+  if (!item || !url){ toast('Нужны и название позиции, и ссылка.'); return; }
+  const b = e.currentTarget;
+  b.disabled = true; b.textContent = 'Читаю…';
+  try{
+    const r = await fetch('/api/purchases/watch', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ item, url, supplier_name: sup }) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok){ toast(d.detail || 'Не получилось.'); return; }
+    // Даже когда цену найти не удалось, страница остаётся под наблюдением, а
+    // причина написана на ней самой: молча выбросить ссылку хуже, чем
+    // показать, почему она не сработала.
+    toast(d.ok ? 'Прочитал: ' + (d.watch.price_ru || '') : (d.error || 'Цену не нашёл'));
+    document.getElementById('wItem').value = '';
+    document.getElementById('wUrl').value = '';
+    await load();
+  }catch{ toast('Сервер не ответил.'); }
+  finally{ b.disabled = false; b.textContent = 'Добавить и прочитать'; }
+});
+
+document.getElementById('watches').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-check], button[data-drop]');
+  if (!btn) return;
+  btn.disabled = true;
+  try{
+    if (btn.dataset.check){
+      const r = await fetch(`/api/purchases/watch/${btn.dataset.check}/check`, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+      const d = await r.json().catch(() => ({}));
+      toast(r.ok ? (d.ok ? 'Прочитал: ' + (d.watch.price_ru || '') : (d.error || 'Цену не нашёл'))
+                 : (d.detail || 'Не получилось.'));
+    } else {
+      const r = await fetch(`/api/purchases/watch/${btn.dataset.drop}`, { method:'DELETE' });
+      toast(r.ok ? 'Убрал' : 'Не получилось.');
+    }
+    await load();
+  }catch{ toast('Сервер не ответил.'); }
+  finally{ btn.disabled = false; }
+});
+
+load();
+</script>
+</body>
+</html>

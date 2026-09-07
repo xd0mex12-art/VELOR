@@ -151,6 +151,8 @@ CONVERSION_DROP = "conversion_drop"
 RETURNING_CLIENT = "returning_client_opportunity"
 DATA_CONFLICT = "data_conflict"
 FINANCIAL_ANOMALY = "financial_anomaly"
+CHEAPER_ELSEWHERE = "cheaper_elsewhere"
+SUPPLIER_DEPENDENCE = "supplier_dependence"
 
 TYPES = {
     HOT_LEADS_UNANSWERED: {
@@ -170,6 +172,7 @@ TYPES = {
         "guess": False},
     LOST_LEADS_CLUSTER: {
         "title": "Возможностей теряется больше обычного",
+        "impact_label": "Потеряно",
         "group": "sales", "href": "leads.html",
         "action": None, "action_note": "Посмотреть, на чём именно теряем",
         "guess": True},
@@ -180,6 +183,7 @@ TYPES = {
         "guess": True},
     RETURNING_CLIENT: {
         "title": "Клиенты, которые покупали и перестали",
+        "impact_label": "Принесли раньше",
         "group": "retention", "href": "clients.html",
         # Действия нет намеренно. Рассылка по базе — не то, что VELOR вправе
         # предложить одной кнопкой: у неё нет ни повода в разговоре, ни
@@ -195,7 +199,24 @@ TYPES = {
         "title": "Расходы изменились заметно",
         "group": "finance", "href": "finance.html",
         "action": None, "action_note": "Посмотреть, из чего сложилось",
+        "impact_label": "Уходит сверх прежнего",
         "guess": True},
+    CHEAPER_ELSEWHERE: {
+        "title": "То же самое дешевле у другого",
+        "group": "finance", "href": "purchases.html",
+        # Действия нет и быть не может: покупать за владельца VELOR не будет
+        # никогда. Он показывает разницу и адреса обеих страниц — решение о
+        # смене поставщика принимает человек, у которого есть договорённости,
+        # сроки и качество, а не только цена.
+        "action": None, "action_note": "Сравнить цены и решить",
+        "impact_label": "Разница на одной покупке",
+        "guess": False},
+    SUPPLIER_DEPENDENCE: {
+        "title": "Почти все закупки у одного поставщика",
+        "group": "finance", "href": "purchases.html",
+        "action": None, "action_note": "Посмотреть, у кого закупаетесь",
+        "impact_label": "Проходит через одного",
+        "guess": False},
 }
 
 GROUP_RU = dict(GROUPS)
@@ -621,6 +642,72 @@ def _financial_anomaly(bid, now):
         fingerprint=("up:" if up else "down:") + _pct_bucket(change))
 
 
+def _cheaper_elsewhere(bid, now):
+    """Одна и та же позиция у двух поставщиков — и разница между ними велика."""
+    import purchases
+    rows = [c for c in purchases.compare(bid) if c["gap"] >= purchases.CHEAPER_PCT]
+    if not rows:
+        return None
+    top = rows[0]
+    low, high = top["cheapest"], top["dearest"]
+    more = len(rows) - 1
+    return _found(
+        CHEAPER_ELSEWHERE,
+        title="«%s» дешевле на %d%% у другого" % (_short(top["item"], 40), top["gap"]),
+        summary="%s — %s, %s — %s. Разница %s на одной покупке.%s" % (
+            low["supplier"] or "первый источник", low["price_ru"],
+            high["supplier"] or "второй источник", high["price_ru"],
+            top["diff_ru"],
+            "" if not more else " Ещё %s с такой же разницей: %d." % (
+                _plural(more, "позиция", "позиции", "позиций"), more)),
+        why="Это разница на каждой покупке, а не разовая скидка. Цены прочитаны "
+            "на страницах самих поставщиков — обе ссылки в разделе «Закупки», "
+            "можно проверить своими глазами.",
+        # Никогда не срочно: смена поставщика — решение с договорённостями,
+        # сроками и качеством, а не только с ценой. Торопить здесь нечестно.
+        priority=HIGH if top["gap"] >= 25 else MEDIUM, level=ACT, confidence=SOLID,
+        evidence={"kind": "price", "ids": [r["id"] for r in top["rows"]],
+                  "window": "последняя проверка страниц",
+                  "numbers": {"gap": top["gap"], "diff": top["diff"],
+                              "cheapest": low["price"], "dearest": high["price"]}},
+        impact=top["diff"],
+        impact_note=("Столько вы переплачиваете за одну покупку. Сколько их "
+                     "будет за месяц — знаете только вы: количества в записях нет."),
+        fingerprint="cheap:%s:%s" % (top["item"][:40], _pct_bucket(top["gap"])))
+
+
+def _supplier_dependence(bid, now):
+    """Почти вся статья закупок уходит одному — вопрос не к нему, а к рискам."""
+    import purchases
+    rows = purchases.dependence(bid)
+    if not rows:
+        return None
+    top = rows[0]
+    return _found(
+        SUPPLIER_DEPENDENCE,
+        title="«%s»: %d%% у одного поставщика" % (_short(top["category"], 40),
+                                                  top["share"]),
+        summary="За %d дней по статье «%s» ушло %s, из них %s — «%s».%s" % (
+            top["days"], top["category"], _money(top["total"]),
+            _money(top["spent"]), top["supplier"],
+            " Других поставщиков по этой статье нет." if not top["others"]
+            else " Остальные: %d." % top["others"]),
+        why="Пока выбора нет, цену назначает он. Это не претензия к поставщику "
+            "— это ответ на вопрос, что будет, если он поднимет цену или "
+            "пропадёт в сезон.",
+        # Наблюдение, а не дело: сегодня ничего не горит, и требовать решения
+        # там, где его не требуется, — способ приучить не читать список.
+        priority=MEDIUM, level=WATCH, confidence=SOLID,
+        evidence={"kind": "finance", "ids": [],
+                  "window": "%d дней" % top["days"],
+                  "numbers": {"share": top["share"], "spent": top["spent"],
+                              "total": top["total"], "others": top["others"],
+                              "category": top["category"]}},
+        impact=top["spent"],
+        impact_note="Столько прошло через одного поставщика за это время.",
+        fingerprint="dep:%s:%s" % (top["category"][:40], _pct_bucket(top["share"])))
+
+
 def _short(s, n=70):
     s = " ".join(str(s or "").split())
     return s if len(s) <= n else s[:n - 1].rstrip() + "…"
@@ -634,6 +721,8 @@ DETECTORS = [
     (CONVERSION_DROP, _conversion_drop),
     (DATA_CONFLICT, _data_conflict),
     (FINANCIAL_ANOMALY, _financial_anomaly),
+    (CHEAPER_ELSEWHERE, _cheaper_elsewhere),
+    (SUPPLIER_DEPENDENCE, _supplier_dependence),
     (RETURNING_CLIENT, _returning_clients),
 ]
 
@@ -652,8 +741,11 @@ def _enough_data(bid):
             return True
         # Память бизнеса — тоже данные, и противоречие в ней стоит денег ещё до
         # первого клиента: сотрудник цитирует её с первого же разговора.
+        # Наблюдаемые страницы поставщиков — тоже: владелец, который пока
+        # только сравнивает цены, уже дал VELOR всё, что нужно для находки.
         return bool(database.count_leads(bid) or database.count_clients(bid)
-                    or database.count_facts(bid))
+                    or database.count_facts(bid)
+                    or database.list_price_watch(bid, limit=1))
     except Exception:
         log.exception("Объём данных не прочитался (biz %s)", bid)
         return False
@@ -1223,8 +1315,9 @@ def public(row):
         # Подпись у суммы разная, и это не косметика. «Потенциальная ценность»
         # — про деньги, которых ещё нет; у вернувшихся клиентов сумма про
         # прошлое, и назвать её потенциальной значило бы пообещать повтор.
-        "impact_label": ("Принесли раньше" if row.get("type") == RETURNING_CLIENT
-                         else "Потенциальная ценность"),
+        # Подпись живёт в реестре рядом с самим видом находки: пока она была
+        # ветвлением здесь, каждый новый вид с деньгами молча получал чужую.
+        "impact_label": meta.get("impact_label") or "Потенциальная ценность",
         "impact_note": row.get("impact_note") or "",
         "action": row.get("action") or "",
         "action_note": row.get("action_note") or "",

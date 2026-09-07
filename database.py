@@ -1299,6 +1299,43 @@ def init_db():
         )
 
 
+        # ---------- ЦЕНЫ ПОСТАВЩИКОВ ----------
+        # Что владелец покупает, у кого и почём — по страницам, которые он сам
+        # назвал. Только так сравнение поставщиков получается честным: одна и
+        # та же позиция у разных продавцов, с адресом источника и датой
+        # проверки. Сравнивать «средний платёж поставщику» нельзя — в нём
+        # разные корзины, и число получилось бы красивое, но пустое.
+        #
+        # Ссылку даёт человек, а не поиск: искать поставщика за владельца VELOR
+        # пока не умеет, и делать вид, что умеет, — хуже, чем не уметь.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS price_watch (
+                   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id   INTEGER NOT NULL,
+                   item          TEXT NOT NULL,     -- позиция: что именно сравниваем
+                   supplier_id   INTEGER,           -- memory_facts, kind='supplier'
+                   supplier_name TEXT,              -- если поставщика ещё нет в памяти
+                   url           TEXT NOT NULL,
+                   price         INTEGER,           -- последняя прочитанная цена
+                   context       TEXT,              -- кусок страницы вокруг неё
+                   checked_at    TEXT,
+                   error         TEXT,              -- почему в прошлый раз не вышло
+                   created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
+        # История цены. Пишем ТОЛЬКО изменения: страница проверяется каждые
+        # полчаса, и запись «цена та же» сорок восемь раз в сутки — это не
+        # история, а мусор, в котором изменение потом не найти.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS price_points (
+                   id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                   business_id INTEGER NOT NULL,
+                   watch_id    INTEGER NOT NULL,
+                   price       INTEGER NOT NULL,
+                   seen_at     TEXT DEFAULT CURRENT_TIMESTAMP
+               )"""
+        )
+
         # Теперь все таблицы существуют — можно безопасно домигрировать колонки.
         _migrate_columns(conn)
 
@@ -2530,7 +2567,9 @@ def delete_business(business_id):
                     "inbox_blobs", "inbox_items", "module_state", "connections",
                     "ig_threads", "ig_seen", "vk_threads", "vk_seen",
                     "ai_policy", "leads", "followups",
-                    "actions", "initiatives", "outputs"):
+                    "actions", "initiatives", "outputs",
+                    # Наблюдаемые страницы поставщиков и история их цен.
+                    "price_points", "price_watch"):
             try:
                 conn.execute(f"DELETE FROM {tbl} WHERE business_id = ?", (business_id,))
             except Exception:
@@ -5336,6 +5375,121 @@ def set_initiative_heard(business_id, kind, when=None):
     with _connect() as conn:
         conn.execute("UPDATE businesses SET initiative_heard = ? WHERE id = ?",
                      (_json.dumps(got, ensure_ascii=False), business_id))
+
+
+# ---------- ЦЕНЫ ПОСТАВЩИКОВ ----------
+
+def add_price_watch(business_id, *, item, url, supplier_id=None, supplier_name=None):
+    """Взять страницу под наблюдение. Возвращает id записи."""
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO price_watch (business_id, item, url, supplier_id, supplier_name)
+               VALUES (?,?,?,?,?)""",
+            (business_id, (item or "").strip()[:200], (url or "").strip()[:500],
+             int(supplier_id) if supplier_id else None,
+             (supplier_name or "").strip()[:120] or None))
+        return cur.lastrowid
+
+
+def list_price_watch(business_id, *, item=None, limit=200):
+    """Наблюдаемые страницы. item — только по одной позиции."""
+    where, args = ["business_id = ?"], [business_id]
+    if item:
+        where.append("item = ?")
+        args.append(item)
+    args.append(int(limit))
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM price_watch WHERE " + " AND ".join(where)
+            + " ORDER BY item, id LIMIT ?", args).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_price_watch(watch_id, business_id):
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM price_watch WHERE id = ? AND business_id = ?",
+            (watch_id, business_id)).fetchone()
+    return dict(row) if row else None
+
+
+def save_price(watch_id, business_id, *, price=None, context=None, error=None,
+               checked_at=None):
+    """
+    Записать, что увидели на странице.
+
+    Новая точка истории добавляется только при ИЗМЕНЕНИИ цены — иначе через
+    неделю история состоит из тысячи одинаковых строк, и найти в ней момент
+    подорожания невозможно.
+    """
+    when = checked_at or now()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT price FROM price_watch WHERE id = ? AND business_id = ?",
+            (watch_id, business_id)).fetchone()
+        if not row:
+            return False
+        was = row["price"]
+        conn.execute(
+            "UPDATE price_watch SET price = ?, context = ?, error = ?, checked_at = ?"
+            " WHERE id = ? AND business_id = ?",
+            (int(price) if price is not None else was,
+             (context or "")[:400] or None, (error or "")[:200] or None,
+             when, watch_id, business_id))
+        if price is not None and int(price) != (was or 0):
+            conn.execute(
+                "INSERT INTO price_points (business_id, watch_id, price, seen_at)"
+                " VALUES (?,?,?,?)", (business_id, watch_id, int(price), when))
+    return True
+
+
+def price_history(watch_id, business_id, limit=30):
+    """Как менялась цена: новые сверху."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM price_points WHERE watch_id = ? AND business_id = ?"
+            " ORDER BY id DESC LIMIT ?", (watch_id, business_id, int(limit))).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_price_watch(watch_id, business_id):
+    """Убрать страницу из наблюдения вместе с её историей."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM price_points WHERE watch_id = ? AND business_id = ?",
+                     (watch_id, business_id))
+        cur = conn.execute("DELETE FROM price_watch WHERE id = ? AND business_id = ?",
+                           (watch_id, business_id))
+        return bool(cur.rowcount)
+
+
+def purchases_by_supplier(business_id, days=30, offset=0):
+    """
+    Закупки за окно, разложенные по поставщикам.
+
+    Поставщик — это запись памяти (memory_facts, kind='supplier'), к которой
+    привязана операция. Если её нет, берём написанное в `counterparty`: у
+    выписки из банка контрагент есть всегда, а карточка поставщика заводится
+    не сразу, и терять из-за этого половину закупок нельзя.
+    """
+    frm, to = _window(days, offset)
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT f.supplier_id AS sid,
+                      COALESCE(sup.title, f.counterparty) AS name,
+                      f.category AS category,
+                      COUNT(*)   AS n,
+                      COALESCE(SUM(f.amount), 0) AS total
+                 FROM finance_entries f
+                 LEFT JOIN memory_facts sup
+                        ON sup.id = f.supplier_id AND sup.business_id = f.business_id
+                WHERE f.business_id = ? AND f.kind = 'expense'
+                  AND date(COALESCE(f.op_date, f.created_at)) >= date('now', ?)
+                  AND date(COALESCE(f.op_date, f.created_at)) <  date('now', ?)
+                  AND (f.supplier_id IS NOT NULL
+                       OR (f.counterparty IS NOT NULL AND f.counterparty <> ''))
+                GROUP BY f.supplier_id, COALESCE(sup.title, f.counterparty), f.category""",
+            (business_id, frm, to)).fetchall()
+    return [dict(r) for r in rows]
 
 
 def sales_today(business_id):
