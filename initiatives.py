@@ -123,6 +123,16 @@ TTL_DAYS = 14
 # существенно — а «существенно» здесь означает другой отпечаток повода.
 COOLDOWN_DAYS = 14
 
+# Сколько раз владелец должен отмахнуться от темы, чтобы это перестало быть
+# случайностью. Один отказ — «не сейчас», два — «опять некстати». Три — это
+# уже сказанное вслух «у меня так и задумано», и продолжать спрашивать значит
+# спорить с человеком о его собственном бизнесе.
+MUTE_AFTER = 3
+# Во сколько раз должна вырасти цена вопроса, чтобы нарушить это молчание.
+# Молчать о выросшей вдвое проблеме потому, что о маленькой отмахнулись, —
+# не деликатность, а сбой.
+MUTE_BREAK_X = 2
+
 # Сколько действий может вырасти из одной находки за раз. Ограничение не
 # техническое: «VELOR решил написать пятистам клиентам» не должно стать
 # возможным ни при каких настройках.
@@ -382,6 +392,8 @@ def _followup_backlog(bid, now):
 
     n = len(late)
     hours = int(max(_hours_since(r.get("recommended_at"), now) or 0 for r in late))
+    # За письмами стоят разговоры, и цена вопроса — их сумма, а не их число.
+    waiting = database.leads_value(bid, [r.get("lead_id") for r in late])
     return _found(
         FOLLOWUP_BACKLOG,
         title="%s %s ждут отправки" % (
@@ -392,9 +404,11 @@ def _followup_backlog(bid, now):
             "читается как «про нас забыли, а потом вспомнили».",
         priority=HIGH, level=ACT, confidence=SOLID,
         evidence={"kind": "followup", "ids": [int(r["id"]) for r in late[:20]],
-                  "window": "сейчас", "numbers": {"count": n, "max_hours": hours}},
-        impact=None,
-        impact_note="",
+                  "window": "сейчас", "numbers": {"count": n, "max_hours": hours,
+                                                  "value": waiting}},
+        impact=waiting or None,
+        impact_note=("Столько стоят разговоры, к которым письмо готово, но не "
+                     "отправлено. По суммам из самих разговоров."),
         fingerprint=_bucket(n))
 
 
@@ -438,8 +452,12 @@ def _lost_cluster(bid, now):
         evidence={"kind": "lead", "ids": cur["lost_ids"][:20],
                   "window": _window_ru(WINDOW_DAYS, now),
                   "numbers": {"lost": n, "was": prev["lost"], "change": growth,
-                              "reasons": cur["lost_reasons"]}},
-        impact=None, impact_note="",
+                              "reasons": cur["lost_reasons"],
+                              "value": cur["lost_value"]}},
+        impact=cur["lost_value"] or None,
+        impact_note=("Столько стоили потерянные возможности по суммам, которые "
+                     "в них записаны. Деньги уже ушли — вернуть можно не их, а "
+                     "следующие такие же."),
         fingerprint=_bucket(n))
 
 
@@ -594,8 +612,12 @@ def _financial_anomaly(bid, now):
                                                              WINDOW_DAYS * 2),
                   "numbers": {"expense": cur["expense"], "was": prev["expense"],
                               "change": change, "entries": cur["entries"]}},
-        impact=None,
-        impact_note="",
+        # Разница расходов — не оценка и не прогноз: это записанные деньги,
+        # посчитанные вычитанием. Сумму ставим только на росте: у падения та
+        # же разница означает не «на кону», а «стало дешевле или не занесли».
+        impact=(cur["expense"] - prev["expense"]) if up else None,
+        impact_note=("На столько больше уходит за то же время. Считается "
+                     "вычитанием по вашим же записям." if up else ""),
         fingerprint=("up:" if up else "down:") + _pct_bucket(change))
 
 
@@ -660,6 +682,79 @@ def _muffled(bid, fingerprint, now):
     return (now - when).days < COOLDOWN_DAYS
 
 
+def refusals(bid, kind):
+    """
+    Отказы владельца по этой теме, которые ещё в счёт.
+
+    Считать нечего заводить: каждый отказ уже лежит отдельной записью — одна
+    находка живёт в одном экземпляре, и, отклонённая, она уступает место
+    следующей. Отдельный счётчик был бы вторым ответом на тот же вопрос и
+    первым же расхождением.
+
+    С момента, когда владелец попросил вернуть тему, счёт начинается заново:
+    он передумал, и держать против него прежние отказы нечестно.
+    """
+    since = database.initiative_heard(bid).get(kind) or ""
+    rows = database.list_initiatives(bid, kind=kind,
+                                     status=database.IN_DISMISSED, limit=20)
+    if not since:
+        return rows
+    return [r for r in rows
+            if str(r.get("decided_at") or r.get("closed_at") or "") > since]
+
+
+def muted(bid, kind):
+    """Тема, от которой отказались столько раз, что это уже ответ. Или None."""
+    rows = refusals(bid, kind)
+    if len(rows) < MUTE_AFTER:
+        return None
+    worst = max(int(r.get("impact") or 0) for r in rows)
+    return {"type": kind,
+            "title": (TYPES.get(kind) or {}).get("title") or kind,
+            "times": len(rows),
+            "last": rows[0].get("decided_at") or rows[0].get("closed_at"),
+            "worst": worst,
+            "urgent": any(r.get("priority") == URGENT for r in rows)}
+
+
+def muted_list(bid):
+    """Все замолчавшие темы — чтобы владелец видел, о чём VELOR молчит."""
+    out = []
+    for kind, _detect in DETECTORS:
+        got = muted(bid, kind)
+        if got:
+            out.append(got)
+    return out
+
+
+def _louder(cand, gate):
+    """
+    Стало ли существенно хуже того, от чего владелец уже отмахнулся.
+
+    Два повода нарушить молчание, и оба измеримы. Первый: срочность выросла до
+    той, которой раньше не было. Второй: цена вопроса выросла вдвое.
+
+    Если ни у одного отклонённого суммы не было, второе правило молчит — и это
+    честно: сравнить не с чем, а придумать сравнение значило бы вернуть тему
+    под видом арифметики.
+    """
+    if cand["priority"] == URGENT and not gate["urgent"]:
+        return True
+    worst = gate["worst"]
+    return bool(worst and int(cand.get("impact") or 0) >= worst * MUTE_BREAK_X)
+
+
+def unmute(bid, kind):
+    """«Показывай снова.» Прежние отказы перестают считаться с этой минуты."""
+    if kind not in TYPES:
+        raise InitiativeError("Неизвестная тема находок: %s" % kind)
+    database.set_initiative_heard(bid, kind)
+    database.log_event(
+        bid, "settings", "Снова слежу за темой: " + (TYPES[kind].get("title") or kind),
+        "Вы попросили вернуть её. Прежние отказы больше не в счёт.", level="info")
+    return {"type": kind, "title": TYPES[kind].get("title") or kind}
+
+
 def _note(bid, cand, now):
     """
     Положить находку — или обновить ту, что уже есть.
@@ -693,6 +788,12 @@ def _note(bid, cand, now):
 
     if _muffled(bid, cand["fingerprint"], now):
         return {"id": None, "new": False, "muffled": True}
+
+    # Тема, от которой отказались трижды. Молчим — но не глухо: если картина
+    # стала существенно хуже всего, что владелец отклонял, говорим снова.
+    gate = muted(bid, cand["type"])
+    if gate and not _louder(cand, gate):
+        return {"id": None, "new": False, "muffled": True, "muted": True}
 
     iid = database.add_initiative(
         bid, cand["type"], title=cand["title"], level=cand["level"],
@@ -906,11 +1007,23 @@ def dismiss(business_id, initiative_id):
     row = _get(business_id, initiative_id)
     if row["status"] in database.INITIATIVE_CLOSED:
         return row
-    return database.update_initiative(initiative_id, business_id,
+    done = database.update_initiative(initiative_id, business_id,
                                       status=database.IN_DISMISSED,
                                       outcome="Вы сказали, что это не важно.",
                                       decided_at=database.now(),
                                       closed_at=database.now())
+    # Третий отказ — не ещё одна отметка, а вывод. Делаем его вслух: молча
+    # переставший спрашивать продукт неотличим от сломавшегося.
+    gate = muted(business_id, row["type"])
+    if gate and gate["times"] == MUTE_AFTER:
+        database.log_event(
+            business_id, "settings",
+            "Больше не напоминаю: " + gate["title"],
+            "Вы отклонили это %d раза подряд — значит, у вас так и задумано. "
+            "Скажу снова, только если станет заметно хуже. Вернуть тему можно "
+            "на странице «Работа»." % MUTE_AFTER,
+            level="info", once_key="muted:%s" % row["type"])
+    return done
 
 
 # ── от находки к действию ──────────────────────────────────────────────────
@@ -1175,8 +1288,24 @@ _RANK = {URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3}
 
 
 def _order(row):
+    """
+    Очередь чтения: сначала что делать, потом насколько это срочно, потом
+    сколько это стоит, и только в конце — что новее.
+
+    Деньги стоят третьими, а не первыми, намеренно. Клиент, ждущий ответа
+    сутки, важнее наблюдения на полмиллиона: у первого срок горит, у второго
+    нет. Но внутри одной срочности решает сумма — раньше здесь стоял номер
+    записи, и находка на четыре тысячи вставала выше находки на полмиллиона
+    просто потому, что нашлась позже. Владелец читает список сверху и
+    дочитывает редко.
+
+    Неизвестная сумма — не маленькая сумма. Сравнить её не с чем, поэтому
+    находки без числа идут после находок с числом и между собой строятся по
+    новизне, как раньше. Придумать им ноль значило бы объявить их дешёвыми.
+    """
     return (0 if row.get("level") == ACT else 1,
             _RANK.get(row.get("priority"), 4),
+            -int(row.get("impact") or 0),
             -int(row["id"]))
 
 

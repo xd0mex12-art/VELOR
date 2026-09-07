@@ -512,6 +512,11 @@ def _migrate_columns(conn):
         ("businesses", "morning_push", "TEXT"),
         ("businesses", "push_sent_on", "TEXT"),
         ("businesses", "push_lines", "TEXT"),
+        # Темы находок, которые владелец попросил показывать снова, и с какого
+        # момента. Отказы считаются по самим находкам — отдельного счётчика
+        # заводить не пришлось; здесь хранится только момент, с которого старые
+        # отказы больше не в счёт.
+        ("businesses", "initiative_heard", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
@@ -5234,6 +5239,11 @@ def leads_period(business_id, days=14, offset=0):
 
     Возвращает и id потерянных: инициативе нужны не только числа, но и
     возможность показать владельцу, о каких именно возможностях речь.
+
+    И сумму потерянного. Пять потерь по три тысячи и пять по двести — разные
+    новости, а по счётчику они одинаковые. Берём названное вслух, а при
+    отсутствии — нашу же оценку: тем же правилом, по которому сумма
+    возможности показывается на её карточке.
     """
     frm, to = _window(days, offset)
     with _connect() as conn:
@@ -5247,7 +5257,9 @@ def leads_period(business_id, days=14, offset=0):
                  AND date(COALESCE(converted_at, created_at)) < date('now', ?)""",
             (business_id, frm, to)).fetchone()["n"] or 0
         lost_rows = conn.execute(
-            """SELECT id, lost_reason FROM leads WHERE business_id = ? AND status = 'lost'
+            """SELECT id, lost_reason,
+                      COALESCE(NULLIF(value, 0), estimated_value, 0) AS worth
+                 FROM leads WHERE business_id = ? AND status = 'lost'
                  AND date(COALESCE(lost_at, created_at)) >= date('now', ?)
                  AND date(COALESCE(lost_at, created_at)) < date('now', ?)
                 ORDER BY id DESC""",
@@ -5264,7 +5276,66 @@ def leads_period(business_id, days=14, offset=0):
             # ровно на те возможности, по которым разговор ещё идёт.
             "conversion": round(won * 100 / closed) if closed else None,
             "lost_reasons": reasons,
+            "lost_value": sum(int(r["worth"] or 0) for r in lost_rows),
             "lost_ids": [int(r["id"]) for r in lost_rows]}
+
+
+def leads_value(business_id, ids):
+    """
+    Сколько стоят названные возможности вместе.
+
+    Нужна там, где находка говорит о пачке разговоров, а не об одном: «пять
+    писем лежат готовыми» — это одна новость, если за ними десять тысяч, и
+    совсем другая, если полмиллиона. Считаем в базе одним запросом, а не по
+    строке за раз: находок семь, и каждая лишняя пачка запросов удлиняет
+    главную страницу для всех.
+
+    business_id обязателен и стоит в WHERE рядом с id: список приходит из
+    другой таблицы, и без него чужая возможность попала бы в чужую сумму.
+    """
+    ids = [int(i) for i in (ids or []) if i]
+    if not ids:
+        return 0
+    holes = ",".join("?" * len(ids))
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(COALESCE(NULLIF(value, 0), estimated_value, 0)), 0) AS s "
+            "FROM leads WHERE business_id = ? AND id IN (%s)" % holes,
+            [business_id] + ids).fetchone()
+    return int(row["s"] or 0)
+
+
+def initiative_heard(business_id):
+    """
+    Когда владелец в последний раз просил вернуть каждую тему находок.
+
+    {"financial_anomaly": "2026-09-07 12:30:00", …}. Пустое — значит, не просил
+    ни разу.
+    """
+    row = get_business(business_id) or {}
+    raw = (row.get("initiative_heard") or "").strip()
+    if not raw:
+        return {}
+    try:
+        got = _json.loads(raw)
+    except Exception:
+        return {}
+    return {str(k): str(v) for k, v in got.items()} if isinstance(got, dict) else {}
+
+
+def set_initiative_heard(business_id, kind, when=None):
+    """
+    «Показывай мне это снова с этого момента.»
+
+    Отдельной функцией, а не через update_business: это решение владельца о
+    том, что ему говорить, — его нельзя ставить в один ряд с названием
+    компании и менять заодно, когда правят профиль.
+    """
+    got = initiative_heard(business_id)
+    got[str(kind)] = when or now()
+    with _connect() as conn:
+        conn.execute("UPDATE businesses SET initiative_heard = ? WHERE id = ?",
+                     (_json.dumps(got, ensure_ascii=False), business_id))
 
 
 def sales_today(business_id):

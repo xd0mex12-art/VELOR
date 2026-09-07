@@ -155,6 +155,15 @@ ai.initiative_hypothesis = fake_hypothesis
 
 
 # ═══ 1. РЕЕСТР НАХОДОК ═════════════════════════════════════════════════════
+def _raises(fn):
+    """Упало ли — там, где молчание было бы хуже ошибки."""
+    try:
+        fn()
+        return False
+    except Exception:
+        return True
+
+
 print("\n== 1. РЕЕСТР ==")
 
 check("реестр не пуст и не разросся", 5 <= len(initiatives.TYPES) <= 10,
@@ -845,6 +854,175 @@ check("в основаниях только свои записи",
       all(all(database.get_lead(i, bidA) for i in r["evidence"].get("ids") or [])
           for r in database.list_initiatives(bidA, kind=initiatives.HOT_LEADS_UNANSWERED,
                                              live=True)))
+print("\n== ТРИЖДЫ ОТКЛОНЁННОЕ VELOR ПЕРЕСТАЁТ ПРЕДЛАГАТЬ ==")
+# Один отказ — «не сейчас». Два — «опять некстати». Три — это уже ответ, и
+# продолжать спрашивать значит спорить с человеком о его собственном бизнесе.
+# Пример из жизни: доля зарплаты в 57% может быть у владельца так и задумана.
+bidL, _hl = reg("learns-no")
+KIND = initiatives.FINANCIAL_ANOMALY
+
+
+def refuse(bid, *, worth=None, priority=initiatives.HIGH, tag="x"):
+    """Владелец увидел находку этой темы и сказал «не интересно»."""
+    iid = database.add_initiative(
+        bid, KIND, title="Расходы выросли", level=initiatives.ACT,
+        priority=priority, confidence=initiatives.SOLID,
+        summary="Стало больше", why="Прибыль — это разница",
+        evidence={}, impact=worth, impact_note="", action=None,
+        action_note=None, href="", fingerprint="up:" + tag, expires_at=None)
+    initiatives.dismiss(bid, iid)
+    return iid
+
+
+refuse(bidL, worth=50000, tag="a")
+check("один отказ темы не закрывает", initiatives.muted(bidL, KIND) is None)
+refuse(bidL, worth=40000, tag="b")
+check("два — тоже не закрывают", initiatives.muted(bidL, KIND) is None)
+refuse(bidL, worth=30000, tag="c")
+gate = initiatives.muted(bidL, KIND)
+check("а три — это уже ответ", bool(gate), gate)
+check("сказано, сколько раз отказались", gate and gate["times"] == 3, gate)
+check("тема названа по-человечески",
+      gate and gate["title"] == initiatives.TYPES[KIND]["title"], gate)
+check("VELOR сказал об этом вслух, а не замолчал молча",
+      any("Больше не напоминаю" in (e.get("title") or "")
+          for e in database.list_events(bidL, limit=20)),
+      [e.get("title") for e in database.list_events(bidL, limit=5)])
+
+# Ворота: новая такая же находка до владельца не доходит.
+same = initiatives._found(
+    KIND, title="Расходы выросли на 31%", summary="…", why="…",
+    priority=initiatives.HIGH, impact=45000, fingerprint="up:d")
+got = initiatives._note(bidL, same, initiatives._now())
+check("новую такую же VELOR не показывает", got.get("muted") is True, got)
+check("и записи не заводит", got["id"] is None, got)
+
+# Но не глухо: вдвое дороже — это уже другой разговор.
+worse = initiatives._found(
+    KIND, title="Расходы выросли вдвое", summary="…", why="…",
+    priority=initiatives.HIGH, impact=100000, fingerprint="up:e")
+got2 = initiatives._note(bidL, worse, initiatives._now())
+check("выросшее вдвое пробивает молчание", got2["id"] is not None, got2)
+initiatives.dismiss(bidL, got2["id"])   # возвращаем тишину для следующих проверок
+
+# И срочность, которой раньше не было, — тоже повод заговорить.
+bidU, _hu = reg("learns-urgent")
+for t in ("a", "b", "c"):
+    refuse(bidU, worth=None, priority=initiatives.HIGH, tag=t)
+check("тема закрыта и без сумм", bool(initiatives.muted(bidU, KIND)))
+quiet = initiatives._found(KIND, title="Опять выросли", summary="…", why="…",
+                           priority=initiatives.HIGH, fingerprint="up:z")
+check("без сумм сравнивать нечего — молчим",
+      initiatives._note(bidU, quiet, initiatives._now()).get("muted") is True)
+alarm = initiatives._found(KIND, title="Расходы взлетели", summary="…", why="…",
+                           priority=initiatives.URGENT, fingerprint="up:y")
+check("а срочность, которой не было, пробивает молчание",
+      initiatives._note(bidU, alarm, initiatives._now())["id"] is not None)
+
+# Чужие отказы — не мои.
+bidO, _ho = reg("learns-other")
+check("отказы одного бизнеса не затыкают другой",
+      initiatives.muted(bidO, KIND) is None)
+
+# Владелец передумал.
+back = initiatives.unmute(bidL, KIND)
+check("тему можно вернуть", back["type"] == KIND, back)
+check("после возврата отказы не в счёт", initiatives.muted(bidL, KIND) is None,
+      initiatives.refusals(bidL, KIND))
+again = initiatives._found(
+    KIND, title="Расходы выросли на 32%", summary="…", why="…",
+    priority=initiatives.HIGH, impact=45000, fingerprint="up:f")
+check("и находка снова доходит до владельца",
+      initiatives._note(bidL, again, initiatives._now())["id"] is not None)
+check("возврат несуществующей темы — ошибка, а не тишина",
+      _raises(lambda: initiatives.unmute(bidL, "выдуманная-тема")))
+
+# Через кабинет — тем же путём, что и у живого владельца.
+r_mut = c.get("/api/initiatives", headers=_hu).json()
+check("замолчавшие темы видны в кабинете",
+      any(m["type"] == KIND for m in r_mut.get("muted") or []), r_mut.get("muted"))
+r_back = c.post("/api/initiatives/unmute", headers=_hu, json={"type": KIND})
+check("и возвращаются кнопкой", r_back.status_code == 200, r_back.text[:160])
+check("после возврата список пуст", not (r_back.json().get("muted") or []),
+      r_back.json().get("muted"))
+check("чужую тему вернуть нельзя без своего входа",
+      c.post("/api/initiatives/unmute", json={"type": KIND}).status_code in (401, 403))
+
+
+print("\n== ДЕНЬГИ НА КОНУ ==")
+# Счётчик находок врал масштабом: «потеряно 6 возможностей» читается одинаково
+# и когда за ними двадцать тысяч, и когда полмиллиона. Сумма делает новость
+# сравнимой — и с другими находками, и с самим бизнесом.
+bidM, _hm = reg("money-stake")
+for i in range(6):
+    _lid = leads.create(bidM, title="Потеря %d" % i, source="manual")
+    database.update_lead(_lid, bidM, status="lost", lost_at=ago(days=3),
+                         lost_reason="price", value=90000)
+per = database.leads_period(bidM, 14, 0)
+check("потери считаются не только по числу, но и по сумме",
+      per["lost_value"] == 540000, per["lost_value"])
+initiatives.scan(bidM)
+lost_row = next((r for r in initiatives.feed(bidM)
+                 if r["type"] == initiatives.LOST_LEADS_CLUSTER), None)
+check("у потерь появилась цена вопроса", lost_row and lost_row["impact"] == 540000,
+      lost_row and lost_row["impact"])
+check("сумма показана деньгами, а не числом",
+      lost_row and "₽" in lost_row["impact_ru"], lost_row and lost_row["impact_ru"])
+check("и подписана честно: деньги уже ушли",
+      lost_row and "уже ушли" in lost_row["impact_note"],
+      lost_row and lost_row["impact_note"])
+
+# Сумма по списку разговоров — общая для находок, которые говорят о пачке.
+# Чужие возможности в неё попасть не должны: список приходит из другой
+# таблицы, и business_id здесь не формальность.
+bidN, _hn = reg("money-alien")
+alien_lid = leads.create(bidN, title="Чужая", source="manual")
+database.update_lead(alien_lid, bidN, value=1000000)
+mine_ids = [r["id"] for r in database.list_leads(bidM, limit=50)]
+check("сумма по списку совпадает с суммой потерь",
+      database.leads_value(bidM, mine_ids) == 540000,
+      database.leads_value(bidM, mine_ids))
+check("чужая возможность в сумму не попадает",
+      database.leads_value(bidM, mine_ids + [alien_lid]) == 540000,
+      database.leads_value(bidM, mine_ids + [alien_lid]))
+check("пустой список — ноль, а не ошибка", database.leads_value(bidM, []) == 0)
+
+
+print("\n== ПОРЯДОК ЧТЕНИЯ ==")
+# Владелец читает список сверху и дочитывает редко. Значит, порядок — это не
+# оформление, а решение о том, что он вообще увидит.
+def _r(**kw):
+    row = {"level": initiatives.ACT, "priority": initiatives.HIGH,
+           "impact": None, "id": 1}
+    row.update(kw)
+    return row
+
+
+big, small, blank = _r(id=1, impact=500000), _r(id=9, impact=4000), _r(id=8)
+line = sorted([small, blank, big], key=initiatives._order)
+check("дороже — выше", line[0] is big, [r["impact"] for r in line])
+check("дешевле — следом", line[1] is small, [r["impact"] for r in line])
+check("без суммы — после сравнимых, а не в конце жизни",
+      line[2] is blank, [r["impact"] for r in line])
+
+urgent_cheap = _r(id=2, priority=initiatives.URGENT)
+high_rich = _r(id=3, impact=999999)
+check("срочное впереди дорогого: у одного горит срок, у другого нет",
+      sorted([high_rich, urgent_cheap], key=initiatives._order)[0] is urgent_cheap)
+
+watch_rich = _r(id=4, level=initiatives.WATCH, impact=999999)
+act_poor = _r(id=5, level=initiatives.ACT)
+check("наблюдение не обгоняет дело даже с большой суммой",
+      sorted([watch_rich, act_poor], key=initiatives._order)[0] is act_poor)
+
+older_rich = _r(id=1, impact=200000)
+newer_poor = _r(id=99, impact=1000)
+check("новизна больше не главнее денег",
+      sorted([newer_poor, older_rich], key=initiatives._order)[0] is older_rich)
+check("а без сумм новизна по-прежнему решает",
+      sorted([_r(id=1), _r(id=99)], key=initiatives._order)[0]["id"] == 99)
+
+
 database.add_fact(bidT, "service", "Доставка", "300 ₽")
 database.add_fact(bidT, "service", "Доставка", "900 ₽")
 initiatives.scan(bidT)

@@ -1810,6 +1810,10 @@ def api_initiatives(business_id: int = 0, all: bool = False, limit: int = 30,
             except Exception:
                 logging.exception("Отметка о показе не сохранилась (biz %s)", bid)
     return {"items": items, "overview": initiatives.overview(bid),
+            # О чём VELOR молчит по решению владельца. Молчание, о котором
+            # нельзя узнать, неотличимо от поломки: владелец должен видеть, что
+            # тема не пропала, а отложена им самим, и уметь вернуть её.
+            "muted": initiatives.muted_list(bid),
             "types": [{"key": k, "title": m["title"], "group": m["group"]}
                       for k, m in initiatives.TYPES.items()]}
 
@@ -1860,7 +1864,27 @@ def api_initiative_dismiss(initiative_id: int, body: InitiativeIn,
         row = initiatives.dismiss(bid, initiative_id)
     except initiatives.InitiativeError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    return {"ok": True, "initiative": initiatives.public(row)}
+    # Если этот отказ оказался третьим — говорим об этом сразу, а не оставляем
+    # владельца гадать, почему тема больше не появляется.
+    return {"ok": True, "initiative": initiatives.public(row),
+            "muted": initiatives.muted(bid, row["type"])}
+
+
+class InitiativeTypeIn(BaseModel):
+    business_id: int = 0
+    type: str = ""
+
+
+@app.post("/api/initiatives/unmute")
+def api_initiative_unmute(body: InitiativeTypeIn, x_auth: str = Header(default="")):
+    """«Показывай снова.» Прежние отказы по теме перестают считаться."""
+    bid = _resolve_bid(x_auth, body.business_id)
+    require_entitlement(bid, "insights_auto")
+    try:
+        got = initiatives.unmute(bid, (body.type or "").strip())
+    except initiatives.InitiativeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "unmuted": got, "muted": initiatives.muted_list(bid)}
 
 
 @app.post("/api/initiatives/{initiative_id}/act")
