@@ -13,19 +13,36 @@
 Тест собирает все SQL-строки из исходников, прогоняет через переводчик и
 смотрит, не осталось ли в них слов, которых в Postgres нет.
 
-Тест не требует ни базы, ни сети: переводчик — чистая функция над строкой.
+Диалект — только половина разницы. Вторая половина: боевая база отвечает
+ДРУГИМИ ТИПАМИ. SUM по колонке BIGINT в Postgres — это numeric, а numeric
+приезжает в Python как Decimal; SQLite на том же запросе отдаёт int. Дальше
+идёт обычная арифметика, Python отказывается умножать Decimal на float, и
+главная снова отвечает «Не удалось получить данные» — при том, что дома всё
+открывается. Хуже того, падает избирательно: у бизнеса БЕЗ денег сумма пустая,
+и всё работает; ломается ровно тот кабинет, где цифры настоящие. Поэтому
+вторая половина файла проверяет типы на живом прогоне.
 """
 import ast
+import decimal
 import io
 import os
 import pathlib
 import re
 import sys
+import tempfile
 
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-os.environ["DATABASE_URL"] = ""      # переводчик берём как функцию, база не нужна
+sys.path.insert(0, str(ROOT / "tools"))
+_TMP = pathlib.Path(tempfile.mkdtemp())
+os.environ.update(
+    DATABASE_URL="",                 # переводчик берём как функцию, Postgres не нужен
+    DB_PATH=str(_TMP / "t.db"), LOG_DIR=str(_TMP), UPLOAD_DIR=str(_TMP / "up"),
+    APP_ENV="development", OWNER_LOGIN="testowner", OWNER_PASSWORD="s3cret-owner",
+    JWT_SECRET="test-secret-pg", SECRET_KEY="test-box-key",
+    GEMINI_API_KEY="", GIGACHAT_AUTH_KEY="",
+)
 
 import database                      # noqa: E402
 
@@ -236,6 +253,125 @@ for path in FILES:
 
 check("ни один подзапрос не тянет колонку мимо GROUP BY",
       not bad_grouping, bad_grouping[:3])
+
+
+
+# ============================================================
+#  ТИПЫ: БОЕВАЯ БАЗА ОТВЕЧАЕТ ЧИСЛАМИ ДРУГОГО СОРТА
+# ============================================================
+
+print("\n== ЧИСЛО ИЗ POSTGRES ПРИХОДИТ ОБЫЧНЫМ ЧИСЛОМ ==")
+# Приведение стоит на границе — в строке результата. Мест, где число потом
+# считают, десятки; граница одна, и проверять надо её.
+D = decimal.Decimal
+row = database._Row(["sum", "avg", "name", "nothing"],
+                    [D("482900"), D("12.5"), "аренда", None])
+check("сумма — целое, а не Decimal", isinstance(row["sum"], int), type(row["sum"]))
+check("и значение не потерялось", row["sum"] == 482900, row["sum"])
+check("дробное — float, как в SQLite", isinstance(row["avg"], float), type(row["avg"]))
+check("и дробь не потерялась", float(row["avg"]) == 12.5, row["avg"])
+check("текст не тронут", row["name"] == "аренда")
+check("пустое остаётся пустым", row["nothing"] is None)
+check("по номеру столбца — то же самое", isinstance(row[0], int), type(row[0]))
+
+# Ловушка, из-за которой сбой выглядел «ошибкой демо»: COALESCE(SUM(x),0) на
+# пустой таблице даёт Decimal('0'), а стоящее следом `or 0` подменяет его
+# обычным нулём. Пустой кабинет открывался, кабинет с деньгами — нет.
+zero = database._Row(["s"], [D("0")])
+check("ноль тоже обычный ноль", isinstance(zero["s"], int) and zero["s"] == 0)
+
+# Умножение на дробную долю — та самая строка, на которой падала главная.
+# Проверяем через попытку: непосчитанное умножение — это исключение, а не
+# «неверный ответ», и упасть здесь тест не должен, ему нужно дойти до конца.
+try:
+    _mul = row["sum"] * 1.033
+except TypeError as e:
+    _mul = e
+check("на дробную долю месяца умножается", isinstance(_mul, float), _mul)
+
+
+print("\n== ГЛАВНАЯ ОТКРЫВАЕТСЯ, КОГДА ЧИСЛА ПРИХОДЯТ КАК С БОЕВОГО СЕРВЕРА ==")
+# Подделываем именно ту разницу: строки агрегатов собираем настоящим классом
+# database._Row из значений Decimal — как это делает psycopg на сервере. Если
+# приведение убрать, эти страницы отвечают 500, и проверка краснеет.
+from fastapi.testclient import TestClient                            # noqa: E402
+import server, demo_business                                         # noqa: E402
+
+_AGG = re.compile(r"\b(sum|avg|total|round)\s*\(", re.I)
+_real_connect = database._connect
+
+
+def _as_pg(row, cols):
+    """Строка из SQLite, пересобранная так, как её отдал бы Postgres."""
+    vals = [D(str(v)) if isinstance(v, (int, float)) and not isinstance(v, bool) else v
+            for v in row]
+    return database._Row(cols, vals)
+
+
+class _PgLikeCursor:
+    def __init__(self, cur, agg):
+        self._c, self._agg = cur, agg
+        self._cols = [d[0] for d in (cur.description or [])]
+
+    def fetchone(self):
+        r = self._c.fetchone()
+        return _as_pg(r, self._cols) if (r is not None and self._agg) else r
+
+    def fetchall(self):
+        rows = self._c.fetchall()
+        return [_as_pg(r, self._cols) for r in rows] if self._agg else rows
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+    def __getattr__(self, k):
+        return getattr(self._c, k)
+
+
+class _PgLikeConn:
+    def __init__(self, conn):
+        self._c = conn
+
+    def execute(self, sql, params=()):
+        return _PgLikeCursor(self._c.execute(sql, params), bool(_AGG.search(sql)))
+
+    def __getattr__(self, k):
+        return getattr(self._c, k)
+
+    def __enter__(self):
+        self._c.__enter__()
+        return self
+
+    def __exit__(self, *a):
+        return self._c.__exit__(*a)
+
+
+client = TestClient(server.app, raise_server_exceptions=False)
+demo = demo_business.build(request="стоматологическая клиника")
+tok = client.post("/api/business-login",
+                  json={"login": demo["login"], "password": demo["password"]}).json()["token"]
+H = {"X-Auth": tok}
+
+database._connect = lambda: _PgLikeConn(_real_connect())
+try:
+    # Весь кабинет, а не одна главная: разница в типах живёт в общем слое и
+    # вылезет на любой странице, где есть деньги.
+    for page in ("/api/home", "/api/series?days=30", "/api/orders", "/api/clients",
+                 "/api/leads?status=open&limit=1", "/api/director", "/api/initiatives",
+                 "/api/goals", "/api/risks", "/api/opportunities", "/api/timeline",
+                 "/api/journal", "/api/finance", "/api/board", "/api/notifications"):
+        r = client.get(page, headers=H)
+        check("страница отвечает: " + page, r.status_code != 500, r.text[:160])
+    # Главную разбираем подробнее — сбой был именно в ней, в прогнозе.
+    home = client.get("/api/home", headers=H)
+    body = home.json() if home.status_code == 200 else {}
+    check("прогноз посчитан", isinstance((body.get("forecast") or {}).get("profit"), (int, float)),
+          body.get("forecast"))
+    check("деньги на месте", isinstance((body.get("money") or {}).get("income"), (int, float)),
+          body.get("money"))
+finally:
+    database._connect = _real_connect
+    demo_business.clean(demo["business_id"])
 
 
 print("\nИТОГО: успешно %d, провалено %d" % (ok, fail))

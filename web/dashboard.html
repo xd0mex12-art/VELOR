@@ -1043,12 +1043,35 @@ function softText(el, text){
   setTimeout(()=>{ el.textContent = text; el.style.opacity = '1'; }, 200);
 }
 
-function showFail(){
+// Полоса сбоя говорит РОВНО то, что случилось.
+//
+// Раньше здесь стояла одна фраза на все случаи: «Сервер не отвечает». Она
+// врала чаще, чем помогала, — сервер как раз отвечал, просто ошибкой, и его
+// собственное объяснение выбрасывалось. Человек видел «не удалось получить
+// данные» и не мог сделать с этим ничего: ни понять, ни рассказать. Разбирать
+// такой сбой приходилось по памяти, а не по экрану.
+//
+// Разделяем три случая, потому что действия у них разные: до сервера не
+// дошли — проверить связь; сервер сломался — повторить, ошибка уже записана;
+// сервер ответил по делу (тариф, права) — прочитать, что он сказал.
+function failReason(res, detail){
+  if (!res) return { t: 'Сервер не отвечает',
+                     d: 'Запрос не дошёл. Проверьте связь и попробуйте ещё раз.' };
+  if (res.status >= 500) return { t: 'Сбой на стороне сервера',
+    d: 'Ошибка записана в журнал. Показатели ниже могут быть устаревшими.' };
+  if (res.status === 402) return { t: 'Доступ ограничен',
+    d: detail || 'Пробный период закончился — данные целы, но обновление остановлено.' };
+  return { t: 'Данные не получены',
+           d: detail || ('Сервер ответил кодом ' + res.status + '.') };
+}
+
+function showFail(res, detail){
+  const r = failReason(res, detail);
   document.getElementById('failZone').innerHTML = `
     <div class="v-fail">
       <div>
-        <div class="t">Не удалось получить данные</div>
-        <div class="d">Сервер не отвечает. Показатели ниже могут быть устаревшими.</div>
+        <div class="t">${esc(r.t)}</div>
+        <div class="d">${esc(r.d)}</div>
       </div>
       <button class="v-btn" type="button" id="retry">Повторить</button>
     </div>`;
@@ -1139,10 +1162,17 @@ async function load(){
   let d;
   try{
     const r = await fetch('/api/home');
-    if (!r.ok) throw new Error(r.status);
+    if (!r.ok){
+      // Слово сервера ценнее нашего: у него есть причина, у нас — только код.
+      let detail = '';
+      try{ detail = (await r.json()).detail || ''; }catch{ /* ответ не json */ }
+      showFail(r, typeof detail === 'string' ? detail : '');
+      if (window.VELOR_FIELD) window.VELOR_FIELD.state('waiting');
+      return;
+    }
     d = await r.json();
   }catch{
-    showFail();
+    showFail(null, '');
     if (window.VELOR_FIELD) window.VELOR_FIELD.state('waiting');
     return;
   }

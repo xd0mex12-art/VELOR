@@ -4,6 +4,7 @@
 "универсальность": один и тот же код обслуживает любой бизнес.
 """
 import datetime
+import decimal
 import hashlib
 import hmac
 import os
@@ -43,11 +44,40 @@ if _PG:
     )
 
 
+def _plain(v):
+    """
+    Число из Postgres — обычным числом Python.
+
+    Единственное место, где две базы расходятся молча и больно. SUM по колонке
+    BIGINT в Postgres даёт numeric, а numeric приезжает сюда как Decimal.
+    SQLite на том же запросе отдаёт int. Дальше по коду идёт обычная
+    арифметика — «прибыль × доля месяца», «доля от общего» — и там, где
+    множитель дробный, Python отказывается умножать Decimal на float. На
+    ноутбуке всё работает, на боевом сервере страница не открывается.
+
+    Хуже всего, что молчит это выборочно: COALESCE(SUM(amount),0) на пустой
+    таблице даёт Decimal('0'), а следом стоящее `or 0` подменяет ноль обычным
+    нулём — и бизнес БЕЗ денег открывается прекрасно. Падает только тот, у
+    кого деньги есть. Ровно поэтому сбой сначала показался «ошибкой демо»: у
+    демо цифры настоящие, у пустого кабинета их нет.
+
+    Приводим на границе, а не по месту использования: мест использования
+    десятки, граница одна. Целое остаётся целым — суммы у нас в рублях и
+    хранятся целыми, так что округлять нечего; дробное (AVG, ROUND) становится
+    float, как в SQLite.
+    """
+    if isinstance(v, decimal.Decimal):
+        whole = int(v)
+        return whole if v == whole else float(v)
+    return v
+
+
 class _Row(dict):
     """Строка результата: и по имени row['col'], и по индексу row[0] — как sqlite3.Row."""
     def __init__(self, cols, vals):
+        vals = [_plain(v) for v in vals]
         super().__init__(zip(cols, vals))
-        self._vals = list(vals)
+        self._vals = vals
 
     def __getitem__(self, k):
         return self._vals[k] if isinstance(k, int) else super().__getitem__(k)
