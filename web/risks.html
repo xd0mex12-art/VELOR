@@ -30,18 +30,20 @@
   @media(max-width:640px){ .trends{ grid-template-columns:repeat(2,1fr); } }
 
   .cards{ display:grid; gap:16px; }
-  .risk{ position:relative; border:1px solid var(--hairline); border-radius:var(--r-lg); padding:24px 26px;
+  /* Под main намеренно: см. тот же случай в «Возможностях» — короткое общее
+     имя доставало до внутренней подкраски живого поля. */
+  main .risk{ position:relative; border:1px solid var(--hairline); border-radius:var(--r-lg); padding:24px 26px;
     background:var(--surface);
     opacity:0; transform:translateY(12px); animation:rIn .5s cubic-bezier(.22,1,.36,1) forwards;
     transition:border-color .25s; }
-  .risk:hover{ border-color:rgba(255,107,107,.32); }
+  main .risk:hover{ border-color:rgba(255,107,107,.32); }
   @keyframes rIn{ to{ opacity:1; transform:none } }
-  .risk::before{ content:''; position:absolute; left:0; top:22px; bottom:22px; width:3px;
+  main .risk::before{ content:''; position:absolute; left:0; top:22px; bottom:22px; width:3px;
     border-radius:0 3px 3px 0; }
-  .risk.l1::before{ background:var(--coral); }
-  .risk.l2::before{ background:var(--saffron); }
-  .risk.l3::before{ background:var(--ash); }
-  .risk.l1{ background:rgba(255,107,107,.05); }
+  main .risk.l1::before{ background:var(--coral); }
+  main .risk.l2::before{ background:var(--saffron); }
+  main .risk.l3::before{ background:var(--ash); }
+  main .risk.l1{ background:rgba(255,107,107,.05); }
 
   .r-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
   .lv{ display:flex; align-items:center; gap:6px; font-weight:600; font-size:var(--fs-micro);

@@ -581,8 +581,8 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
    и именно в той его части, которая видна на экране: у объёма, чей центр за
    краем viewport, примесь «по центру» просто не показалась бы. */
 .v-live .vf-o > u{ opacity:0; transition:opacity 2.2s var(--ease); }
-.vf-v2 .vf-o > u.risk{ left:34%; top:18%; width:64%; height:66%; }
-.vf-v3 .vf-o > u.opp{  left:10%; top:-8%; width:76%; height:72%; }
+.vf-v2 .vf-o > u.vf-risk{ left:34%; top:18%; width:64%; height:66%; }
+.vf-v3 .vf-o > u.vf-opp{  left:10%; top:-8%; width:76%; height:72%; }
 
 /* — ВОЗДУХ —
    Неподвижная дымка: глубокий космос не бывает абсолютно чёрным.
@@ -757,7 +757,7 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-live[data-field="risk"] .vf-v1{ transform:translate(-18%, 20%) scale(.88); }
 .v-live[data-field="risk"] .vf-v2{ transform:translate( 27%, -1%) scale(.84); }
 .v-live[data-field="risk"] .vf-v3{ transform:translate( -4%,-23%) scale(.88); }
-.v-live[data-field="risk"] .vf-v2 .vf-o > u.risk{ opacity:var(--vf-gain); }
+.v-live[data-field="risk"] .vf-v2 .vf-o > u.vf-risk{ opacity:var(--vf-gain); }
 
 /* ВОЗМОЖНОСТЬ — все три получают общую направленность и вытягиваются вдоль
    неё. Появилась точка притяжения, и поле к ней тянется. */
@@ -765,7 +765,7 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
 .v-live[data-field="opportunity"] .vf-v1{ transform:translate(-13%,15%) scale(1.16,.90); }
 .v-live[data-field="opportunity"] .vf-v2{ transform:translate(-13%,15%) scale(1.18,.88); }
 .v-live[data-field="opportunity"] .vf-v3{ transform:translate(-13%,15%) scale(1.20,.90); }
-.v-live[data-field="opportunity"] .vf-v3 .vf-o > u.opp{ opacity:var(--vf-gain); }
+.v-live[data-field="opportunity"] .vf-v3 .vf-o > u.vf-opp{ opacity:var(--vf-gain); }
 
 /* ============================================================
    СИГНАЛЫ БИЗНЕСА — ПРИМЕСЬ И МЕСТНОЕ ПОВЕДЕНИЕ
@@ -774,9 +774,9 @@ main a.card, main .n{ transition:border-color var(--dur), background var(--dur),
    другом. Цвета те же, что в языке продукта: коралл — риск, бирюза —
    получилось, янтарь — требует внимания. Ни один не включается сам по себе.
    ============================================================ */
-.v-live .vf-o > u.risk{ background:radial-gradient(closest-side,
+.v-live .vf-o > u.vf-risk{ background:radial-gradient(closest-side,
   rgba(255,107,107,.22) 0%, rgba(255,107,107,.090) 44%, rgba(255,107,107,0) 100%); }
-.v-live .vf-o > u.opp{ background:radial-gradient(closest-side,
+.v-live .vf-o > u.vf-opp{ background:radial-gradient(closest-side,
   rgba(47,212,178,.18) 0%, rgba(47,212,178,.075) 44%, rgba(47,212,178,0) 100%); }
 
 /* НЕОТВЕЧЕННЫЕ ОБРАЩЕНИЯ — янтарь.

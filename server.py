@@ -3136,12 +3136,16 @@ def _briefing_numbers(bid):
     y = database.day_facts(bid, yday)
     with database._connect() as conn:
         one = lambda q, *a: conn.execute(q, a).fetchone()[0] or 0
+        # По дате операции — как везде. Считать месяц по дате записи значит
+        # показать владельцу третью сумму рядом с двумя одинаковыми.
         month_income = one(
             """SELECT SUM(amount) FROM finance_entries WHERE business_id = ?
-                 AND kind='income' AND date(created_at) >= date(?)""", bid, month_start)
+                 AND kind='income'
+                 AND COALESCE(op_date, date(created_at)) >= date(?)""", bid, month_start)
         month_expense = one(
             """SELECT SUM(amount) FROM finance_entries WHERE business_id = ?
-                 AND kind='expense' AND date(created_at) >= date(?)""", bid, month_start)
+                 AND kind='expense'
+                 AND COALESCE(op_date, date(created_at)) >= date(?)""", bid, month_start)
         orders_open = one(
             "SELECT COUNT(*) FROM orders WHERE business_id = ? AND status = 'новый'", bid)
         orders_stale = one(
@@ -3162,6 +3166,18 @@ def _briefing_numbers(bid):
                 + (f", нужно по {g['per_day']} {g['unit']} в день" if g.get("per_day") else ""))
     if y["expense"] > y["income"] and y["expense"]:
         attention.append(f"вчера потратили больше, чем заработали: {y['expense']} против {y['income']} ₽")
+
+    # То же, что показывает главная в блоке «требует внимания». Источник один:
+    # иначе брифинг молчал бы о трёх ждущих клиентах, про которых главная в
+    # ту же минуту пишет крупно, — и владелец не знал бы, какому экрану верить.
+    try:
+        import initiatives as _ini
+        for row in _ini.attention(bid, limit=3):
+            line = row.get("title") or ""
+            if line and line not in attention:
+                attention.append(line)
+    except Exception:
+        logging.exception("Находки не доехали до брифинга (biz %s)", bid)
 
     opp = next((o for o in database.list_opportunities(bid) if o["status"] == "new"), None)
     risk = next((r for r in database.list_risks(bid) if r["status"] == "new"), None)
@@ -3326,6 +3342,27 @@ def api_briefing_list(business_id: int = 0, x_auth: str = Header(default="")):
 
 # ---------- ЕЖЕНЕДЕЛЬНЫЙ ОБЗОР ----------
 
+def _review_base(week: str):
+    """
+    Какую неделю показывать, если владелец не назвал никакую.
+
+    Обзор недели — это разбор недели, которая ПРОШЛА. В понедельник и во
+    вторник текущая неделя состоит из одного-двух дней, и разбор получается о
+    пустом месте: ноль там, ноль тут и ни одного вывода. Поэтому в начале
+    недели по умолчанию показываем предыдущую — ровно то, чего человек и ждёт,
+    открывая обзор в понедельник. Названную неделю не трогаем никогда.
+    """
+    if week:
+        try:
+            return datetime.date.fromisoformat(week), False
+        except ValueError:
+            pass
+    today = datetime.date.today()
+    if today.weekday() <= 1:                 # понедельник, вторник
+        return today - datetime.timedelta(days=7), True
+    return today, False
+
+
 def _week_bounds(day):
     """Понедельник..воскресенье недели, в которую попадает day (date)."""
     monday = day - datetime.timedelta(days=day.weekday())
@@ -3443,12 +3480,13 @@ def api_weekly(business_id: int = 0, week: str = "",
     """Обзор за неделю (по умолчанию — текущую). Готовится один раз, дальше из базы."""
     bid = _resolve_bid(x_auth, business_id)
     require_entitlement(bid, "analytics_advanced")
-    try:
-        base = datetime.date.fromisoformat(week) if week else datetime.date.today()
-    except ValueError:
-        base = datetime.date.today()
+    base, shifted = _review_base(week)
     monday, _ = _week_bounds(base)
-    return {"week_start": monday.isoformat(), "payload": _load_weekly(bid, monday.isoformat())}
+    return {"week_start": monday.isoformat(),
+            # Владелец должен видеть, что смотрит прошлую неделю, а не гадать,
+            # почему числа не сходятся с сегодняшним днём.
+            "previous": shifted,
+            "payload": _load_weekly(bid, monday.isoformat())}
 
 
 @app.post("/api/weekly/refresh")
@@ -3457,10 +3495,7 @@ def api_weekly_refresh(business_id: int = 0, week: str = "",
     bid = _resolve_bid(x_auth, business_id)
     require_entitlement(bid, "analytics_advanced")
     require_active(bid)
-    try:
-        base = datetime.date.fromisoformat(week) if week else datetime.date.today()
-    except ValueError:
-        base = datetime.date.today()
+    base, _shifted = _review_base(week)
     monday, _ = _week_bounds(base)
     return {"week_start": monday.isoformat(), "payload": _build_weekly(bid, monday.isoformat())}
 

@@ -730,14 +730,20 @@ print("\n== СИГНАЛЫ БИЗНЕСА — ОТДЕЛЬНЫЙ УРОВЕНЬ 
 check("примеси по умолчанию погашены",
       re.search(r"\.v-live \.vf-o > u\{ opacity:0", FIELD_CSS) is not None)
 check("риск красит коралловым, возможность — бирюзовым",
-      "u.risk{ background:radial-gradient" in FIELD_CSS
+      "u.vf-risk{ background:radial-gradient" in FIELD_CSS
       and "255,107,107" in FIELD_CSS and "47,212,178" in FIELD_CSS)
+# Имена внутри поля обязаны носить его префикс. Пока подкраски звались просто
+# `.opp` и `.risk`, правила «Возможностей» и «Рисков» попадали на них: подкраска
+# получала рамку с вертикальной полоской и уезжала по экрану вместе с фоном.
+check("у элементов поля свой префикс — страница не может достать до фона",
+      "u.risk{" not in FIELD_CSS and "u.opp{" not in FIELD_CSS
+      and 'class="opp"' not in FIELD_JS and 'class="risk"' not in FIELD_JS)
 check("примеси разведены по разным объёмам — иначе два цвета смешаются в грязь",
-      ".vf-v2 .vf-o > u.risk{" in FIELD_CSS and ".vf-v3 .vf-o > u.opp{" in FIELD_CSS)
+      ".vf-v2 .vf-o > u.vf-risk{" in FIELD_CSS and ".vf-v3 .vf-o > u.vf-opp{" in FIELD_CSS)
 # У объёма, чей центр за краем viewport, примесь «по центру» просто не
 # показалась бы — поэтому у неё своя рамка внутри объёма.
 TINT = {m.group(2): (int(m.group(1)), tuple(float(x) for x in m.groups()[2:]))
-        for m in re.finditer(r"\.vf-v(\d) \.vf-o > u\.(risk|opp)\{\s*left:\s*(-?[\d.]+)%;\s*"
+        for m in re.finditer(r"\.vf-v(\d) \.vf-o > u\.vf-(risk|opp)\{\s*left:\s*(-?[\d.]+)%;\s*"
                              r"top:\s*(-?[\d.]+)%;\s*width:\s*([\d.]+)%;\s*height:\s*([\d.]+)%;\s*\}",
                              FIELD_CSS)}
 check("у каждой примеси своя рамка внутри объёма", len(TINT) == 2, sorted(TINT))

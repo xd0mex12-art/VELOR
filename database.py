@@ -3191,10 +3191,15 @@ def day_facts(business_id, day):
         orders_new = one("SELECT COUNT(*) FROM orders WHERE business_id = ? AND date(created_at) = ?")
         messages = one("""SELECT COUNT(*) FROM messages
                           WHERE business_id = ? AND date(created_at) = ? AND role = 'user'""")
+        # По дате ОПЕРАЦИИ, как считает весь остальной продукт. По дате записи
+        # выписка, загруженная сегодня за прошлую неделю, стала бы сегодняшней
+        # выручкой — и день в брифинге разошёлся бы с тем же днём в финансах.
         income = one("""SELECT COALESCE(SUM(amount),0) FROM finance_entries
-                        WHERE business_id = ? AND date(created_at) = ? AND kind = 'income'""")
+                        WHERE business_id = ?
+                          AND COALESCE(op_date, date(created_at)) = ? AND kind = 'income'""")
         expense = one("""SELECT COALESCE(SUM(amount),0) FROM finance_entries
-                         WHERE business_id = ? AND date(created_at) = ? AND kind = 'expense'""")
+                         WHERE business_id = ?
+                           AND COALESCE(op_date, date(created_at)) = ? AND kind = 'expense'""")
         events = conn.execute(
             """SELECT title, detail FROM timeline
                WHERE business_id = ? AND date(created_at) = ? ORDER BY id""",
@@ -3435,12 +3440,14 @@ def week_facts(business_id, week_start, week_end):
     with _connect() as conn:
         one = lambda q, *a: conn.execute(q, a).fetchone()[0] or 0
         rng = (business_id, week_start, week_end)
+        # По дате операции — как в финансах, Директоре и рядах. По дате записи
+        # неделя расходилась с теми же днями на других вкладках.
         income = one("""SELECT COALESCE(SUM(amount),0) FROM finance_entries
                         WHERE business_id=? AND kind='income'
-                          AND date(created_at) BETWEEN ? AND ?""", *rng)
+                          AND COALESCE(op_date, date(created_at)) BETWEEN ? AND ?""", *rng)
         expense = one("""SELECT COALESCE(SUM(amount),0) FROM finance_entries
                          WHERE business_id=? AND kind='expense'
-                           AND date(created_at) BETWEEN ? AND ?""", *rng)
+                           AND COALESCE(op_date, date(created_at)) BETWEEN ? AND ?""", *rng)
         clients_new = one("""SELECT COUNT(*) FROM clients
                              WHERE business_id=? AND date(created_at) BETWEEN ? AND ?""", *rng)
         orders_new = one("""SELECT COUNT(*) FROM orders
@@ -3458,7 +3465,8 @@ def week_facts(business_id, week_start, week_end):
         expense_cats = conn.execute(
             """SELECT COALESCE(category,'без категории') AS category, SUM(amount) AS total
                FROM finance_entries
-               WHERE business_id=? AND kind='expense' AND date(created_at) BETWEEN ? AND ?
+               WHERE business_id=? AND kind='expense'
+                 AND COALESCE(op_date, date(created_at)) BETWEEN ? AND ?
                GROUP BY category ORDER BY total DESC LIMIT 3""",
             rng,
         ).fetchall()

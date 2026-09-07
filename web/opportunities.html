@@ -25,19 +25,22 @@
   .sig b{ font-weight:500; color:var(--bone); font-variant-numeric:tabular-nums; }
 
   .cards{ display:grid; gap:16px; }
-  .opp{ position:relative; border:1px solid var(--hairline); border-radius:var(--r-lg); padding:24px 26px;
+  /* Под main намеренно: имя короткое и общее, а живое поле — часть кабинета,
+     а не этой страницы. Правило без main доставало до фона и рисовало на нём
+     рамку с полоской. */
+  main .opp{ position:relative; border:1px solid var(--hairline); border-radius:var(--r-lg); padding:24px 26px;
     background:var(--surface);
     opacity:0; transform:translateY(12px); animation:oIn .5s cubic-bezier(.22,1,.36,1) forwards;
     transition:border-color .25s; }
-  .opp:hover{ border-color:rgba(128,82,255,.35); }
+  main .opp:hover{ border-color:rgba(128,82,255,.35); }
   @keyframes oIn{ to{ opacity:1; transform:none } }
-  .opp::before{ content:''; position:absolute; left:0; top:22px; bottom:22px; width:3px;
+  main .opp::before{ content:''; position:absolute; left:0; top:22px; bottom:22px; width:3px;
     border-radius:0 3px 3px 0; background:var(--iris); }
-  .opp.p1::before{ background:var(--coral); }
-  .opp.p2::before{ background:var(--saffron); }
-  .opp.p3::before{ background:var(--iris); }
-  .opp.done{ opacity:.45; }
-  .opp.done .o-title{ text-decoration:line-through; }
+  main .opp.p1::before{ background:var(--coral); }
+  main .opp.p2::before{ background:var(--saffron); }
+  main .opp.p3::before{ background:var(--iris); }
+  main .opp.done{ opacity:.45; }
+  main .opp.done .o-title{ text-decoration:line-through; }
 
   .o-head{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
   .pr{ font-weight:600; font-size:var(--fs-micro); letter-spacing:.16em; text-transform:uppercase;

@@ -98,8 +98,8 @@
     // побочный эффект колодца — пока воздух лежал под ним, колодец вычитал
     // его из середины экрана, и в кадре появлялось тёмное пятно.
     el.innerHTML =
-      volume(1, '') + volume(2, '<u class="risk"></u>') +
-      volume(3, '<u class="opp"></u>') +
+      volume(1, '') + volume(2, '<u class="vf-risk"></u>') +
+      volume(3, '<u class="vf-opp"></u>') +
       '<span class="vf-lead"><i></i><u></u></span>' +
       '<span class="vf-well"></span>' +
       '<span class="vf-air"></span>' +

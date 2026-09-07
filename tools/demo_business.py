@@ -162,6 +162,12 @@ def build(login=None, password=None, request="стоматологическая
     # Связи «заявка включает услугу» ставим тем же кодом, что и живой продукт.
     # Делать это внутри транзакции нельзя: graph открывает своё соединение.
     _link_services(bid)
+    # Оценку возможностей делает продукт, а не скрипт: иначе список и карточка
+    # расходятся на глазах у зрителя.
+    _qualify(bid)
+    # И находки тоже. Демо, у которого «Работа VELOR» пуста до первого
+    # получасового обхода, показывать нельзя.
+    _notice(bid)
     return {"business_id": bid, "login": login, "password": password,
             "name": name, "kind": p["kind"], "profile_source": p.get("source", "каталог")}
 
@@ -172,6 +178,33 @@ def _link_services(bid):
             graph.link_order_items(bid, o["id"], o.get("text") or "")
         except Exception:
             continue
+
+
+def _qualify(bid):
+    """
+    Пересчитать оценку каждой возможности по её же переписке.
+
+    Той самой функцией, которой продукт слушает живого клиента. Скрипт больше
+    не утверждает, что намерение высокое, — он даёт VELOR прочитать слова и
+    согласиться или не согласиться. Что получится, то и увидит зритель: и в
+    списке, и в карточке, и в объяснении «почему».
+    """
+    import qualify
+    for lead in database.list_leads(bid, limit=1000) or []:
+        for msg in database.lead_messages(bid, lead["id"]) or []:
+            if (msg.get("role") or "") != "user":
+                continue
+            qualify.observe(bid, lead["id"], msg.get("content") or "",
+                            message_id=msg.get("id"))
+
+
+def _notice(bid):
+    """Пройти по бизнесу теми же детекторами, что и получасовой обход."""
+    import initiatives
+    try:
+        initiatives.scan(bid, use_ai=False)     # без ИИ: набор собирается и без ключей
+    except Exception:
+        pass
 
 
 def _clients(con, bid, p):
@@ -427,11 +460,17 @@ def _windows(con, bid, clients, p):
         _lost(con, bid, clients[(k * 5 + 1) % len(clients)], name, price,
               random.randint(16, 27), 16, code, human, p, intent="medium", fit="unknown")
 
-    # ПОСЛЕ: купили 4, отказались 6 — и причины у отказов теперь другие
+    # ПОСЛЕ: купили 4, отказались 6 — и причины у отказов теперь другие.
+    #
+    # Два дня из четырёх заданы жёстко: вчера и сегодня. Случайный выбор из
+    # 1..13 оставлял вчерашний день пустым примерно в каждом втором наборе, и
+    # брифинг за день — экран, который открывают первым, — показывал нули по
+    # всем строкам у бизнеса, который работает каждый день.
+    days_after = [0, 1] + [random.randint(3, 13) for _ in range(2)]
     for k in range(4):
         name, price, _ = ring[k % len(ring)]
         _won(con, bid, clients[(k * 7 + 2) % len(clients)], name, price,
-             random.randint(2, 13), 12 + k % 6, p)
+             days_after[k], 12 + k % 6, p)
     for k in range(6):
         name, price, _ = pricey[k % len(pricey)]
         code, human = profiles.LOST_NOW[k]
@@ -506,25 +545,38 @@ def _money(con, bid, p):
         return
     avg = sum(live) / len(live)
 
-    for k, month, income in months:
-        if income <= 0:
-            continue
-        day = _date(month * 30 + 5)
-        rest = avg * base
-        growing = _round_to(avg * grows[k])
-        for cat, weight in weights:
+    # Дни, по которым раскладывается месяц расходов. Раньше весь месяц писался
+    # одним днём, и календарный месяц-до-сегодня содержал полный набор расходов
+    # против неполной выручки — брифинг показывал убыток у прибыльного бизнеса.
+    # Пять платежей по окну — и доля, попавшая в текущий месяц, растёт вместе с
+    # долей выручки. Заодно это просто правдоподобнее: никто не платит аренду,
+    # зарплату и закупку в один день.
+    SPREAD = (2, 8, 14, 20, 26)
+
+    def _pay(month, cat, amount, hour):
+        """Один расход, разложенный на пять платежей внутри своего окна."""
+        part = _round_to(amount / len(SPREAD))
+        for n, shift in enumerate(SPREAD):
+            back = month * 30 + shift
+            # Последний платёж добирает остаток: пять округлённых частей не
+            # обязаны сложиться ровно в исходную сумму, а расходы у нас точные.
+            take = part if n < len(SPREAD) - 1 else amount - part * (len(SPREAD) - 1)
+            if take <= 0:
+                continue
             con.execute(
                 """INSERT INTO finance_entries (business_id, kind, category, amount,
                                                 note, op_date, created_at, source)
                    VALUES (?,'expense',?,?,?,?,?,?)""",
-                (bid, cat, _round_to(rest * weight / total_w), cat.capitalize(), day,
-                 _ts(month * 30 + 5, hour=10), MARK))
-        con.execute(
-            """INSERT INTO finance_entries (business_id, kind, category, amount,
-                                            note, op_date, created_at, source)
-               VALUES (?,'expense',?,?,?,?,?,?)""",
-            (bid, grow_cat, growing, grow_cat.capitalize(), day,
-             _ts(month * 30 + 5, hour=11), MARK))
+                (bid, cat, int(take), cat.capitalize(), _date(back),
+                 _ts(back, hour=hour), MARK))
+
+    for k, month, income in months:
+        if income <= 0:
+            continue
+        rest = avg * base
+        for cat, weight in weights:
+            _pay(month, cat, _round_to(rest * weight / total_w), 10)
+        _pay(month, grow_cat, _round_to(avg * grows[k]), 11)
 
 
 # ── УДАЛЕНИЕ ────────────────────────────────────────────────────────────────

@@ -87,7 +87,9 @@
   .act .t{ font-weight:var(--fw-med); font-size:var(--fs-base); }
   .act .d{ font-size:var(--fs-sm); font-weight:var(--fw-thin); color:var(--silver);
     margin-top:3px; }
-  .risk{ margin-top:var(--sp-3); font-size:var(--fs-sm); color:var(--saffron); }
+  /* Под main: короткое общее имя иначе достаёт до внутренней подкраски
+     живого поля — см. тот же случай в «Возможностях» и «Рисках». */
+  main .risk{ margin-top:var(--sp-3); font-size:var(--fs-sm); color:var(--saffron); }
 
   /* касание: готовый текст и повод, по которому он написан.
      Отдельного экрана у касаний нет: решение принимается там же, где смотрят
