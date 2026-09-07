@@ -162,6 +162,8 @@ def build(login=None, password=None, request="стоматологическая
     # Связи «заявка включает услугу» ставим тем же кодом, что и живой продукт.
     # Делать это внутри транзакции нельзя: graph открывает своё соединение.
     _link_services(bid)
+    # Цели владельца. Ставятся от уже записанных чисел, а не выдумываются.
+    _goals(bid, p)
     # Оценку возможностей делает продукт, а не скрипт: иначе список и карточка
     # расходятся на глазах у зрителя.
     _qualify(bid)
@@ -178,6 +180,38 @@ def _link_services(bid):
             graph.link_order_items(bid, o["id"], o.get("text") or "")
         except Exception:
             continue
+
+
+def _goals(bid, p):
+    """
+    Две цели: по деньгам и по людям — как их ставит живой владелец.
+
+    Планка считается от того, что бизнес показывает на самом деле, и ставится
+    ВЫШЕ факта: цель, которая уже выполнена, ничего не говорит, а цель с
+    потолка врала бы о наборе. Месяц отсчитывается с первого числа — так его и
+    считают в жизни.
+    """
+    import datetime
+    since = datetime.date.today().replace(day=1).isoformat()
+    with database._connect() as con:
+        income = con.execute(
+            """SELECT COALESCE(SUM(amount),0) FROM finance_entries
+                WHERE business_id = ? AND kind = 'income'
+                  AND COALESCE(op_date, date(created_at)) >= ?""", (bid, since)).fetchone()[0] or 0
+        clients = con.execute(
+            """SELECT COUNT(*) FROM clients WHERE business_id = ?
+                 AND date(created_at) >= ?""", (bid, since)).fetchone()[0] or 0
+    month_end = (datetime.date.today().replace(day=28)
+                 + datetime.timedelta(days=4))
+    month_end = (month_end - datetime.timedelta(days=month_end.day)).isoformat()
+    # Планка примерно вдвое выше набранного к этому дню: месяц ещё идёт, и по
+    # темпу цель достижима — отставание в проценте, а не приговор.
+    database.add_goal(bid, "income", p.get("goal_money") or "Выручка за месяц",
+                      _round_to(max(int(income * 2.2), 100000), 10000),
+                      deadline=month_end, started_on=since)
+    database.add_goal(bid, "clients", p.get("goal_people") or "Новые клиенты за месяц",
+                      max(int(clients * 2) + 1, 5),
+                      deadline=month_end, started_on=since)
 
 
 def _qualify(bid):
@@ -551,7 +585,12 @@ def _money(con, bid, p):
     # Пять платежей по окну — и доля, попавшая в текущий месяц, растёт вместе с
     # долей выручки. Заодно это просто правдоподобнее: никто не платит аренду,
     # зарплату и закупку в один день.
-    SPREAD = (2, 8, 14, 20, 26)
+    # Дни выбраны так, чтобы обе половины месяца получили ПОРОВНУ платежей:
+    # 1, 5, 9 — в первые две недели, 15, 19, 23 — во вторые. Иначе Директор,
+    # который сравнивает две недели с двумя предыдущими, видел бы «расходы на
+    # зарплаты снизились на 33%» там, где ничего не менялось: просто в одно
+    # окно попало два платежа, а в другое три.
+    SPREAD = (1, 5, 9, 15, 19, 23)
 
     def _pay(month, cat, amount, hour):
         """Один расход, разложенный на пять платежей внутри своего окна."""

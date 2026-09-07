@@ -1820,10 +1820,22 @@ _OP_DAY = "COALESCE(f.op_date, date(f.created_at))"
 
 
 def _window(days, offset=0):
-    """Границы окна в днях назад: (начало, конец). Конец не включается."""
-    end = -int(offset)
-    start = -(int(offset) + int(days))
-    return (f"{start} day", f"{end} day" if end else "+1 day")
+    """
+    Границы окна в днях назад: (начало, конец). Конец не включается.
+
+    Окно длиной РОВНО days дней — и текущее, и любое предыдущее. Раньше
+    текущее окно захватывало на день больше: от «-30 day» до завтра — это
+    тридцать один день, тогда как предыдущее (от «-60 day» до «-30 day») было
+    ровно тридцатью. Продукт сравнивал 31 день с 30 и называл разницу
+    падением: лишний день добавлял к текущему периоду выручку, которой в
+    предыдущем не было. Заодно дневной ряд под числом никогда не сходился с
+    самим числом — он рисовал тридцать точек, а число считалось по тридцати
+    одной.
+    """
+    days, offset = int(days), int(offset)
+    start = -(offset + days - 1)
+    end = 1 - offset
+    return (f"{start} day", (f"+{end} day" if end > 0 else f"{end} day"))
 
 
 def money_period(business_id, days=30, offset=0):
@@ -3094,12 +3106,18 @@ def risk_signals(business_id):
     в сравнении периодов, поэтому всё считаем парами, а не одной цифрой.
     Плюс зависимость от одного источника дохода и одного клиента.
     """
+    # Границы и дата — те же, что у Директора и у дневного ряда. Раньше здесь
+    # стояли свои литералы («-30 day» вместо окна и дата ЗАПИСИ вместо даты
+    # операции), и главная показывала одну выручку крупно, а разбор под ней —
+    # другую.
+    now_frm, now_to = _window(30, 0)
+    was_frm, was_to = _window(30, 30)
     with _connect() as conn:
         def money(kind, frm, to):
             return conn.execute(
-                """SELECT COALESCE(SUM(amount),0) FROM finance_entries
-                   WHERE business_id = ? AND kind = ?
-                   AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)""",
+                f"""SELECT COALESCE(SUM(f.amount),0) FROM finance_entries f
+                   WHERE f.business_id = ? AND f.kind = ?
+                   AND {_OP_DAY} >= date('now', ?) AND {_OP_DAY} < date('now', ?)""",
                 (business_id, kind, frm, to)).fetchone()[0] or 0
 
         def count(table, frm, to, extra=""):
@@ -3108,16 +3126,16 @@ def risk_signals(business_id):
                     AND date(created_at) >= date('now', ?) AND date(created_at) < date('now', ?)""",
                 (business_id, frm, to)).fetchone()[0] or 0
 
-        cur = {"income": money("income", "-30 day", "+1 day"),
-               "expense": money("expense", "-30 day", "+1 day"),
-               "clients": count("clients", "-30 day", "+1 day"),
-               "orders": count("orders", "-30 day", "+1 day"),
-               "messages": count("messages", "-30 day", "+1 day", "AND role='user'")}
-        prev = {"income": money("income", "-60 day", "-30 day"),
-                "expense": money("expense", "-60 day", "-30 day"),
-                "clients": count("clients", "-60 day", "-30 day"),
-                "orders": count("orders", "-60 day", "-30 day"),
-                "messages": count("messages", "-60 day", "-30 day", "AND role='user'")}
+        cur = {"income": money("income", now_frm, now_to),
+               "expense": money("expense", now_frm, now_to),
+               "clients": count("clients", now_frm, now_to),
+               "orders": count("orders", now_frm, now_to),
+               "messages": count("messages", now_frm, now_to, "AND role='user'")}
+        prev = {"income": money("income", was_frm, was_to),
+                "expense": money("expense", was_frm, was_to),
+                "clients": count("clients", was_frm, was_to),
+                "orders": count("orders", was_frm, was_to),
+                "messages": count("messages", was_frm, was_to, "AND role='user'")}
 
         # зависимость от одного источника дохода
         inc_rows = conn.execute(
