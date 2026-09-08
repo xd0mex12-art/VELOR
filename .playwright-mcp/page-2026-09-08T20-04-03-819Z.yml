@@ -1,0 +1,49 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - link "VELOR AI — на главную" [ref=e4] [cursor=pointer]:
+      - /url: index.html
+      - generic [ref=e8]: VELOR AI
+    - generic [ref=e9]: Цифровой сотрудник для бизнеса
+    - heading "Ваш бизнес всегда на связи." [level=1] [ref=e11]: Ваш бизнесвсегда на связи.
+    - paragraph [ref=e12]: VELOR принимает заявки, помнит каждого клиента и подсказывает решения — круглосуточно, без выходных и усталости.
+    - generic [ref=e13]:
+      - generic [ref=e14]: Работает в Telegram
+      - generic [ref=e16]: Данные под 152-ФЗ
+      - generic [ref=e18]: Запуск за минуты
+  - region "Возможности VELOR" [ref=e20]:
+    - article [ref=e21]:
+      - generic [ref=e25]:
+        - heading "Приём заявок 24/7" [level=3] [ref=e26]
+        - paragraph [ref=e27]: Отвечает клиентам и оформляет заказы, пока вы заняты делом.
+    - article [ref=e28]:
+      - generic [ref=e34]:
+        - heading "Память о клиентах" [level=3] [ref=e35]
+        - paragraph [ref=e36]: Узнаёт постоянных, помнит предпочтения и историю обращений.
+    - article [ref=e37]:
+      - generic [ref=e42]:
+        - heading "AI-директор" [level=3] [ref=e43]
+        - paragraph [ref=e44]: Читает ваши цифры и каждый день подсказывает, что улучшить.
+  - generic [ref=e46]:
+    - heading "Вход в кабинет" [level=1] [ref=e47]
+    - paragraph [ref=e48]: Рады видеть снова. Продолжим работу.
+    - generic [ref=e49]:
+      - generic [ref=e50]:
+        - generic [ref=e51]: Логин
+        - textbox "Логин" [ref=e53]:
+          - /placeholder: Ваш логин
+      - generic [ref=e54]:
+        - generic [ref=e55]: Пароль
+        - generic [ref=e56]:
+          - textbox "Пароль" [ref=e57]:
+            - /placeholder: Ваш пароль
+          - button "Показать пароль" [ref=e58] [cursor=pointer]
+      - button "Забыли пароль?" [ref=e63] [cursor=pointer]
+      - region: Доступ восстанавливает владелец сервиса — напишите нам, и мы поможем вернуться в кабинет.
+      - button "Войти" [ref=e64] [cursor=pointer]
+      - alert [ref=e65]
+    - generic [ref=e69]: впервые в VELOR
+    - paragraph [ref=e70]:
+      - text: Ещё не подключили бизнес?
+      - link "Создать аккаунт" [ref=e71] [cursor=pointer]:
+        - /url: register.html
+    - generic [ref=e72]: Защищённое соединение · вход по зашифрованной сессии

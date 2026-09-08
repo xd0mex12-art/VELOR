@@ -1,0 +1,220 @@
+- generic [ref=f6e1]:
+  - navigation [ref=f6e2]:
+    - link "VELOR AI Employee" [ref=f6e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f6e6]: AI Employee
+    - generic [ref=f6e7]:
+      - link "Брифинг" [ref=f6e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f6e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f6e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f6e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f6e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f6e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f6e14]:
+      - link "Уведомления" [ref=f6e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f6e19]: "20"
+      - generic [ref=f6e20]: "Демо: стоматология «Дентарика»"
+      - button "Выйти" [ref=f6e21] [cursor=pointer]
+  - generic [ref=f6e22]:
+    - link "Клиенты" [ref=f6e23] [cursor=pointer]:
+      - /url: clients.html
+    - link "Интерес" [ref=f6e24] [cursor=pointer]:
+      - /url: leads.html
+    - link "Заказы" [ref=f6e25] [cursor=pointer]:
+      - /url: orders.html
+    - link "Финансы" [ref=f6e26] [cursor=pointer]:
+      - /url: finance.html
+    - link "Закупки" [ref=f6e27] [cursor=pointer]:
+      - /url: purchases.html
+    - link "Импорт выписки" [ref=f6e28] [cursor=pointer]:
+      - /url: import.html
+  - main [ref=f6e30]:
+    - generic [ref=f6e31]:
+      - generic [ref=f6e32]:
+        - heading "Интерес" [level=1] [ref=f6e33]
+        - paragraph [ref=f6e34]: Люди, которые проявили интерес, но ещё ничего не купили. VELOR замечает их сам — в боте и в директе, — а вы отмечаете, чем закончилось. Из этих отметок и складывается конверсия.
+        - generic [ref=f6e35]:
+          - generic [ref=f6e56]: 3 требуют внимания
+          - generic [ref=f6e58]: 3 в работе · конверсия 73% · 3 касания готовы
+      - button "Встретил человека" [ref=f6e39] [cursor=pointer]
+    - generic [ref=f6e40]:
+      - generic [ref=f6e59]:
+        - generic [ref=f6e60]: Требуют внимания
+        - generic [ref=f6e61]: "3"
+        - generic [ref=f6e62]: 3 ждут ответа
+      - generic [ref=f6e63]:
+        - generic [ref=f6e64]: В работе
+        - generic [ref=f6e65]: "3"
+        - generic [ref=f6e66]: все в работе
+      - generic [ref=f6e67]:
+        - generic [ref=f6e68]: Купили
+        - generic [ref=f6e69]: "35"
+        - generic [ref=f6e70]: из 48 закрытых
+      - generic [ref=f6e71]:
+        - generic [ref=f6e72]: Конверсия
+        - generic [ref=f6e73]: 73%
+        - generic [ref=f6e74]: считается по закрытым
+    - group "Срез воронки" [ref=f6e46]:
+      - button "В работе" [pressed] [ref=f6e47] [cursor=pointer]
+      - button "Все" [ref=f6e48] [cursor=pointer]
+      - button "Купили" [ref=f6e49] [cursor=pointer]
+      - button "Не сложилось" [ref=f6e50] [cursor=pointer]
+    - alert
+    - paragraph [ref=f6e51]: Показано 3 из 3
+    - generic [ref=f6e52]:
+      - generic [ref=f6e75]:
+        - button "Брекеты, полный курс Ольга Ремизова · 2026-09-07 ждёт ответа 1 день касание готово — ждёт вашего слова Срочно 165 000 ₽" [expanded] [active] [ref=f6e76] [cursor=pointer]:
+          - generic [ref=f6e77]:
+            - generic [ref=f6e78]: Брекеты, полный курс
+            - generic [ref=f6e80]: Ольга Ремизова · 2026-09-07
+            - generic [ref=f6e81]: ждёт ответа 1 день
+            - generic [ref=f6e82]: касание готово — ждёт вашего слова
+          - generic [ref=f6e83]:
+            - generic [ref=f6e84]: Срочно
+            - generic [ref=f6e86]: 165 000 ₽
+        - generic [ref=f6e111]:
+          - generic [ref=f6e112]:
+            - generic [ref=f6e113]: Срочно
+            - generic [ref=f6e115]:
+              - generic [ref=f6e116]: Ответить сейчас
+              - generic [ref=f6e117]: Клиент ждёт ответа, и это самый дорогой момент разговора.
+          - generic [ref=f6e118]: Вопрос без ответа — обычная причина уйти к другим.
+          - generic [ref=f6e119]:
+            - generic [ref=f6e120]:
+              - generic [ref=f6e121]: Хочет купить
+              - generic [ref=f6e122]: Среднее
+              - list [ref=f6e123]:
+                - listitem [ref=f6e124]: "✓ спросил цену: «сколько будет» (сообщение №1141)"
+                - listitem [ref=f6e125]: "✓ спрашивает про рассрочку: «рассрочка» (сообщение №1142)"
+                - listitem [ref=f6e126]: "✓ спросил про наличие: «есть ли» (сообщение №1142)"
+            - generic [ref=f6e127]:
+              - generic [ref=f6e128]: Наше ли это
+              - generic [ref=f6e129]: Высокое
+              - list [ref=f6e130]:
+                - listitem [ref=f6e131]: "✓ есть у нас: Брекеты, полный курс"
+            - generic [ref=f6e132]:
+              - generic [ref=f6e133]: Деньги
+              - generic [ref=f6e134]: 165 000 ₽
+              - list [ref=f6e135]:
+                - listitem [ref=f6e136]: ✓ клиент назвал её сам
+          - generic [ref=f6e137]:
+            - generic [ref=f6e138]: Касание
+            - generic [ref=f6e139]: Клиент ждёт ответа
+            - list [ref=f6e140]:
+              - listitem [ref=f6e141]: · клиент написал 1 день назад, ответа не было
+              - listitem [ref=f6e142]: "· последнее сообщение клиента: 2026-09-07 00:16:04"
+              - listitem [ref=f6e143]: "· последний наш ответ: 2026-09-07 00:10:04"
+              - listitem [ref=f6e144]: · сообщение №1142
+              - listitem [ref=f6e145]: · касание 1 из 3
+              - listitem [ref=f6e146]: "· ждёт вашего слова: сам VELOR это сообщение не отправит"
+            - textbox "Текст сообщения" [ref=f6e147]: Полный курс брекетов под ключ стоит 165 000 рублей. Рассрочку мы не предоставляем. Какой ещё вопрос по лечению?
+            - generic [ref=f6e148]:
+              - button "Отправить" [ref=f6e149] [cursor=pointer]
+              - button "Сохранить текст" [ref=f6e150] [cursor=pointer]
+              - button "Отправить позже" [ref=f6e151] [cursor=pointer]
+              - button "Не писать" [ref=f6e152] [cursor=pointer]
+          - generic [ref=f6e153]:
+            - generic [ref=f6e154]:
+              - generic [ref=f6e155]: Чего хочет человек
+              - textbox [ref=f6e156]: Брекеты, полный курс
+            - generic [ref=f6e157]:
+              - generic [ref=f6e158]: Состояние
+              - combobox [ref=f6e159]:
+                - option "Новый"
+                - option "Интерес подтверждён" [selected]
+                - option "В работе"
+                - option "Купил"
+                - option "Не сложилось"
+            - generic [ref=f6e160]:
+              - generic [ref=f6e161]: Сумма
+              - textbox [ref=f6e162]: "165000"
+              - generic [ref=f6e163]: Пусто — значит «не знаем».
+            - generic [ref=f6e164]:
+              - generic [ref=f6e165]: Почему не сложилось
+              - combobox [ref=f6e166]:
+                - option "— причина —" [selected]
+                - option "Дорого"
+                - option "Ушёл к другим"
+                - option "Перестал отвечать"
+                - option "Не сейчас"
+                - option "У нас этого не было"
+                - option "Другое"
+            - generic [ref=f6e167]:
+              - generic [ref=f6e168]: Клиент
+              - textbox [disabled] [ref=f6e169]: Ольга Ремизова
+            - generic [ref=f6e170]:
+              - generic [ref=f6e171]: Подробности
+              - textbox [ref=f6e172]: Брекеты, полный курс
+            - generic [ref=f6e173]:
+              - generic [ref=f6e174]: Хочет купить
+              - combobox [ref=f6e175]:
+                - option "— считает VELOR —" [selected]
+                - option "Низкое"
+                - option "Среднее"
+                - option "Высокое"
+            - generic [ref=f6e176]:
+              - generic [ref=f6e177]: Наше ли это
+              - combobox [ref=f6e178]:
+                - option "— считает VELOR —" [selected]
+                - option "Не знаем"
+                - option "Низкое"
+                - option "Среднее"
+                - option "Высокое"
+            - generic [ref=f6e179]:
+              - generic [ref=f6e180]: Приоритет
+              - combobox [ref=f6e181]:
+                - option "— считает VELOR —" [selected]
+                - option "Низкий"
+                - option "Средний"
+                - option "Высокий"
+                - option "Срочно"
+              - generic [ref=f6e182]: Пусто — считает VELOR, заново при каждом открытии.
+          - generic [ref=f6e183]:
+            - button "Сохранить" [ref=f6e184] [cursor=pointer]
+            - button "Купил" [ref=f6e185] [cursor=pointer]
+            - button "Не сложилось" [ref=f6e186] [cursor=pointer]
+          - generic [ref=f6e187]:
+            - generic [ref=f6e188]: Что делал VELOR
+            - generic [ref=f6e189]: "Готовить напоминания — выполнено3 горячих клиента ждут ответа: Подготовить, что им написатьЧерновик готов: Полный курс брекетов под ключ стоит 165 000 рублей. Рассрочку мы не предоставля…"
+          - generic [ref=f6e192]:
+            - generic [ref=f6e193]: Разговор, из которого это выросло
+            - generic [ref=f6e194]:
+              - generic [ref=f6e195]:
+                - generic [ref=f6e196]: клиент
+                - text: Здравствуйте!
+              - generic [ref=f6e197]:
+                - generic [ref=f6e198]: сотрудник
+                - text: Здравствуйте! Слушаю вас.
+              - generic [ref=f6e199]:
+                - generic [ref=f6e200]: клиент
+                - text: Здравствуйте! Сколько будет «Брекеты, полный курс» под ключ?
+              - generic [ref=f6e201]:
+                - generic [ref=f6e202]: клиент
+                - text: И есть ли рассрочка?
+      - button "Имплант под ключ Роман Заславский · 2026-09-07 ждёт ответа 1 день касание готово — ждёт вашего слова Срочно 78 000 ₽" [ref=f6e88] [cursor=pointer]:
+        - generic [ref=f6e89]:
+          - generic [ref=f6e90]: Имплант под ключ
+          - generic [ref=f6e92]: Роман Заславский · 2026-09-07
+          - generic [ref=f6e93]: ждёт ответа 1 день
+          - generic [ref=f6e94]: касание готово — ждёт вашего слова
+        - generic [ref=f6e95]:
+          - generic [ref=f6e96]: Срочно
+          - generic [ref=f6e98]: 78 000 ₽
+      - button "Коронка керамическая Олег Прошин · 2026-09-07 ждёт ответа 22 ч касание готово — ждёт вашего слова Срочно 42 000 ₽" [ref=f6e100] [cursor=pointer]:
+        - generic [ref=f6e101]:
+          - generic [ref=f6e102]: Коронка керамическая
+          - generic [ref=f6e104]: Олег Прошин · 2026-09-07
+          - generic [ref=f6e105]: ждёт ответа 22 ч
+          - generic [ref=f6e106]: касание готово — ждёт вашего слова
+        - generic [ref=f6e107]:
+          - generic [ref=f6e108]: Срочно
+          - generic [ref=f6e110]: 42 000 ₽
+  - status

@@ -1,0 +1,109 @@
+- generic [active] [ref=f5e1]:
+  - navigation [ref=f5e2]:
+    - link "VELOR AI Employee" [ref=f5e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f5e6]: AI Employee
+    - generic [ref=f5e7]:
+      - link "Брифинг" [ref=f5e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f5e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f5e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f5e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f5e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f5e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f5e14]:
+      - link "Уведомления" [ref=f5e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f5e19]: "20"
+      - generic [ref=f5e20]: "Демо: стоматология «Дентарика»"
+      - button "Выйти" [ref=f5e21] [cursor=pointer]
+  - generic [ref=f5e22]:
+    - link "Ещё" [ref=f5e23] [cursor=pointer]:
+      - /url: more.html
+    - link "Настройки" [ref=f5e24] [cursor=pointer]:
+      - /url: settings.html
+    - link "Подключения" [ref=f5e25] [cursor=pointer]:
+      - /url: connections.html
+    - link "Тариф" [ref=f5e26] [cursor=pointer]:
+      - /url: plans.html
+    - link "Экспорт" [ref=f5e27] [cursor=pointer]:
+      - /url: export.html
+    - link "Инструкция" [ref=f5e28] [cursor=pointer]:
+      - /url: guide.html
+  - main [ref=f5e30]:
+    - generic [ref=f5e32]:
+      - heading "Настройки" [level=1] [ref=f5e33]
+      - paragraph [ref=f5e34]: Здесь бизнес подключается к VELOR. Заполните профиль и вставьте токен бота — сотрудник сразу начнёт отвечать вашим клиентам от лица компании.
+      - generic [ref=f5e35]:
+        - generic [ref=f5e36]: Всё подключено
+        - generic [ref=f5e38]: бот на связи, база знаний заполнена — сотрудник работает
+    - alert
+    - generic [ref=f5e39]:
+      - generic [ref=f5e40]:
+        - generic [ref=f5e41]: Название бизнеса
+        - generic [ref=f5e42]: "Как называется ваше дело. Например: «Кофейня Utro», «Барбершоп BRODA»."
+        - textbox "Название бизнеса" [ref=f5e43]:
+          - /placeholder: Название
+          - text: "Демо: стоматология «Дентарика»"
+      - generic [ref=f5e44]:
+        - generic [ref=f5e45]: Чем занимается
+        - generic [ref=f5e46]: "Коротко, для ИИ — чтобы он понимал контекст. Например: «кофейня с доставкой» или «барбершоп: стрижки и бороды, запись по времени»."
+        - textbox "Чем занимается" [ref=f5e47]:
+          - /placeholder: Вид бизнеса и что вы делаете
+          - text: "[ДЕМО-НАБОР VELOR] Частная стоматология, два кресла, четыре врача."
+      - generic [ref=f5e48]:
+        - generic [ref=f5e49]: Приветствие в боте
+        - generic [ref=f5e50]: "Первое, что видит клиент после /start. Например: «Здравствуйте! Напишите, что хотите — приму заявку и всё оформлю.»"
+        - textbox "Приветствие в боте" [ref=f5e51]:
+          - /placeholder: Приветствие клиенту
+          - text: Здравствуйте! Это «Дентарика». Подскажите, что беспокоит — подберу время приёма.
+      - generic [ref=f5e52]:
+        - generic [ref=f5e53]: Стиль общения
+        - generic [ref=f5e54]: Как AI-сотрудник разговаривает с клиентами. Влияет на тон всех ответов.
+        - group "Стиль общения" [ref=f5e55]:
+          - button "Профессиональный" [ref=f5e56] [cursor=pointer]
+          - button "Дружелюбный" [ref=f5e57] [cursor=pointer]
+          - button "Строгий" [ref=f5e58] [cursor=pointer]
+      - generic [ref=f5e59]:
+        - generic [ref=f5e60]: База знаний
+        - generic [ref=f5e61]:
+          - text: "Всё, что ядро должно знать о бизнесе, чтобы отвечать по фактам: прайс, услуги, часы работы, доставка, частые вопросы. Пишите свободно — чем подробнее, тем умнее ядро. Например: «Букет из 15 роз — 2500 ₽. Доставка по городу 300 ₽, бесплатно от 5000 ₽. Работаем 9:00–21:00.» Здесь же можно"
+          - link "разложить знания по полочкам" [ref=f5e62] [cursor=pointer]:
+            - /url: memory.html
+          - text: .
+        - textbox "База знаний" [ref=f5e63]:
+          - /placeholder: Прайс, услуги, условия, ответы на частые вопросы…
+          - text: Гигиена и чистка — 6 500 ₽. Профессиональная чистка, снятие налёта и камня. Приём 60 минут. Удаление зуба — 5 400 ₽. Простое удаление под местной анестезией. Лечение кариеса — 9 800 ₽. Одна поверхность, световая пломба. Приём 60–90 минут. Отбеливание — 24 000 ₽. Кабинетное отбеливание, один сеанс. Коронка керамическая — 42 000 ₽. Безметалловая коронка, две явки. Имплант под ключ — 78 000 ₽. Имплант, абатмент и коронка. Брекеты, полный курс — 165 000 ₽. Металлическая система, наблюдение 18 месяцев.
+        - generic [ref=f5e64]: 502 из 4 000 символов
+      - generic [ref=f5e65]:
+        - generic [ref=f5e66]: Токен Telegram-бота
+        - generic [ref=f5e67]:
+          - text: Строка от @BotFather — через неё работает бот. Не знаете, где взять?
+          - link "Пошаговая инструкция →" [ref=f5e68] [cursor=pointer]:
+            - /url: guide.html
+        - generic [ref=f5e69]:
+          - textbox "Токен Telegram-бота" [ref=f5e70]:
+            - /placeholder: 8521842437:AAF8K8zwVmmHPpg…
+            - text: 000000000:LOCAL-SHOOT-ONLY
+          - button "Показать" [ref=f5e71] [cursor=pointer]
+      - generic [ref=f5e72]:
+        - generic [ref=f5e73]: Утреннее письмо
+        - generic [ref=f5e74]: "VELOR сам напишет вам в Telegram, если появилось что-то важное: зависшие заявки, отставание от цели, риск по деньгам. Когда сообщать нечего — письма не будет, и вчерашняя новость второй раз не придёт. Нужен подключённый бот и подтверждённый личный Telegram."
+        - combobox "Утреннее письмо" [ref=f5e75]:
+          - option "Не писать" [selected]
+          - option "Писать в 7:00"
+          - option "Писать в 8:00"
+          - option "Писать в 9:00"
+          - option "Писать в 10:00"
+          - option "Писать в 12:00"
+          - option "Писать в 18:00"
+  - generic [ref=f5e76]:
+    - button "Отменить" [ref=f5e77] [cursor=pointer]
+    - button "Сохранить" [ref=f5e78] [cursor=pointer]
+  - status

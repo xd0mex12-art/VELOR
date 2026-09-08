@@ -1,0 +1,1034 @@
+- generic [active] [ref=f3e1]:
+  - navigation [ref=f3e2]:
+    - link "VELOR AI Employee" [ref=f3e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f3e6]: AI Employee
+    - generic [ref=f3e7]:
+      - link "Брифинг" [ref=f3e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f3e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f3e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f3e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f3e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f3e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f3e14]:
+      - link "Уведомления" [ref=f3e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f3e19]: "20"
+      - generic [ref=f3e20]: "Демо: стоматология «Дентарика»"
+      - button "Выйти" [ref=f3e21] [cursor=pointer]
+  - generic [ref=f3e22]:
+    - link "Клиенты" [ref=f3e23] [cursor=pointer]:
+      - /url: clients.html
+    - link "Интерес" [ref=f3e24] [cursor=pointer]:
+      - /url: leads.html
+    - link "Заказы" [ref=f3e25] [cursor=pointer]:
+      - /url: orders.html
+    - link "Финансы" [ref=f3e26] [cursor=pointer]:
+      - /url: finance.html
+    - link "Закупки" [ref=f3e27] [cursor=pointer]:
+      - /url: purchases.html
+    - link "Импорт выписки" [ref=f3e28] [cursor=pointer]:
+      - /url: import.html
+  - main [ref=f3e30]:
+    - generic [ref=f3e31]:
+      - generic [ref=f3e32]:
+        - heading "Финансы" [level=1] [ref=f3e33]
+        - paragraph [ref=f3e34]: Доходы и расходы бизнеса в одном месте. VELOR считает прибыль, показывает, куда уходят деньги, и разбирает цифры на человеческом языке.
+        - generic [ref=f3e35]:
+          - generic [ref=f3e83]: В плюсе
+          - generic [ref=f3e85]: прибыль 1 145 000 ₽ за всё время · 100 записей
+      - generic [ref=f3e38]:
+        - link "Загрузить выписку" [ref=f3e39] [cursor=pointer]:
+          - /url: import.html
+        - link "Экспорт" [ref=f3e40] [cursor=pointer]:
+          - /url: export.html
+    - alert
+    - generic [ref=f3e42]:
+      - generic [ref=f3e86]:
+        - generic [ref=f3e87]: Выручка · всё время
+        - generic [ref=f3e88]: 3 934 100 ₽
+      - generic [ref=f3e89]:
+        - generic [ref=f3e90]: Расходы · всё время
+        - generic [ref=f3e91]: 2 789 100 ₽
+        - generic [ref=f3e92]: 71% от выручки
+      - generic [ref=f3e93]:
+        - generic [ref=f3e94]: Прибыль · всё время
+        - generic [ref=f3e95]: 1 145 000 ₽
+        - generic [ref=f3e96]: выручка минус расходы
+      - generic [ref=f3e97]:
+        - generic [ref=f3e98]: Маржа
+        - generic [ref=f3e99]: 29.1%
+        - generic [ref=f3e100]: прибыль от выручки
+    - generic [ref=f3e47]:
+      - heading "Куда уходят деньги" [level=2] [ref=f3e48]
+      - generic [ref=f3e49]:
+        - generic [ref=f3e102]:
+          - generic [ref=f3e103]: зарплаты
+          - generic [ref=f3e104]: 1 326 600 ₽48%
+        - generic [ref=f3e108]:
+          - generic [ref=f3e109]: материалы
+          - generic [ref=f3e110]: 716 100 ₽26%
+        - generic [ref=f3e114]:
+          - generic [ref=f3e115]: аренда
+          - generic [ref=f3e116]: 414 600 ₽15%
+        - generic [ref=f3e120]:
+          - generic [ref=f3e121]: реклама
+          - generic [ref=f3e122]: 207 300 ₽7%
+        - generic [ref=f3e126]:
+          - generic [ref=f3e127]: прочее
+          - generic [ref=f3e128]: 124 500 ₽4%
+    - generic [ref=f3e53]:
+      - generic [ref=f3e54]:
+        - generic [ref=f3e55]:
+          - heading "Разбор от VELOR" [level=2] [ref=f3e56]
+          - generic [ref=f3e57]: Смотрит на ваши цифры и говорит, что с ними не так
+        - button "Проанализировать" [ref=f3e58] [cursor=pointer]
+      - generic [ref=f3e59]: Нажмите «Проанализировать» — VELOR разберёт доходы, расходы и структуру трат.
+    - generic [ref=f3e60]:
+      - heading "Добавить запись" [level=2] [ref=f3e61]
+      - generic [ref=f3e62]:
+        - group "Тип записи" [ref=f3e63]:
+          - button "Доход" [pressed] [ref=f3e64] [cursor=pointer]
+          - button "Расход" [ref=f3e65] [cursor=pointer]
+        - generic [ref=f3e66]:
+          - generic [ref=f3e131]:
+            - generic [ref=f3e132]: Сумма*
+            - textbox "Сумма*" [ref=f3e133]
+          - generic [ref=f3e134]:
+            - generic [ref=f3e135]: Категория
+            - textbox "Категория" [ref=f3e136]
+            - generic [ref=f3e137]: аренда, реклама, закупка…
+          - generic [ref=f3e138]:
+            - generic [ref=f3e139]: Описание
+            - textbox "Описание" [ref=f3e140]
+            - generic [ref=f3e141]: что это было
+          - generic [ref=f3e142]:
+            - generic [ref=f3e143]: Дата операции
+            - textbox "Дата операции" [ref=f3e144]
+            - generic [ref=f3e145]: ГГГГ-ММ-ДД, пусто — сегодня
+          - generic [ref=f3e146]:
+            - generic [ref=f3e147]: Контрагент
+            - textbox "Контрагент" [ref=f3e148]
+            - generic [ref=f3e149]: кому или от кого
+        - generic [ref=f3e69]: Категория нужна, чтобы разбивка выше показывала правду. Без неё запись попадёт в «Без категории».
+        - generic [ref=f3e70]:
+          - button "Добавить" [ref=f3e71] [cursor=pointer]
+          - button "Все поля" [ref=f3e72] [cursor=pointer]
+    - 'link "Не вносить руками — загрузить выписку CSV, XLSX или PDF: сотрудник сам разберёт операции и разложит по категориям" [ref=f3e73] [cursor=pointer]':
+      - /url: import.html
+      - generic [ref=f3e74]: Не вносить руками — загрузить выписку
+      - generic [ref=f3e75]: "CSV, XLSX или PDF: сотрудник сам разберёт операции и разложит по категориям"
+      - generic [aria-hidden] [ref=f3e76]: →
+    - generic [ref=f3e77]:
+      - heading "Последние записи 100" [level=2] [ref=f3e150]:
+        - text: Последние записи
+        - generic [ref=f3e151]: "100"
+      - generic [ref=f3e79]:
+        - generic [ref=f3e152]:
+          - button "Открыть операцию материалы" [ref=f3e153] [cursor=pointer]:
+            - generic [ref=f3e155]:
+              - text: материалы Материалы
+              - generic [ref=f3e156]:
+                - generic [ref=f3e157]: МедТорг
+                - generic [ref=f3e158]: 2026-08-12
+            - generic [ref=f3e159]: −27 900 ₽
+          - button "Удалить запись «материалы»" [ref=f3e160] [cursor=pointer]: ×
+        - generic [ref=f3e161]:
+          - button "Открыть операцию материалы" [ref=f3e162] [cursor=pointer]:
+            - generic [ref=f3e164]:
+              - text: материалы Материалы
+              - generic [ref=f3e165]:
+                - generic [ref=f3e166]: МедТорг
+                - generic [ref=f3e167]: 2026-08-14
+            - generic [ref=f3e168]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e169] [cursor=pointer]: ×
+        - generic [ref=f3e170]:
+          - button "Открыть операцию материалы" [ref=f3e171] [cursor=pointer]:
+            - generic [ref=f3e173]:
+              - text: материалы Материалы
+              - generic [ref=f3e174]:
+                - generic [ref=f3e175]: Дентал-Оптима
+                - generic [ref=f3e176]: 2026-08-16
+            - generic [ref=f3e177]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e178] [cursor=pointer]: ×
+        - generic [ref=f3e179]:
+          - button "Открыть операцию материалы" [ref=f3e180] [cursor=pointer]:
+            - generic [ref=f3e182]:
+              - text: материалы Материалы
+              - generic [ref=f3e183]:
+                - generic [ref=f3e184]: МедТорг
+                - generic [ref=f3e185]: 2026-08-18
+            - generic [ref=f3e186]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e187] [cursor=pointer]: ×
+        - generic [ref=f3e188]:
+          - button "Открыть операцию материалы" [ref=f3e189] [cursor=pointer]:
+            - generic [ref=f3e191]:
+              - text: материалы Материалы
+              - generic [ref=f3e192]:
+                - generic [ref=f3e193]: МедТорг
+                - generic [ref=f3e194]: 2026-08-20
+            - generic [ref=f3e195]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e196] [cursor=pointer]: ×
+        - generic [ref=f3e197]:
+          - button "Открыть операцию материалы" [ref=f3e198] [cursor=pointer]:
+            - generic [ref=f3e200]:
+              - text: материалы Материалы
+              - generic [ref=f3e201]:
+                - generic [ref=f3e202]: МедТорг
+                - generic [ref=f3e203]: 2026-08-22
+            - generic [ref=f3e204]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e205] [cursor=pointer]: ×
+        - generic [ref=f3e206]:
+          - button "Открыть операцию материалы" [ref=f3e207] [cursor=pointer]:
+            - generic [ref=f3e209]:
+              - text: материалы Материалы
+              - generic [ref=f3e210]:
+                - generic [ref=f3e211]: МедТорг
+                - generic [ref=f3e212]: 2026-08-26
+            - generic [ref=f3e213]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e214] [cursor=pointer]: ×
+        - generic [ref=f3e215]:
+          - button "Открыть операцию материалы" [ref=f3e216] [cursor=pointer]:
+            - generic [ref=f3e218]:
+              - text: материалы Материалы
+              - generic [ref=f3e219]:
+                - generic [ref=f3e220]: Дентал-Оптима
+                - generic [ref=f3e221]: 2026-08-28
+            - generic [ref=f3e222]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e223] [cursor=pointer]: ×
+        - generic [ref=f3e224]:
+          - button "Открыть операцию материалы" [ref=f3e225] [cursor=pointer]:
+            - generic [ref=f3e227]:
+              - text: материалы Материалы
+              - generic [ref=f3e228]:
+                - generic [ref=f3e229]: МедТорг
+                - generic [ref=f3e230]: 2026-08-30
+            - generic [ref=f3e231]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e232] [cursor=pointer]: ×
+        - generic [ref=f3e233]:
+          - button "Открыть операцию материалы" [ref=f3e234] [cursor=pointer]:
+            - generic [ref=f3e236]:
+              - text: материалы Материалы
+              - generic [ref=f3e237]:
+                - generic [ref=f3e238]: МедТорг
+                - generic [ref=f3e239]: 2026-09-01
+            - generic [ref=f3e240]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e241] [cursor=pointer]: ×
+        - generic [ref=f3e242]:
+          - button "Открыть операцию материалы" [ref=f3e243] [cursor=pointer]:
+            - generic [ref=f3e245]:
+              - text: материалы Материалы
+              - generic [ref=f3e246]:
+                - generic [ref=f3e247]: МедТорг
+                - generic [ref=f3e248]: 2026-09-03
+            - generic [ref=f3e249]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e250] [cursor=pointer]: ×
+        - generic [ref=f3e251]:
+          - button "Открыть операцию материалы" [ref=f3e252] [cursor=pointer]:
+            - generic [ref=f3e254]:
+              - text: материалы Материалы
+              - generic [ref=f3e255]:
+                - generic [ref=f3e256]: МедТорг
+                - generic [ref=f3e257]: 2026-09-05
+            - generic [ref=f3e258]: −28 300 ₽
+          - button "Удалить запись «материалы»" [ref=f3e259] [cursor=pointer]: ×
+        - generic [ref=f3e260]:
+          - button "Открыть операцию прочее" [ref=f3e261] [cursor=pointer]:
+            - generic [ref=f3e263]:
+              - text: прочее Прочее
+              - generic [ref=f3e264]:
+                - generic [ref=f3e265]: Прочие расходы
+                - generic [ref=f3e266]: 2026-08-12
+            - generic [ref=f3e267]: −3 000 ₽
+          - button "Удалить запись «прочее»" [ref=f3e268] [cursor=pointer]: ×
+        - generic [ref=f3e269]:
+          - button "Открыть операцию прочее" [ref=f3e270] [cursor=pointer]:
+            - generic [ref=f3e272]:
+              - text: прочее Прочее
+              - generic [ref=f3e273]:
+                - generic [ref=f3e274]: Прочие расходы
+                - generic [ref=f3e275]: 2026-08-14
+            - generic [ref=f3e276]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e277] [cursor=pointer]: ×
+        - generic [ref=f3e278]:
+          - button "Открыть операцию прочее" [ref=f3e279] [cursor=pointer]:
+            - generic [ref=f3e281]:
+              - text: прочее Прочее
+              - generic [ref=f3e282]:
+                - generic [ref=f3e283]: Прочие расходы
+                - generic [ref=f3e284]: 2026-08-16
+            - generic [ref=f3e285]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e286] [cursor=pointer]: ×
+        - generic [ref=f3e287]:
+          - button "Открыть операцию прочее" [ref=f3e288] [cursor=pointer]:
+            - generic [ref=f3e290]:
+              - text: прочее Прочее
+              - generic [ref=f3e291]:
+                - generic [ref=f3e292]: Прочие расходы
+                - generic [ref=f3e293]: 2026-08-18
+            - generic [ref=f3e294]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e295] [cursor=pointer]: ×
+        - generic [ref=f3e296]:
+          - button "Открыть операцию прочее" [ref=f3e297] [cursor=pointer]:
+            - generic [ref=f3e299]:
+              - text: прочее Прочее
+              - generic [ref=f3e300]:
+                - generic [ref=f3e301]: Прочие расходы
+                - generic [ref=f3e302]: 2026-08-20
+            - generic [ref=f3e303]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e304] [cursor=pointer]: ×
+        - generic [ref=f3e305]:
+          - button "Открыть операцию прочее" [ref=f3e306] [cursor=pointer]:
+            - generic [ref=f3e308]:
+              - text: прочее Прочее
+              - generic [ref=f3e309]:
+                - generic [ref=f3e310]: Прочие расходы
+                - generic [ref=f3e311]: 2026-08-22
+            - generic [ref=f3e312]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e313] [cursor=pointer]: ×
+        - generic [ref=f3e314]:
+          - button "Открыть операцию прочее" [ref=f3e315] [cursor=pointer]:
+            - generic [ref=f3e317]:
+              - text: прочее Прочее
+              - generic [ref=f3e318]:
+                - generic [ref=f3e319]: Прочие расходы
+                - generic [ref=f3e320]: 2026-08-26
+            - generic [ref=f3e321]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e322] [cursor=pointer]: ×
+        - generic [ref=f3e323]:
+          - button "Открыть операцию прочее" [ref=f3e324] [cursor=pointer]:
+            - generic [ref=f3e326]:
+              - text: прочее Прочее
+              - generic [ref=f3e327]:
+                - generic [ref=f3e328]: Прочие расходы
+                - generic [ref=f3e329]: 2026-08-28
+            - generic [ref=f3e330]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e331] [cursor=pointer]: ×
+        - generic [ref=f3e332]:
+          - button "Открыть операцию прочее" [ref=f3e333] [cursor=pointer]:
+            - generic [ref=f3e335]:
+              - text: прочее Прочее
+              - generic [ref=f3e336]:
+                - generic [ref=f3e337]: Прочие расходы
+                - generic [ref=f3e338]: 2026-08-30
+            - generic [ref=f3e339]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e340] [cursor=pointer]: ×
+        - generic [ref=f3e341]:
+          - button "Открыть операцию прочее" [ref=f3e342] [cursor=pointer]:
+            - generic [ref=f3e344]:
+              - text: прочее Прочее
+              - generic [ref=f3e345]:
+                - generic [ref=f3e346]: Прочие расходы
+                - generic [ref=f3e347]: 2026-09-01
+            - generic [ref=f3e348]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e349] [cursor=pointer]: ×
+        - generic [ref=f3e350]:
+          - button "Открыть операцию прочее" [ref=f3e351] [cursor=pointer]:
+            - generic [ref=f3e353]:
+              - text: прочее Прочее
+              - generic [ref=f3e354]:
+                - generic [ref=f3e355]: Прочие расходы
+                - generic [ref=f3e356]: 2026-09-03
+            - generic [ref=f3e357]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e358] [cursor=pointer]: ×
+        - generic [ref=f3e359]:
+          - button "Открыть операцию прочее" [ref=f3e360] [cursor=pointer]:
+            - generic [ref=f3e362]:
+              - text: прочее Прочее
+              - generic [ref=f3e363]:
+                - generic [ref=f3e364]: Прочие расходы
+                - generic [ref=f3e365]: 2026-09-05
+            - generic [ref=f3e366]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e367] [cursor=pointer]: ×
+        - generic [ref=f3e368]:
+          - button "Открыть операцию реклама" [ref=f3e369] [cursor=pointer]:
+            - generic [ref=f3e371]:
+              - text: реклама Реклама
+              - generic [ref=f3e372]:
+                - generic [ref=f3e373]: Рекламное агентство
+                - generic [ref=f3e374]: 2026-08-12
+            - generic [ref=f3e375]: −5 300 ₽
+          - button "Удалить запись «реклама»" [ref=f3e376] [cursor=pointer]: ×
+        - generic [ref=f3e377]:
+          - button "Открыть операцию реклама" [ref=f3e378] [cursor=pointer]:
+            - generic [ref=f3e380]:
+              - text: реклама Реклама
+              - generic [ref=f3e381]:
+                - generic [ref=f3e382]: Рекламное агентство
+                - generic [ref=f3e383]: 2026-08-14
+            - generic [ref=f3e384]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e385] [cursor=pointer]: ×
+        - generic [ref=f3e386]:
+          - button "Открыть операцию реклама" [ref=f3e387] [cursor=pointer]:
+            - generic [ref=f3e389]:
+              - text: реклама Реклама
+              - generic [ref=f3e390]:
+                - generic [ref=f3e391]: Рекламное агентство
+                - generic [ref=f3e392]: 2026-08-16
+            - generic [ref=f3e393]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e394] [cursor=pointer]: ×
+        - generic [ref=f3e395]:
+          - button "Открыть операцию реклама" [ref=f3e396] [cursor=pointer]:
+            - generic [ref=f3e398]:
+              - text: реклама Реклама
+              - generic [ref=f3e399]:
+                - generic [ref=f3e400]: Рекламное агентство
+                - generic [ref=f3e401]: 2026-08-18
+            - generic [ref=f3e402]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e403] [cursor=pointer]: ×
+        - generic [ref=f3e404]:
+          - button "Открыть операцию реклама" [ref=f3e405] [cursor=pointer]:
+            - generic [ref=f3e407]:
+              - text: реклама Реклама
+              - generic [ref=f3e408]:
+                - generic [ref=f3e409]: Рекламное агентство
+                - generic [ref=f3e410]: 2026-08-20
+            - generic [ref=f3e411]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e412] [cursor=pointer]: ×
+        - generic [ref=f3e413]:
+          - button "Открыть операцию реклама" [ref=f3e414] [cursor=pointer]:
+            - generic [ref=f3e416]:
+              - text: реклама Реклама
+              - generic [ref=f3e417]:
+                - generic [ref=f3e418]: Рекламное агентство
+                - generic [ref=f3e419]: 2026-08-22
+            - generic [ref=f3e420]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e421] [cursor=pointer]: ×
+        - generic [ref=f3e422]:
+          - button "Открыть операцию реклама" [ref=f3e423] [cursor=pointer]:
+            - generic [ref=f3e425]:
+              - text: реклама Реклама
+              - generic [ref=f3e426]:
+                - generic [ref=f3e427]: Рекламное агентство
+                - generic [ref=f3e428]: 2026-08-26
+            - generic [ref=f3e429]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e430] [cursor=pointer]: ×
+        - generic [ref=f3e431]:
+          - button "Открыть операцию реклама" [ref=f3e432] [cursor=pointer]:
+            - generic [ref=f3e434]:
+              - text: реклама Реклама
+              - generic [ref=f3e435]:
+                - generic [ref=f3e436]: Рекламное агентство
+                - generic [ref=f3e437]: 2026-08-28
+            - generic [ref=f3e438]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e439] [cursor=pointer]: ×
+        - generic [ref=f3e440]:
+          - button "Открыть операцию реклама" [ref=f3e441] [cursor=pointer]:
+            - generic [ref=f3e443]:
+              - text: реклама Реклама
+              - generic [ref=f3e444]:
+                - generic [ref=f3e445]: Рекламное агентство
+                - generic [ref=f3e446]: 2026-08-30
+            - generic [ref=f3e447]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e448] [cursor=pointer]: ×
+        - generic [ref=f3e449]:
+          - button "Открыть операцию реклама" [ref=f3e450] [cursor=pointer]:
+            - generic [ref=f3e452]:
+              - text: реклама Реклама
+              - generic [ref=f3e453]:
+                - generic [ref=f3e454]: Рекламное агентство
+                - generic [ref=f3e455]: 2026-09-01
+            - generic [ref=f3e456]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e457] [cursor=pointer]: ×
+        - generic [ref=f3e458]:
+          - button "Открыть операцию реклама" [ref=f3e459] [cursor=pointer]:
+            - generic [ref=f3e461]:
+              - text: реклама Реклама
+              - generic [ref=f3e462]:
+                - generic [ref=f3e463]: Рекламное агентство
+                - generic [ref=f3e464]: 2026-09-03
+            - generic [ref=f3e465]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e466] [cursor=pointer]: ×
+        - generic [ref=f3e467]:
+          - button "Открыть операцию реклама" [ref=f3e468] [cursor=pointer]:
+            - generic [ref=f3e470]:
+              - text: реклама Реклама
+              - generic [ref=f3e471]:
+                - generic [ref=f3e472]: Рекламное агентство
+                - generic [ref=f3e473]: 2026-09-05
+            - generic [ref=f3e474]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e475] [cursor=pointer]: ×
+        - generic [ref=f3e476]:
+          - button "Открыть операцию зарплаты" [ref=f3e477] [cursor=pointer]:
+            - generic [ref=f3e479]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e480]:
+                - generic [ref=f3e481]: Зарплатный проект
+                - generic [ref=f3e482]: 2026-08-12
+            - generic [ref=f3e483]: −37 400 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e484] [cursor=pointer]: ×
+        - generic [ref=f3e485]:
+          - button "Открыть операцию зарплаты" [ref=f3e486] [cursor=pointer]:
+            - generic [ref=f3e488]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e489]:
+                - generic [ref=f3e490]: Зарплатный проект
+                - generic [ref=f3e491]: 2026-08-14
+            - generic [ref=f3e492]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e493] [cursor=pointer]: ×
+        - generic [ref=f3e494]:
+          - button "Открыть операцию зарплаты" [ref=f3e495] [cursor=pointer]:
+            - generic [ref=f3e497]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e498]:
+                - generic [ref=f3e499]: Зарплатный проект
+                - generic [ref=f3e500]: 2026-08-16
+            - generic [ref=f3e501]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e502] [cursor=pointer]: ×
+        - generic [ref=f3e503]:
+          - button "Открыть операцию зарплаты" [ref=f3e504] [cursor=pointer]:
+            - generic [ref=f3e506]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e507]:
+                - generic [ref=f3e508]: Зарплатный проект
+                - generic [ref=f3e509]: 2026-08-18
+            - generic [ref=f3e510]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e511] [cursor=pointer]: ×
+        - generic [ref=f3e512]:
+          - button "Открыть операцию зарплаты" [ref=f3e513] [cursor=pointer]:
+            - generic [ref=f3e515]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e516]:
+                - generic [ref=f3e517]: Зарплатный проект
+                - generic [ref=f3e518]: 2026-08-20
+            - generic [ref=f3e519]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e520] [cursor=pointer]: ×
+        - generic [ref=f3e521]:
+          - button "Открыть операцию зарплаты" [ref=f3e522] [cursor=pointer]:
+            - generic [ref=f3e524]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e525]:
+                - generic [ref=f3e526]: Зарплатный проект
+                - generic [ref=f3e527]: 2026-08-22
+            - generic [ref=f3e528]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e529] [cursor=pointer]: ×
+        - generic [ref=f3e530]:
+          - button "Открыть операцию зарплаты" [ref=f3e531] [cursor=pointer]:
+            - generic [ref=f3e533]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e534]:
+                - generic [ref=f3e535]: Зарплатный проект
+                - generic [ref=f3e536]: 2026-08-26
+            - generic [ref=f3e537]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e538] [cursor=pointer]: ×
+        - generic [ref=f3e539]:
+          - button "Открыть операцию зарплаты" [ref=f3e540] [cursor=pointer]:
+            - generic [ref=f3e542]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e543]:
+                - generic [ref=f3e544]: Зарплатный проект
+                - generic [ref=f3e545]: 2026-08-28
+            - generic [ref=f3e546]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e547] [cursor=pointer]: ×
+        - generic [ref=f3e548]:
+          - button "Открыть операцию зарплаты" [ref=f3e549] [cursor=pointer]:
+            - generic [ref=f3e551]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e552]:
+                - generic [ref=f3e553]: Зарплатный проект
+                - generic [ref=f3e554]: 2026-08-30
+            - generic [ref=f3e555]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e556] [cursor=pointer]: ×
+        - generic [ref=f3e557]:
+          - button "Открыть операцию зарплаты" [ref=f3e558] [cursor=pointer]:
+            - generic [ref=f3e560]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e561]:
+                - generic [ref=f3e562]: Зарплатный проект
+                - generic [ref=f3e563]: 2026-09-01
+            - generic [ref=f3e564]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e565] [cursor=pointer]: ×
+        - generic [ref=f3e566]:
+          - button "Открыть операцию зарплаты" [ref=f3e567] [cursor=pointer]:
+            - generic [ref=f3e569]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e570]:
+                - generic [ref=f3e571]: Зарплатный проект
+                - generic [ref=f3e572]: 2026-09-03
+            - generic [ref=f3e573]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e574] [cursor=pointer]: ×
+        - generic [ref=f3e575]:
+          - button "Открыть операцию зарплаты" [ref=f3e576] [cursor=pointer]:
+            - generic [ref=f3e578]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e579]:
+                - generic [ref=f3e580]: Зарплатный проект
+                - generic [ref=f3e581]: 2026-09-05
+            - generic [ref=f3e582]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e583] [cursor=pointer]: ×
+        - generic [ref=f3e584]:
+          - button "Открыть операцию аренда" [ref=f3e585] [cursor=pointer]:
+            - generic [ref=f3e587]:
+              - text: аренда Аренда
+              - generic [ref=f3e588]:
+                - generic [ref=f3e589]: Арендодатель
+                - generic [ref=f3e590]: 2026-08-12
+            - generic [ref=f3e591]: −11 700 ₽
+          - button "Удалить запись «аренда»" [ref=f3e592] [cursor=pointer]: ×
+        - generic [ref=f3e593]:
+          - button "Открыть операцию аренда" [ref=f3e594] [cursor=pointer]:
+            - generic [ref=f3e596]:
+              - text: аренда Аренда
+              - generic [ref=f3e597]:
+                - generic [ref=f3e598]: Арендодатель
+                - generic [ref=f3e599]: 2026-08-14
+            - generic [ref=f3e600]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e601] [cursor=pointer]: ×
+        - generic [ref=f3e602]:
+          - button "Открыть операцию аренда" [ref=f3e603] [cursor=pointer]:
+            - generic [ref=f3e605]:
+              - text: аренда Аренда
+              - generic [ref=f3e606]:
+                - generic [ref=f3e607]: Арендодатель
+                - generic [ref=f3e608]: 2026-08-16
+            - generic [ref=f3e609]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e610] [cursor=pointer]: ×
+        - generic [ref=f3e611]:
+          - button "Открыть операцию аренда" [ref=f3e612] [cursor=pointer]:
+            - generic [ref=f3e614]:
+              - text: аренда Аренда
+              - generic [ref=f3e615]:
+                - generic [ref=f3e616]: Арендодатель
+                - generic [ref=f3e617]: 2026-08-18
+            - generic [ref=f3e618]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e619] [cursor=pointer]: ×
+        - generic [ref=f3e620]:
+          - button "Открыть операцию аренда" [ref=f3e621] [cursor=pointer]:
+            - generic [ref=f3e623]:
+              - text: аренда Аренда
+              - generic [ref=f3e624]:
+                - generic [ref=f3e625]: Арендодатель
+                - generic [ref=f3e626]: 2026-08-20
+            - generic [ref=f3e627]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e628] [cursor=pointer]: ×
+        - generic [ref=f3e629]:
+          - button "Открыть операцию аренда" [ref=f3e630] [cursor=pointer]:
+            - generic [ref=f3e632]:
+              - text: аренда Аренда
+              - generic [ref=f3e633]:
+                - generic [ref=f3e634]: Арендодатель
+                - generic [ref=f3e635]: 2026-08-22
+            - generic [ref=f3e636]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e637] [cursor=pointer]: ×
+        - generic [ref=f3e638]:
+          - button "Открыть операцию аренда" [ref=f3e639] [cursor=pointer]:
+            - generic [ref=f3e641]:
+              - text: аренда Аренда
+              - generic [ref=f3e642]:
+                - generic [ref=f3e643]: Арендодатель
+                - generic [ref=f3e644]: 2026-08-26
+            - generic [ref=f3e645]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e646] [cursor=pointer]: ×
+        - generic [ref=f3e647]:
+          - button "Открыть операцию аренда" [ref=f3e648] [cursor=pointer]:
+            - generic [ref=f3e650]:
+              - text: аренда Аренда
+              - generic [ref=f3e651]:
+                - generic [ref=f3e652]: Арендодатель
+                - generic [ref=f3e653]: 2026-08-28
+            - generic [ref=f3e654]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e655] [cursor=pointer]: ×
+        - generic [ref=f3e656]:
+          - button "Открыть операцию аренда" [ref=f3e657] [cursor=pointer]:
+            - generic [ref=f3e659]:
+              - text: аренда Аренда
+              - generic [ref=f3e660]:
+                - generic [ref=f3e661]: Арендодатель
+                - generic [ref=f3e662]: 2026-08-30
+            - generic [ref=f3e663]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e664] [cursor=pointer]: ×
+        - generic [ref=f3e665]:
+          - button "Открыть операцию аренда" [ref=f3e666] [cursor=pointer]:
+            - generic [ref=f3e668]:
+              - text: аренда Аренда
+              - generic [ref=f3e669]:
+                - generic [ref=f3e670]: Арендодатель
+                - generic [ref=f3e671]: 2026-09-01
+            - generic [ref=f3e672]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e673] [cursor=pointer]: ×
+        - generic [ref=f3e674]:
+          - button "Открыть операцию аренда" [ref=f3e675] [cursor=pointer]:
+            - generic [ref=f3e677]:
+              - text: аренда Аренда
+              - generic [ref=f3e678]:
+                - generic [ref=f3e679]: Арендодатель
+                - generic [ref=f3e680]: 2026-09-03
+            - generic [ref=f3e681]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e682] [cursor=pointer]: ×
+        - generic [ref=f3e683]:
+          - button "Открыть операцию аренда" [ref=f3e684] [cursor=pointer]:
+            - generic [ref=f3e686]:
+              - text: аренда Аренда
+              - generic [ref=f3e687]:
+                - generic [ref=f3e688]: Арендодатель
+                - generic [ref=f3e689]: 2026-09-05
+            - generic [ref=f3e690]: −11 500 ₽
+          - button "Удалить запись «аренда»" [ref=f3e691] [cursor=pointer]: ×
+        - generic [ref=f3e692]:
+          - button "Открыть операцию материалы" [ref=f3e693] [cursor=pointer]:
+            - generic [ref=f3e695]:
+              - text: материалы Материалы
+              - generic [ref=f3e696]:
+                - generic [ref=f3e697]: МедТорг
+                - generic [ref=f3e698]: 2026-07-13
+            - generic [ref=f3e699]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e700] [cursor=pointer]: ×
+        - generic [ref=f3e701]:
+          - button "Открыть операцию материалы" [ref=f3e702] [cursor=pointer]:
+            - generic [ref=f3e704]:
+              - text: материалы Материалы
+              - generic [ref=f3e705]:
+                - generic [ref=f3e706]: МедТорг
+                - generic [ref=f3e707]: 2026-07-15
+            - generic [ref=f3e708]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e709] [cursor=pointer]: ×
+        - generic [ref=f3e710]:
+          - button "Открыть операцию материалы" [ref=f3e711] [cursor=pointer]:
+            - generic [ref=f3e713]:
+              - text: материалы Материалы
+              - generic [ref=f3e714]:
+                - generic [ref=f3e715]: Дентал-Оптима
+                - generic [ref=f3e716]: 2026-07-17
+            - generic [ref=f3e717]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e718] [cursor=pointer]: ×
+        - generic [ref=f3e719]:
+          - button "Открыть операцию материалы" [ref=f3e720] [cursor=pointer]:
+            - generic [ref=f3e722]:
+              - text: материалы Материалы
+              - generic [ref=f3e723]:
+                - generic [ref=f3e724]: МедТорг
+                - generic [ref=f3e725]: 2026-07-19
+            - generic [ref=f3e726]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e727] [cursor=pointer]: ×
+        - generic [ref=f3e728]:
+          - button "Открыть операцию материалы" [ref=f3e729] [cursor=pointer]:
+            - generic [ref=f3e731]:
+              - text: материалы Материалы
+              - generic [ref=f3e732]:
+                - generic [ref=f3e733]: МедТорг
+                - generic [ref=f3e734]: 2026-07-21
+            - generic [ref=f3e735]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e736] [cursor=pointer]: ×
+        - generic [ref=f3e737]:
+          - button "Открыть операцию материалы" [ref=f3e738] [cursor=pointer]:
+            - generic [ref=f3e740]:
+              - text: материалы Материалы
+              - generic [ref=f3e741]:
+                - generic [ref=f3e742]: МедТорг
+                - generic [ref=f3e743]: 2026-07-23
+            - generic [ref=f3e744]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e745] [cursor=pointer]: ×
+        - generic [ref=f3e746]:
+          - button "Открыть операцию материалы" [ref=f3e747] [cursor=pointer]:
+            - generic [ref=f3e749]:
+              - text: материалы Материалы
+              - generic [ref=f3e750]:
+                - generic [ref=f3e751]: МедТорг
+                - generic [ref=f3e752]: 2026-07-27
+            - generic [ref=f3e753]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e754] [cursor=pointer]: ×
+        - generic [ref=f3e755]:
+          - button "Открыть операцию материалы" [ref=f3e756] [cursor=pointer]:
+            - generic [ref=f3e758]:
+              - text: материалы Материалы
+              - generic [ref=f3e759]:
+                - generic [ref=f3e760]: Дентал-Оптима
+                - generic [ref=f3e761]: 2026-07-29
+            - generic [ref=f3e762]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e763] [cursor=pointer]: ×
+        - generic [ref=f3e764]:
+          - button "Открыть операцию материалы" [ref=f3e765] [cursor=pointer]:
+            - generic [ref=f3e767]:
+              - text: материалы Материалы
+              - generic [ref=f3e768]:
+                - generic [ref=f3e769]: МедТорг
+                - generic [ref=f3e770]: 2026-07-31
+            - generic [ref=f3e771]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e772] [cursor=pointer]: ×
+        - generic [ref=f3e773]:
+          - button "Открыть операцию материалы" [ref=f3e774] [cursor=pointer]:
+            - generic [ref=f3e776]:
+              - text: материалы Материалы
+              - generic [ref=f3e777]:
+                - generic [ref=f3e778]: МедТорг
+                - generic [ref=f3e779]: 2026-08-02
+            - generic [ref=f3e780]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e781] [cursor=pointer]: ×
+        - generic [ref=f3e782]:
+          - button "Открыть операцию материалы" [ref=f3e783] [cursor=pointer]:
+            - generic [ref=f3e785]:
+              - text: материалы Материалы
+              - generic [ref=f3e786]:
+                - generic [ref=f3e787]: МедТорг
+                - generic [ref=f3e788]: 2026-08-04
+            - generic [ref=f3e789]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e790] [cursor=pointer]: ×
+        - generic [ref=f3e791]:
+          - button "Открыть операцию материалы" [ref=f3e792] [cursor=pointer]:
+            - generic [ref=f3e794]:
+              - text: материалы Материалы
+              - generic [ref=f3e795]:
+                - generic [ref=f3e796]: МедТорг
+                - generic [ref=f3e797]: 2026-08-06
+            - generic [ref=f3e798]: −17 800 ₽
+          - button "Удалить запись «материалы»" [ref=f3e799] [cursor=pointer]: ×
+        - generic [ref=f3e800]:
+          - button "Открыть операцию прочее" [ref=f3e801] [cursor=pointer]:
+            - generic [ref=f3e803]:
+              - text: прочее Прочее
+              - generic [ref=f3e804]:
+                - generic [ref=f3e805]: Прочие расходы
+                - generic [ref=f3e806]: 2026-07-13
+            - generic [ref=f3e807]: −3 000 ₽
+          - button "Удалить запись «прочее»" [ref=f3e808] [cursor=pointer]: ×
+        - generic [ref=f3e809]:
+          - button "Открыть операцию прочее" [ref=f3e810] [cursor=pointer]:
+            - generic [ref=f3e812]:
+              - text: прочее Прочее
+              - generic [ref=f3e813]:
+                - generic [ref=f3e814]: Прочие расходы
+                - generic [ref=f3e815]: 2026-07-15
+            - generic [ref=f3e816]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e817] [cursor=pointer]: ×
+        - generic [ref=f3e818]:
+          - button "Открыть операцию прочее" [ref=f3e819] [cursor=pointer]:
+            - generic [ref=f3e821]:
+              - text: прочее Прочее
+              - generic [ref=f3e822]:
+                - generic [ref=f3e823]: Прочие расходы
+                - generic [ref=f3e824]: 2026-07-17
+            - generic [ref=f3e825]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e826] [cursor=pointer]: ×
+        - generic [ref=f3e827]:
+          - button "Открыть операцию прочее" [ref=f3e828] [cursor=pointer]:
+            - generic [ref=f3e830]:
+              - text: прочее Прочее
+              - generic [ref=f3e831]:
+                - generic [ref=f3e832]: Прочие расходы
+                - generic [ref=f3e833]: 2026-07-19
+            - generic [ref=f3e834]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e835] [cursor=pointer]: ×
+        - generic [ref=f3e836]:
+          - button "Открыть операцию прочее" [ref=f3e837] [cursor=pointer]:
+            - generic [ref=f3e839]:
+              - text: прочее Прочее
+              - generic [ref=f3e840]:
+                - generic [ref=f3e841]: Прочие расходы
+                - generic [ref=f3e842]: 2026-07-21
+            - generic [ref=f3e843]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e844] [cursor=pointer]: ×
+        - generic [ref=f3e845]:
+          - button "Открыть операцию прочее" [ref=f3e846] [cursor=pointer]:
+            - generic [ref=f3e848]:
+              - text: прочее Прочее
+              - generic [ref=f3e849]:
+                - generic [ref=f3e850]: Прочие расходы
+                - generic [ref=f3e851]: 2026-07-23
+            - generic [ref=f3e852]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e853] [cursor=pointer]: ×
+        - generic [ref=f3e854]:
+          - button "Открыть операцию прочее" [ref=f3e855] [cursor=pointer]:
+            - generic [ref=f3e857]:
+              - text: прочее Прочее
+              - generic [ref=f3e858]:
+                - generic [ref=f3e859]: Прочие расходы
+                - generic [ref=f3e860]: 2026-07-27
+            - generic [ref=f3e861]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e862] [cursor=pointer]: ×
+        - generic [ref=f3e863]:
+          - button "Открыть операцию прочее" [ref=f3e864] [cursor=pointer]:
+            - generic [ref=f3e866]:
+              - text: прочее Прочее
+              - generic [ref=f3e867]:
+                - generic [ref=f3e868]: Прочие расходы
+                - generic [ref=f3e869]: 2026-07-29
+            - generic [ref=f3e870]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e871] [cursor=pointer]: ×
+        - generic [ref=f3e872]:
+          - button "Открыть операцию прочее" [ref=f3e873] [cursor=pointer]:
+            - generic [ref=f3e875]:
+              - text: прочее Прочее
+              - generic [ref=f3e876]:
+                - generic [ref=f3e877]: Прочие расходы
+                - generic [ref=f3e878]: 2026-07-31
+            - generic [ref=f3e879]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e880] [cursor=pointer]: ×
+        - generic [ref=f3e881]:
+          - button "Открыть операцию прочее" [ref=f3e882] [cursor=pointer]:
+            - generic [ref=f3e884]:
+              - text: прочее Прочее
+              - generic [ref=f3e885]:
+                - generic [ref=f3e886]: Прочие расходы
+                - generic [ref=f3e887]: 2026-08-02
+            - generic [ref=f3e888]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e889] [cursor=pointer]: ×
+        - generic [ref=f3e890]:
+          - button "Открыть операцию прочее" [ref=f3e891] [cursor=pointer]:
+            - generic [ref=f3e893]:
+              - text: прочее Прочее
+              - generic [ref=f3e894]:
+                - generic [ref=f3e895]: Прочие расходы
+                - generic [ref=f3e896]: 2026-08-04
+            - generic [ref=f3e897]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e898] [cursor=pointer]: ×
+        - generic [ref=f3e899]:
+          - button "Открыть операцию прочее" [ref=f3e900] [cursor=pointer]:
+            - generic [ref=f3e902]:
+              - text: прочее Прочее
+              - generic [ref=f3e903]:
+                - generic [ref=f3e904]: Прочие расходы
+                - generic [ref=f3e905]: 2026-08-06
+            - generic [ref=f3e906]: −3 500 ₽
+          - button "Удалить запись «прочее»" [ref=f3e907] [cursor=pointer]: ×
+        - generic [ref=f3e908]:
+          - button "Открыть операцию реклама" [ref=f3e909] [cursor=pointer]:
+            - generic [ref=f3e911]:
+              - text: реклама Реклама
+              - generic [ref=f3e912]:
+                - generic [ref=f3e913]: Рекламное агентство
+                - generic [ref=f3e914]: 2026-07-13
+            - generic [ref=f3e915]: −5 300 ₽
+          - button "Удалить запись «реклама»" [ref=f3e916] [cursor=pointer]: ×
+        - generic [ref=f3e917]:
+          - button "Открыть операцию реклама" [ref=f3e918] [cursor=pointer]:
+            - generic [ref=f3e920]:
+              - text: реклама Реклама
+              - generic [ref=f3e921]:
+                - generic [ref=f3e922]: Рекламное агентство
+                - generic [ref=f3e923]: 2026-07-15
+            - generic [ref=f3e924]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e925] [cursor=pointer]: ×
+        - generic [ref=f3e926]:
+          - button "Открыть операцию реклама" [ref=f3e927] [cursor=pointer]:
+            - generic [ref=f3e929]:
+              - text: реклама Реклама
+              - generic [ref=f3e930]:
+                - generic [ref=f3e931]: Рекламное агентство
+                - generic [ref=f3e932]: 2026-07-17
+            - generic [ref=f3e933]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e934] [cursor=pointer]: ×
+        - generic [ref=f3e935]:
+          - button "Открыть операцию реклама" [ref=f3e936] [cursor=pointer]:
+            - generic [ref=f3e938]:
+              - text: реклама Реклама
+              - generic [ref=f3e939]:
+                - generic [ref=f3e940]: Рекламное агентство
+                - generic [ref=f3e941]: 2026-07-19
+            - generic [ref=f3e942]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e943] [cursor=pointer]: ×
+        - generic [ref=f3e944]:
+          - button "Открыть операцию реклама" [ref=f3e945] [cursor=pointer]:
+            - generic [ref=f3e947]:
+              - text: реклама Реклама
+              - generic [ref=f3e948]:
+                - generic [ref=f3e949]: Рекламное агентство
+                - generic [ref=f3e950]: 2026-07-21
+            - generic [ref=f3e951]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e952] [cursor=pointer]: ×
+        - generic [ref=f3e953]:
+          - button "Открыть операцию реклама" [ref=f3e954] [cursor=pointer]:
+            - generic [ref=f3e956]:
+              - text: реклама Реклама
+              - generic [ref=f3e957]:
+                - generic [ref=f3e958]: Рекламное агентство
+                - generic [ref=f3e959]: 2026-07-23
+            - generic [ref=f3e960]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e961] [cursor=pointer]: ×
+        - generic [ref=f3e962]:
+          - button "Открыть операцию реклама" [ref=f3e963] [cursor=pointer]:
+            - generic [ref=f3e965]:
+              - text: реклама Реклама
+              - generic [ref=f3e966]:
+                - generic [ref=f3e967]: Рекламное агентство
+                - generic [ref=f3e968]: 2026-07-27
+            - generic [ref=f3e969]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e970] [cursor=pointer]: ×
+        - generic [ref=f3e971]:
+          - button "Открыть операцию реклама" [ref=f3e972] [cursor=pointer]:
+            - generic [ref=f3e974]:
+              - text: реклама Реклама
+              - generic [ref=f3e975]:
+                - generic [ref=f3e976]: Рекламное агентство
+                - generic [ref=f3e977]: 2026-07-29
+            - generic [ref=f3e978]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e979] [cursor=pointer]: ×
+        - generic [ref=f3e980]:
+          - button "Открыть операцию реклама" [ref=f3e981] [cursor=pointer]:
+            - generic [ref=f3e983]:
+              - text: реклама Реклама
+              - generic [ref=f3e984]:
+                - generic [ref=f3e985]: Рекламное агентство
+                - generic [ref=f3e986]: 2026-07-31
+            - generic [ref=f3e987]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e988] [cursor=pointer]: ×
+        - generic [ref=f3e989]:
+          - button "Открыть операцию реклама" [ref=f3e990] [cursor=pointer]:
+            - generic [ref=f3e992]:
+              - text: реклама Реклама
+              - generic [ref=f3e993]:
+                - generic [ref=f3e994]: Рекламное агентство
+                - generic [ref=f3e995]: 2026-08-02
+            - generic [ref=f3e996]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e997] [cursor=pointer]: ×
+        - generic [ref=f3e998]:
+          - button "Открыть операцию реклама" [ref=f3e999] [cursor=pointer]:
+            - generic [ref=f3e1001]:
+              - text: реклама Реклама
+              - generic [ref=f3e1002]:
+                - generic [ref=f3e1003]: Рекламное агентство
+                - generic [ref=f3e1004]: 2026-08-04
+            - generic [ref=f3e1005]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e1006] [cursor=pointer]: ×
+        - generic [ref=f3e1007]:
+          - button "Открыть операцию реклама" [ref=f3e1008] [cursor=pointer]:
+            - generic [ref=f3e1010]:
+              - text: реклама Реклама
+              - generic [ref=f3e1011]:
+                - generic [ref=f3e1012]: Рекламное агентство
+                - generic [ref=f3e1013]: 2026-08-06
+            - generic [ref=f3e1014]: −5 800 ₽
+          - button "Удалить запись «реклама»" [ref=f3e1015] [cursor=pointer]: ×
+        - generic [ref=f3e1016]:
+          - button "Открыть операцию зарплаты" [ref=f3e1017] [cursor=pointer]:
+            - generic [ref=f3e1019]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e1020]:
+                - generic [ref=f3e1021]: Зарплатный проект
+                - generic [ref=f3e1022]: 2026-07-13
+            - generic [ref=f3e1023]: −37 400 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e1024] [cursor=pointer]: ×
+        - generic [ref=f3e1025]:
+          - button "Открыть операцию зарплаты" [ref=f3e1026] [cursor=pointer]:
+            - generic [ref=f3e1028]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e1029]:
+                - generic [ref=f3e1030]: Зарплатный проект
+                - generic [ref=f3e1031]: 2026-07-15
+            - generic [ref=f3e1032]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e1033] [cursor=pointer]: ×
+        - generic [ref=f3e1034]:
+          - button "Открыть операцию зарплаты" [ref=f3e1035] [cursor=pointer]:
+            - generic [ref=f3e1037]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e1038]:
+                - generic [ref=f3e1039]: Зарплатный проект
+                - generic [ref=f3e1040]: 2026-07-17
+            - generic [ref=f3e1041]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e1042] [cursor=pointer]: ×
+        - generic [ref=f3e1043]:
+          - button "Открыть операцию зарплаты" [ref=f3e1044] [cursor=pointer]:
+            - generic [ref=f3e1046]:
+              - text: зарплаты Зарплаты
+              - generic [ref=f3e1047]:
+                - generic [ref=f3e1048]: Зарплатный проект
+                - generic [ref=f3e1049]: 2026-07-19
+            - generic [ref=f3e1050]: −36 800 ₽
+          - button "Удалить запись «зарплаты»" [ref=f3e1051] [cursor=pointer]: ×
+  - status

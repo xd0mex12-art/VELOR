@@ -1,0 +1,128 @@
+- generic [active] [ref=f4e1]:
+  - navigation [ref=f4e2]:
+    - link "VELOR AI Employee" [ref=f4e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f4e6]: AI Employee
+    - generic [ref=f4e7]:
+      - link "Брифинг" [ref=f4e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f4e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f4e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f4e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f4e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f4e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f4e14]:
+      - link "Уведомления" [ref=f4e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f4e19]: "20"
+      - generic [ref=f4e20]: "Демо: стоматология «Дентарика»"
+      - button "Выйти" [ref=f4e21] [cursor=pointer]
+  - generic [ref=f4e22]:
+    - link "Что происходит" [ref=f4e23] [cursor=pointer]:
+      - /url: work.html
+    - link "Совет директоров" [ref=f4e24] [cursor=pointer]:
+      - /url: board.html
+    - link "Идеи" [ref=f4e25] [cursor=pointer]:
+      - /url: ideas.html
+    - link "Конкуренты" [ref=f4e26] [cursor=pointer]:
+      - /url: research.html
+    - link "Результаты" [ref=f4e27] [cursor=pointer]:
+      - /url: results.html
+    - link "Полномочия" [ref=f4e28] [cursor=pointer]:
+      - /url: autonomy.html
+  - main [ref=f4e30]:
+    - generic [ref=f4e31]:
+      - generic [ref=f4e32]:
+        - heading "Работа VELOR" [level=1] [ref=f4e33]
+        - paragraph [ref=f4e34]: Что он заметил, что ждёт вашего слова и что уже сделал — в одном месте и в том порядке, в каком это важно.
+        - generic [ref=f4e35]:
+          - generic [ref=f4e60]: 6 решений за вами
+          - generic [ref=f4e62]: "5 находок · сделано за сутки: 3"
+      - generic [ref=f4e38]:
+        - generic [ref=f4e39]: на связи
+        - button "Проверить сейчас" [ref=f4e50] [cursor=pointer]
+    - alert
+    - group "Что показать" [ref=f4e52]:
+      - button "Требует решения 6" [pressed] [ref=f4e63] [cursor=pointer]
+      - button "VELOR заметил 2" [ref=f4e64] [cursor=pointer]
+      - button "VELOR сделал" [ref=f4e55] [cursor=pointer]
+      - button "История" [ref=f4e56] [cursor=pointer]
+    - generic [ref=f4e57]:
+      - article [ref=f4e65]:
+        - generic [ref=f4e66]: Писать клиенту первым
+        - generic [ref=f4e67]: Отправляет подготовленное касание сам — не чаще трёх раз на возможность и только в ваши рабочие часы.
+        - generic [ref=f4e68]: "Написать клиенту: Клиент ждёт ответа — клиент написал 1 день назад, ответа не было (Брекеты, полный курс)"
+        - generic [ref=f4e69]: Полный курс брекетов под ключ стоит 165 000 рублей. Рассрочку мы не предоставляем. Какой ещё вопрос по лечению?
+        - generic [ref=f4e70]: Предложено 8 сентября в 23:07
+        - generic [ref=f4e71]:
+          - button "Разрешить" [ref=f4e72] [cursor=pointer]
+          - button "Не надо" [ref=f4e73] [cursor=pointer]
+      - article [ref=f4e74]:
+        - generic [ref=f4e75]: Писать клиенту первым
+        - generic [ref=f4e76]: Отправляет подготовленное касание сам — не чаще трёх раз на возможность и только в ваши рабочие часы.
+        - generic [ref=f4e77]: "Написать клиенту: Клиент ждёт ответа — клиент написал 1 день назад, ответа не было (Имплант под ключ)"
+        - generic [ref=f4e78]: Добрый вечер. К сожалению, записи на субботу у нас пока нет. Могу предложить ближайший свободный слот в будни или записать вас на ближайшую субботу после того, как появятся свободные места. Какой вариант вам удобнее?
+        - generic [ref=f4e79]: Предложено 8 сентября в 23:07
+        - generic [ref=f4e80]:
+          - button "Разрешить" [ref=f4e81] [cursor=pointer]
+          - button "Не надо" [ref=f4e82] [cursor=pointer]
+      - article [ref=f4e83]:
+        - generic [ref=f4e84]: Писать клиенту первым
+        - generic [ref=f4e85]: Отправляет подготовленное касание сам — не чаще трёх раз на возможность и только в ваши рабочие часы.
+        - generic [ref=f4e86]: "Написать клиенту: Клиент ждёт ответа — клиент написал 22 ч назад, ответа не было (Коронка керамическая)"
+        - generic [ref=f4e87]: Да, конечно, берёмся! Какую коронку вам установить планируете?
+        - generic [ref=f4e88]: Предложено 8 сентября в 23:07
+        - generic [ref=f4e89]:
+          - button "Разрешить" [ref=f4e90] [cursor=pointer]
+          - button "Не надо" [ref=f4e91] [cursor=pointer]
+      - article [ref=f4e92]:
+        - generic [ref=f4e93]: Срочно
+        - generic [ref=f4e94]: 3 горячих клиента ждут ответа
+        - generic [ref=f4e95]: Они написали сами и говорят о покупке прямо. Дольше всех ждёт 43 часа.
+        - generic [ref=f4e96]: Пока разговор живой, его ещё можно закрыть. Каждый час молчания уменьшает эту вероятность — люди уходят к тем, кто ответил.
+        - generic [ref=f4e97]:
+          - text: Потенциальная ценность ≈ 285 000 ₽
+          - generic [ref=f4e98]: Столько стоят эти возможности по суммам из самих разговоров. Это оценка, а не выручка.
+        - group [ref=f4e99]:
+          - generic "На чём основано" [ref=f4e100] [cursor=pointer]
+        - generic [ref=f4e101]: "По этой находке: выполнено 3."
+        - generic [ref=f4e102]:
+          - link "Посмотреть" [ref=f4e103] [cursor=pointer]:
+            - /url: leads.html
+          - button "Подготовить, что им написать" [ref=f4e104] [cursor=pointer]
+          - button "Понятно" [ref=f4e105] [cursor=pointer]
+          - button "Не интересно" [ref=f4e106] [cursor=pointer]
+      - article [ref=f4e107]:
+        - generic [ref=f4e108]: Важно
+        - generic [ref=f4e109]: Потеряно 6 возможностей
+        - generic [ref=f4e110]: "За 14 дней (26.08–08.09) — на 100% больше, чем за предыдущие 14. Чаще всего причина: «Дорого»."
+        - generic [ref=f4e111]: Потери — единственное место, где видно, на чём именно бизнес теряет деньги. Одинаковая причина у нескольких подряд — это уже не невезение.
+        - generic [ref=f4e112]:
+          - text: Потеряно ≈ 570 000 ₽
+          - generic [ref=f4e113]: Столько стоили потерянные возможности по суммам, которые в них записаны. Деньги уже ушли — вернуть можно не их, а следующие такие же.
+        - group [ref=f4e114]:
+          - generic "На чём основано" [ref=f4e115] [cursor=pointer]
+        - generic [ref=f4e116]:
+          - link "Посмотреть" [ref=f4e117] [cursor=pointer]:
+            - /url: leads.html
+          - button "Понятно" [ref=f4e118] [cursor=pointer]
+          - button "Не интересно" [ref=f4e119] [cursor=pointer]
+      - article [ref=f4e120]:
+        - generic [ref=f4e121]: Важно
+        - generic [ref=f4e122]: "Покупают реже: 40% вместо 70%"
+        - generic [ref=f4e123]: За 14 дней (26.08–08.09) закрыто 10, купили 4. За предыдущие 14 дней было 70% из 10.
+        - generic [ref=f4e124]: Столько же разговоров приносят меньше денег. Разница в 30 пунктов — это те заказы, которые раньше доходили до оплаты.
+        - group [ref=f4e125]:
+          - generic "На чём основано" [ref=f4e126] [cursor=pointer]
+        - generic [ref=f4e127]:
+          - link "Посмотреть" [ref=f4e128] [cursor=pointer]:
+            - /url: leads.html
+          - button "Понятно" [ref=f4e129] [cursor=pointer]
+          - button "Не интересно" [ref=f4e130] [cursor=pointer]
+  - status

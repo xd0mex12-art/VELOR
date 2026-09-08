@@ -1,0 +1,87 @@
+- generic [active] [ref=f1e1]:
+  - navigation [ref=f1e2]:
+    - link "VELOR AI Employee" [ref=f1e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f1e6]: AI Employee
+    - generic [ref=f1e7]:
+      - link "Брифинг" [ref=f1e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f1e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f1e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f1e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f1e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f1e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f1e14]:
+      - link "Уведомления" [ref=f1e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f1e19]: "20"
+      - button "Выйти" [ref=f1e20] [cursor=pointer]
+  - generic [ref=f1e21]:
+    - link "Обзор" [ref=f1e22] [cursor=pointer]:
+      - /url: dashboard.html
+    - link "Спросить" [ref=f1e23] [cursor=pointer]:
+      - /url: home.html
+    - link "Риски" [ref=f1e24] [cursor=pointer]:
+      - /url: risks.html
+    - link "Возможности" [ref=f1e25] [cursor=pointer]:
+      - /url: opportunities.html
+    - link "Утренний брифинг" [ref=f1e26] [cursor=pointer]:
+      - /url: briefing.html
+    - link "Неделя" [ref=f1e27] [cursor=pointer]:
+      - /url: weekly.html
+    - link "Цели" [ref=f1e28] [cursor=pointer]:
+      - /url: goals.html
+  - main [ref=f1e30]:
+    - generic [ref=f1e31]:
+      - generic [ref=f1e32]: вторник, 8 сентября · утренний брифинг
+      - generic [ref=f1e33]: Доброе утро.
+      - generic [ref=f1e34]: Финансы
+      - generic [ref=f1e35]:
+        - generic [ref=f1e36]:
+          - generic [ref=f1e37]: Доход вчера
+          - generic [ref=f1e38]: 94 200 ₽
+        - generic [ref=f1e39]:
+          - generic [ref=f1e40]: Расход вчера
+          - generic [ref=f1e41]: 0 ₽
+        - generic [ref=f1e42]:
+          - generic [ref=f1e43]: Прибыль вчера
+          - generic [ref=f1e44]: 94 200 ₽
+        - generic [ref=f1e45]:
+          - generic [ref=f1e46]: Прибыль за месяц
+          - generic [ref=f1e47]: 179 300 ₽
+          - generic [ref=f1e48]: доход 437 000 ₽
+      - generic [ref=f1e49]:
+        - generic [ref=f1e50]:
+          - generic [ref=f1e51]: Новые заявки
+          - generic [ref=f1e52]: "4"
+          - generic [ref=f1e53]: вчера · всего необработанных 0
+        - generic [ref=f1e54]:
+          - generic [ref=f1e55]: Новые клиенты
+          - generic [ref=f1e56]: "0"
+          - generic [ref=f1e57]: вчера пришли в базу
+      - generic [ref=f1e58]:
+        - generic [ref=f1e59]: Что требует внимания
+        - list [ref=f1e60]:
+          - listitem [ref=f1e61]: 3 горячих клиента ждут ответа
+          - listitem [ref=f1e62]: Потеряно 6 возможностей
+          - listitem [ref=f1e63]: "Покупают реже: 40% вместо 70%"
+      - generic [ref=f1e64]:
+        - generic [ref=f1e65]:
+          - generic [ref=f1e66]: Возможность дня
+          - generic [ref=f1e67]: "«Брекеты, полный курс» приносит больше всех: 330 000 ₽"
+          - generic [ref=f1e68]: 2 заявки за 30 дн. Это направление уже работает — его и стоит усиливать.
+        - generic [ref=f1e69]:
+          - generic [ref=f1e70]: Риск дня
+          - generic [ref=f1e71]: Расходы растут быстрее выручки
+          - generic [ref=f1e72]: Расходы +14%, выручка +1% к предыдущим 30 дн. Разрыв 13 процентных пунктов. Прибыль от этого просела на 29%.
+      - generic [ref=f1e73]:
+        - button "Пересобрать" [ref=f1e74] [cursor=pointer]
+        - link "Дневник — что было раньше →" [ref=f1e75] [cursor=pointer]:
+          - /url: journal.html
+  - status

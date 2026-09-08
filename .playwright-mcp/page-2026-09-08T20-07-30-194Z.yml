@@ -1,0 +1,54 @@
+- generic [active] [ref=f3e1]:
+  - navigation [ref=f3e2]:
+    - link "VELOR AI Employee" [ref=f3e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f3e6]: AI Employee
+    - generic [ref=f3e7]:
+      - link "Брифинг" [ref=f3e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f3e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f3e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f3e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f3e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f3e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f3e14]:
+      - link "Уведомления" [ref=f3e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f3e19]: "17"
+      - generic [ref=f3e20]: "Демо: стоматология «Дентарика»"
+      - button "Выйти" [ref=f3e21] [cursor=pointer]
+  - generic [ref=f3e22]:
+    - link "Что происходит" [ref=f3e23] [cursor=pointer]:
+      - /url: work.html
+    - link "Совет директоров" [ref=f3e24] [cursor=pointer]:
+      - /url: board.html
+    - link "Идеи" [ref=f3e25] [cursor=pointer]:
+      - /url: ideas.html
+    - link "Конкуренты" [ref=f3e26] [cursor=pointer]:
+      - /url: research.html
+    - link "Результаты" [ref=f3e27] [cursor=pointer]:
+      - /url: results.html
+    - link "Полномочия" [ref=f3e28] [cursor=pointer]:
+      - /url: autonomy.html
+  - main [ref=f3e30]:
+    - generic [ref=f3e31]:
+      - generic [ref=f3e32]:
+        - heading "Работа VELOR" [level=1] [ref=f3e33]
+        - paragraph [ref=f3e34]: Что он заметил, что ждёт вашего слова и что уже сделал — в одном месте и в том порядке, в каком это важно.
+        - generic [ref=f3e35]: Смотрю…
+      - generic [ref=f3e38]:
+        - generic [ref=f3e39]: на связи
+        - button "Проверить сейчас" [ref=f3e50] [cursor=pointer]
+    - alert
+    - group "Что показать" [ref=f3e52]:
+      - button "Требует решения" [pressed] [ref=f3e53] [cursor=pointer]
+      - button "VELOR заметил" [ref=f3e54] [cursor=pointer]
+      - button "VELOR сделал" [ref=f3e55] [cursor=pointer]
+      - button "История" [ref=f3e56] [cursor=pointer]
+  - status

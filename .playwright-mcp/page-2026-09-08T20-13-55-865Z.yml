@@ -1,0 +1,57 @@
+- generic [active] [ref=f4e1]:
+  - navigation [ref=f4e2]:
+    - link "VELOR AI Employee" [ref=f4e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f4e6]: AI Employee
+    - generic [ref=f4e7]:
+      - link "Брифинг" [ref=f4e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f4e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f4e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f4e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f4e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f4e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f4e14]:
+      - link "Уведомления" [ref=f4e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f4e19]: "20"
+      - generic [ref=f4e20]: "Демо: стоматология «Дентарика»"
+      - button "Выйти" [ref=f4e21] [cursor=pointer]
+  - main [ref=f4e22]:
+    - generic [ref=f4e23]:
+      - generic [ref=f4e24]:
+        - heading "Входящие" [level=1] [ref=f4e25]
+        - paragraph [ref=f4e26]: Одно место для всего, что касается бизнеса. Не нужно решать, «это финансы или клиенты» — бросьте сюда что есть. VELOR сохранит оригинал, разберёт и покажет, что понял и что из этого изменилось.
+        - generic [ref=f4e27]:
+          - generic [ref=f4e28]: Ящик пуст
+          - generic [ref=f4e30]: сюда можно скинуть что угодно — заметку, скриншот, счёт, выписку
+      - button "Выбрать файлы" [ref=f4e32] [cursor=pointer]
+    - alert
+    - generic [ref=f4e34]:
+      - heading "Передать VELOR" [level=2] [ref=f4e35]
+      - paragraph [ref=f4e36]: Прайс, чек, выписка, скриншот переписки, заметка на ходу — что угодно. Разбираться, что это и куда положить, — его работа, а не ваша.
+      - generic [ref=f4e37]: Что рассказать VELOR
+      - textbox "Что рассказать VELOR" [ref=f4e38]:
+        - /placeholder: "Поставщик поднял цену на розы до 180 ₽ · Новая услуга: экспресс-маникюр 2500 ₽ · Вот прайс с сентября"
+      - generic [ref=f4e39]:
+        - button "Прикрепить файлы" [ref=f4e40] [cursor=pointer]
+        - button "Передать VELOR" [disabled] [ref=f4e41]
+      - generic [ref=f4e42]: Перетащите файлы сюда или вставьте скриншот из буфера (Ctrl+V). Изображения, PDF, Word, Excel, CSV и текст — до 25 МБ, до 10 файлов за раз.
+    - generic [ref=f4e43]:
+      - heading "Что уже во входящих" [level=2] [ref=f4e44]
+      - group "Фильтр по состоянию" [ref=f4e46]:
+        - button "Все" [pressed] [ref=f4e47] [cursor=pointer]
+        - button "Принято" [ref=f4e48] [cursor=pointer]
+        - button "Нужен взгляд" [ref=f4e49] [cursor=pointer]
+        - button "Сбой" [ref=f4e50] [cursor=pointer]
+        - button "Архив" [ref=f4e51] [cursor=pointer]
+      - generic [ref=f4e53]:
+        - strong [ref=f4e54]: Пока пусто
+        - text: Перетащите файл, вставьте скриншот или напишите заметку — всё окажется здесь.
+  - status

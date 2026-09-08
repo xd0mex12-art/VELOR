@@ -247,9 +247,16 @@ def _clients(con, bid, p):
     out = []
     for i, name in enumerate(names):
         con.execute(
-            """INSERT INTO clients (business_id, name, phone, created_at, source, notes)
-               VALUES (?,?,?,?,?,?)""",
+            """INSERT INTO clients (business_id, name, phone, tg_user_id,
+                                    created_at, source, notes)
+               VALUES (?,?,?,?,?,?,?)""",
             (bid, name, "+7 9%02d %03d-%02d-%02d" % (i % 100, 100 + i, i % 60, (i * 7) % 60),
+             # Адрес в Telegram. Без него набор сам себе противоречил: разговоры
+             # помечены каналом «telegram», а доставить по нему нечего — и VELOR
+             # честно отказывался готовить ответ, «писать некуда». Номер
+             # синтетический: начать разговор первым бот всё равно не может,
+             # Telegram этого не позволяет никому.
+             900_000_000 + i,
              _ts(88 - int(i * 88 / len(names)), hour=10 + i % 8), MARK,
              "Пришли по рекомендации" if i % 4 == 0 else None))
         out.append(_last_id(con, "clients", bid))

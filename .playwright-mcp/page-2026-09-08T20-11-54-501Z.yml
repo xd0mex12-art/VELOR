@@ -1,0 +1,47 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - link "VELOR AI Employee" [ref=e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=e6]: AI Employee
+    - generic [ref=e7]:
+      - link "Брифинг" [ref=e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=e14]:
+      - link "Уведомления" [ref=e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=e19]: "20"
+      - button "Выйти" [ref=e20] [cursor=pointer]
+  - generic [ref=e21]:
+    - link "Обзор" [ref=e22] [cursor=pointer]:
+      - /url: dashboard.html
+    - link "Спросить" [ref=e23] [cursor=pointer]:
+      - /url: home.html
+    - link "Риски" [ref=e24] [cursor=pointer]:
+      - /url: risks.html
+    - link "Возможности" [ref=e25] [cursor=pointer]:
+      - /url: opportunities.html
+    - link "Утренний брифинг" [ref=e26] [cursor=pointer]:
+      - /url: briefing.html
+    - link "Неделя" [ref=e27] [cursor=pointer]:
+      - /url: weekly.html
+    - link "Цели" [ref=e28] [cursor=pointer]:
+      - /url: goals.html
+  - main [ref=e30]:
+    - generic [ref=e31]: // Risks · Что может пойти не так
+    - heading "Риски." [level=1] [ref=e32]
+    - paragraph [ref=e33]: VELOR сравнивает последние 30 дней с предыдущими и предупреждает, если расходы растут, прибыль падает, клиенты уходят или бизнес держится на одном источнике.
+    - button "Проверить риски" [ref=e34] [cursor=pointer]
+    - generic [ref=e35]: Проверка занимает несколько секунд.
+    - generic [ref=e37]: Загружаю…
+  - status

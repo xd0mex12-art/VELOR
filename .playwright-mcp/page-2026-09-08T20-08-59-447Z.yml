@@ -1,0 +1,255 @@
+- generic [active] [ref=f5e1]:
+  - navigation [ref=f5e2]:
+    - link "VELOR AI Employee" [ref=f5e3] [cursor=pointer]:
+      - /url: dashboard.html
+      - text: VELOR
+      - generic [ref=f5e6]: AI Employee
+    - generic [ref=f5e7]:
+      - link "Брифинг" [ref=f5e8] [cursor=pointer]:
+        - /url: dashboard.html
+      - link "Входящие" [ref=f5e9] [cursor=pointer]:
+        - /url: inbox.html
+      - link "Реестр" [ref=f5e10] [cursor=pointer]:
+        - /url: clients.html
+      - link "Работа" [ref=f5e11] [cursor=pointer]:
+        - /url: work.html
+      - link "Знание" [ref=f5e12] [cursor=pointer]:
+        - /url: knowledge.html
+      - link "Ещё" [ref=f5e13] [cursor=pointer]:
+        - /url: more.html
+    - generic [ref=f5e14]:
+      - link "Уведомления" [ref=f5e15] [cursor=pointer]:
+        - /url: notifications.html
+        - generic [ref=f5e19]: "20"
+      - generic [ref=f5e20]: "Демо: стоматология «Дентарика»"
+      - button "Выйти" [ref=f5e21] [cursor=pointer]
+  - generic [ref=f5e22]:
+    - link "Что происходит" [ref=f5e23] [cursor=pointer]:
+      - /url: work.html
+    - link "Совет директоров" [ref=f5e24] [cursor=pointer]:
+      - /url: board.html
+    - link "Идеи" [ref=f5e25] [cursor=pointer]:
+      - /url: ideas.html
+    - link "Конкуренты" [ref=f5e26] [cursor=pointer]:
+      - /url: research.html
+    - link "Результаты" [ref=f5e27] [cursor=pointer]:
+      - /url: results.html
+    - link "Полномочия" [ref=f5e28] [cursor=pointer]:
+      - /url: autonomy.html
+  - main [ref=f5e30]:
+    - generic [ref=f5e31]: Core · Автономность
+    - heading "Что VELOR делает сам." [level=1] [ref=f5e32]
+    - paragraph [ref=f5e33]: "Вы решаете, сколько свободы ему дать. Рядом — всё, что он уже сделал: когда, зачем, на основании чего и чем это кончилось."
+    - generic [ref=f5e42]:
+      - button "Разрешить всё" [ref=f5e43] [cursor=pointer]
+      - button "Спрашивать перед действиями" [ref=f5e44] [cursor=pointer]
+      - button "Запретить всё" [ref=f5e45] [cursor=pointer]
+      - generic [ref=f5e46]: "«Разрешить всё» не отменяет ограничений безопасности: запись денег и правка подтверждённых вами данных остаются на подтверждении в любом случае."
+    - generic [ref=f5e48]:
+      - generic [ref=f5e49]:
+        - generic [ref=f5e50]: Требуют вашего решения
+        - generic [ref=f5e51]: "3"
+      - generic [ref=f5e52]:
+        - generic [ref=f5e53]: Писать клиенту первым
+        - generic [ref=f5e54]: "Написать клиенту: Клиент ждёт ответа — клиент написал 1 день назад, ответа не было (Брекеты, полный курс)"
+        - textbox "Текст сообщения" [ref=f5e55]: Полный курс брекетов под ключ стоит 165 000 рублей. Рассрочку мы не предоставляем. Какой ещё вопрос по лечению?
+        - generic [ref=f5e56]:
+          - button "Разрешить" [ref=f5e57] [cursor=pointer]
+          - button "Отклонить" [ref=f5e58] [cursor=pointer]
+      - generic [ref=f5e59]:
+        - generic [ref=f5e60]: Писать клиенту первым
+        - generic [ref=f5e61]: "Написать клиенту: Клиент ждёт ответа — клиент написал 1 день назад, ответа не было (Имплант под ключ)"
+        - textbox "Текст сообщения" [ref=f5e62]: Добрый вечер. К сожалению, записи на субботу у нас пока нет. Могу предложить ближайший свободный слот в будни или записать вас на ближайшую субботу после того, как появятся свободные места. Какой вариант вам удобнее?
+        - generic [ref=f5e63]:
+          - button "Разрешить" [ref=f5e64] [cursor=pointer]
+          - button "Отклонить" [ref=f5e65] [cursor=pointer]
+      - generic [ref=f5e66]:
+        - generic [ref=f5e67]: Писать клиенту первым
+        - generic [ref=f5e68]: "Написать клиенту: Клиент ждёт ответа — клиент написал 22 ч назад, ответа не было (Коронка керамическая)"
+        - textbox "Текст сообщения" [ref=f5e69]: Да, конечно, берёмся! Какую коронку вам установить планируете?
+        - generic [ref=f5e70]:
+          - button "Разрешить" [ref=f5e71] [cursor=pointer]
+          - button "Отклонить" [ref=f5e72] [cursor=pointer]
+    - generic [ref=f5e34]:
+      - generic [ref=f5e73]:
+        - generic [ref=f5e74]: Продажи
+        - generic [ref=f5e75]:
+          - generic [ref=f5e76]:
+            - generic [ref=f5e77]: Готовить напоминания
+            - generic [ref=f5e78]: Замечает, что разговор оборвался, и пишет черновик касания. Черновик никуда не уходит без отдельного разрешения ниже.
+            - generic [ref=f5e79]: Внутреннее
+          - combobox "Готовить напоминания" [ref=f5e80] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e81]:
+          - generic [ref=f5e82]:
+            - generic [ref=f5e83]: Дополнять возможности
+            - generic [ref=f5e84]: "Дописывает в карточку то, что клиент сказал позже: срок, количество, сумму. То, что вы правили руками, не трогает."
+            - generic [ref=f5e85]: Меняет данные
+          - combobox "Дополнять возможности" [ref=f5e86] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e87]:
+          - generic [ref=f5e88]:
+            - generic [ref=f5e89]: Заводить возможности
+            - generic [ref=f5e90]: Из разговора, в котором слышно намерение купить, создаёт карточку возможности. Сообщения при этом никуда не переносятся.
+            - generic [ref=f5e91]: Меняет данные
+          - combobox "Заводить возможности" [ref=f5e92] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e93]:
+          - generic [ref=f5e94]:
+            - generic [ref=f5e95]: Закрывать возможность сделкой
+            - generic [ref=f5e96]: Когда по возможности появилась заявка, помечает её выигранной и связывает с заявкой. Сам заявок не выдумывает.
+            - generic [ref=f5e97]: Меняет данные
+          - combobox "Закрывать возможность сделкой" [ref=f5e98] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e99]:
+          - generic [ref=f5e100]:
+            - generic [ref=f5e101]: Отвечать клиентам
+            - generic [ref=f5e102]: Сам ведёт разговор в Telegram и директе. Цены и условия берёт только из памяти бизнеса; чего там нет — зовёт вас. Запретить — значит, что все разговоры ведёте вы.
+            - generic [ref=f5e103]: Наружу или про деньги
+          - combobox "Отвечать клиентам" [ref=f5e104] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e105]:
+          - generic [ref=f5e106]:
+            - generic [ref=f5e107]: Оценивать возможности
+            - generic [ref=f5e108]: Считает, насколько человек близок к покупке и кому отвечать первым. Ничего никому не пишет и не создаёт.
+            - generic [ref=f5e109]: Внутреннее
+          - combobox "Оценивать возможности" [ref=f5e110] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e111]:
+          - generic [ref=f5e112]:
+            - generic [ref=f5e113]: Писать клиенту первым
+            - generic [ref=f5e114]: Отправляет подготовленное касание сам — не чаще трёх раз на возможность и только в ваши рабочие часы.
+            - generic [ref=f5e115]: Наружу или про деньги
+          - combobox "Писать клиенту первым" [ref=f5e116] [cursor=pointer]:
+            - option "Автоматически"
+            - option "Спрашивать разрешение" [selected]
+            - option "Запрещено"
+      - generic [ref=f5e117]:
+        - generic [ref=f5e118]: Данные
+        - generic [ref=f5e119]:
+          - generic [ref=f5e120]:
+            - generic [ref=f5e121]: Заводить клиентов
+            - generic [ref=f5e122]: Создаёт карточку человека из переписки или из присланного материала.
+            - generic [ref=f5e123]: Меняет данные
+          - combobox "Заводить клиентов" [ref=f5e124] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Спрашивать разрешение"
+            - option "Запрещено"
+        - generic [ref=f5e125]:
+          - generic [ref=f5e126]:
+            - generic [ref=f5e127]: Записывать контакты
+            - generic [ref=f5e128]: Дописывает имя и телефон, которые человек назвал сам. Проверенный вами телефон не затирает — второй уходит в заметку.
+            - generic [ref=f5e129]: Меняет данные
+          - combobox "Записывать контакты" [ref=f5e130] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e131]:
+          - generic [ref=f5e132]:
+            - generic [ref=f5e133]: Изменять подтверждённые данные
+            - generic [ref=f5e134]: Переписывает то, за что вы уже поручились. Сам этого не делает никогда — только показывает, что предлагает изменить.
+            - generic [ref=f5e135]: Автоматическим это не станет — даже по кнопке «Разрешить всё».
+          - combobox "Изменять подтверждённые данные" [ref=f5e136] [cursor=pointer]:
+            - option "Спрашивать разрешение" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e137]:
+          - generic [ref=f5e138]:
+            - generic [ref=f5e139]: Пополнять память бизнеса
+            - generic [ref=f5e140]: Добавляет услуги, товары, цены, правила работы и сведения о компании из того, что вы прислали.
+            - generic [ref=f5e141]: Меняет данные
+          - combobox "Пополнять память бизнеса" [ref=f5e142] [cursor=pointer]:
+            - option "Автоматически" [selected]
+            - option "Спрашивать разрешение"
+            - option "Запрещено"
+      - generic [ref=f5e143]:
+        - generic [ref=f5e144]: Операции
+        - generic [ref=f5e145]:
+          - generic [ref=f5e146]:
+            - generic [ref=f5e147]: Оформлять заявки
+            - generic [ref=f5e148]: Создаёт заявку, когда с клиентом всё оговорено. Сумму берёт из каталога, свою не придумывает.
+            - generic [ref=f5e149]: Наружу или про деньги
+          - combobox "Оформлять заявки" [ref=f5e150] [cursor=pointer]:
+            - option "Автоматически"
+            - option "Спрашивать разрешение" [selected]
+            - option "Запрещено"
+        - generic [ref=f5e151]:
+          - generic [ref=f5e152]:
+            - generic [ref=f5e153]: Ставить цели
+            - generic [ref=f5e154]: Заводит цель бизнеса из того, что вы написали или прислали.
+            - generic [ref=f5e155]: Меняет данные
+          - combobox "Ставить цели" [ref=f5e156] [cursor=pointer]:
+            - option "Автоматически"
+            - option "Спрашивать разрешение" [selected]
+            - option "Запрещено"
+      - generic [ref=f5e157]:
+        - generic [ref=f5e158]: Финансы
+        - generic [ref=f5e159]:
+          - generic [ref=f5e160]:
+            - generic [ref=f5e161]: Записывать расходы и доходы
+            - generic [ref=f5e162]: Заносит сумму из чека или выписки в финансы. Сам не заносит никогда — показывает разобранное и ждёт вашего подтверждения.
+            - generic [ref=f5e163]: Автоматическим это не станет — даже по кнопке «Разрешить всё».
+          - combobox "Записывать расходы и доходы" [ref=f5e164] [cursor=pointer]:
+            - option "Спрашивать разрешение" [selected]
+            - option "Запрещено"
+    - generic [ref=f5e36]:
+      - generic [ref=f5e37]: Журнал
+      - heading "Что он делал." [level=1] [ref=f5e38]
+      - paragraph [ref=f5e39]: Здесь и выполненное, и то, чего ему не дали сделать. Заблокированное — не поломка, а сработавшая настройка, и видно это только отсюда.
+      - generic [ref=f5e165]:
+        - generic [ref=f5e166]: "ждут решения: 3"
+        - generic [ref=f5e167]: "за сутки сделано: 3"
+        - generic [ref=f5e168]: "заблокировано: 0"
+        - generic [ref=f5e169]: "не получилось: 0"
+      - generic [ref=f5e170]:
+        - button "Все" [ref=f5e171] [cursor=pointer]
+        - button "Автоматически" [ref=f5e172] [cursor=pointer]
+        - button "С подтверждением" [ref=f5e173] [cursor=pointer]
+        - button "Вручную" [ref=f5e174] [cursor=pointer]
+        - button "Успешные" [ref=f5e175] [cursor=pointer]
+        - button "Заблокированные" [ref=f5e176] [cursor=pointer]
+        - button "Ошибки" [ref=f5e177] [cursor=pointer]
+        - button "Ждут решения" [ref=f5e178] [cursor=pointer]
+      - generic [ref=f5e40]:
+        - generic [ref=f5e179]: Сегодня
+        - generic [ref=f5e180]:
+          - generic [ref=f5e181]: 20:07
+          - generic [ref=f5e183]:
+            - generic [ref=f5e184]: VELOR
+            - generic [ref=f5e185]: Писать клиенту первым — ждёт вашего решения
+            - generic [ref=f5e186]: "Причина: Написать клиенту: Клиент ждёт ответа — клиент написал 1 день назад, ответа не было (Брекеты, полный курс)"
+        - generic [ref=f5e187]:
+          - generic [ref=f5e188]: 20:07
+          - generic [ref=f5e190]:
+            - generic [ref=f5e191]: VELOR · автоматически
+            - generic [ref=f5e192]: Готовить напоминания — выполнено
+            - generic [ref=f5e193]: "Причина: 3 горячих клиента ждут ответа: Подготовить, что им написать. Черновик готов: Полный курс брекетов под ключ стоит 165 000 рублей. Рассрочку мы не предоставля…"
+        - generic [ref=f5e194]:
+          - generic [ref=f5e195]: 20:07
+          - generic [ref=f5e197]:
+            - generic [ref=f5e198]: VELOR
+            - generic [ref=f5e199]: Писать клиенту первым — ждёт вашего решения
+            - generic [ref=f5e200]: "Причина: Написать клиенту: Клиент ждёт ответа — клиент написал 1 день назад, ответа не было (Имплант под ключ)"
+        - generic [ref=f5e201]:
+          - generic [ref=f5e202]: 20:07
+          - generic [ref=f5e204]:
+            - generic [ref=f5e205]: VELOR · автоматически
+            - generic [ref=f5e206]: Готовить напоминания — выполнено
+            - generic [ref=f5e207]: "Причина: 3 горячих клиента ждут ответа: Подготовить, что им написать. Черновик готов: Добрый вечер. К сожалению, записи на субботу у нас пока нет. Могу предложить бл…"
+        - generic [ref=f5e208]:
+          - generic [ref=f5e209]: 20:07
+          - generic [ref=f5e211]:
+            - generic [ref=f5e212]: VELOR
+            - generic [ref=f5e213]: Писать клиенту первым — ждёт вашего решения
+            - generic [ref=f5e214]: "Причина: Написать клиенту: Клиент ждёт ответа — клиент написал 22 ч назад, ответа не было (Коронка керамическая)"
+        - generic [ref=f5e215]:
+          - generic [ref=f5e216]: 20:07
+          - generic [ref=f5e218]:
+            - generic [ref=f5e219]: VELOR · автоматически
+            - generic [ref=f5e220]: Готовить напоминания — выполнено
+            - generic [ref=f5e221]: "Причина: 3 горячих клиента ждут ответа: Подготовить, что им написать. Черновик готов: Да, конечно, берёмся! Какую коронку вам установить планируете?"
+  - status
