@@ -436,6 +436,31 @@ def muted(business_id) -> set:
     return out
 
 
+# Отказ по причине «канала нет вовсе». Константа, а не фраза по месту: по ней
+# находки отличают «владелец запретил» от «подключение отсутствует», и сверять
+# два одинаковых текста в разных файлах — верный способ однажды их разойтись.
+NO_CHANNEL = "Канал не подключён — писать клиенту некуда."
+
+
+def channel_live(business_id, channel=None) -> bool:
+    """
+    Есть ли вообще канал, по которому можно написать клиенту.
+
+    Сегодня такой канал один — Telegram-бот компании. Про остальные каналы
+    здесь ничего не утверждается: неизвестный считаем живым, чтобы проверка
+    не начала запрещать то, о чём не знает.
+    """
+    ch = (channel or "telegram").lower()
+    if ch != "telegram":
+        return True
+    try:
+        biz = database.get_business(business_id) or {}
+        return bool((biz.get("tg_bot_token") or "").strip())
+    except Exception:
+        log.exception("Состояние канала не прочиталось (biz %s)", business_id)
+        return True
+
+
 def _channel_gate(business_id, action_id, channel, meta):
     """
     Что об этом действии думает КАНАЛ.
@@ -647,8 +672,15 @@ def can_execute(business_id, action_id, *, channel=None, limit=None,
 
     why = ""
     if decision == DENY:
-        why = ("Вы запретили VELOR это действие." if owner_mode == DENY
-               else "Каналу это действие не разрешено.")
+        if owner_mode == DENY:
+            why = "Вы запретили VELOR это действие."
+        elif not channel_live(business_id, channel):
+            # Не настройка, а отсутствующее подключение. Отправлять владельца
+            # на страницу полномочий, где всё разрешено, — значит гонять его по
+            # кругу.
+            why = NO_CHANNEL
+        else:
+            why = "Каналу это действие не разрешено."
     elif decision == APPROVAL:
         if meta["ceiling"] == APPROVAL:
             why = "Такое VELOR не делает сам — нужно ваше подтверждение."

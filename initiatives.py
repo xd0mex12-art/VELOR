@@ -1151,6 +1151,15 @@ def _settled(business_id, got, dedupe_key):
     if status in (database.AC_PROPOSED, database.AC_APPROVED):
         return int(aid), "approval"
     if status == database.AC_BLOCKED:
+        # Запрет владельца и отсутствие канала выглядят одинаково — обе записи
+        # заблокированы, — но чинятся в разных местах. Сводка обязана их
+        # различать, иначе она отправит человека не туда.
+        # Две дороги к одному отказу: права могли не пустить (тогда причина —
+        # константа actions.NO_CHANNEL), а могли пустить, и уже исполнитель
+        # обнаружил, что писать некуда (тогда это его код «no_channel»).
+        # Владельцу разницы нет: канала нет в обоих случаях.
+        if (row or {}).get("error") in (actions.NO_CHANNEL, "no_channel"):
+            return int(aid), "nowhere"
         return int(aid), "deny"
     if status == database.AC_FAILED:
         return int(aid), "failed"
@@ -1222,7 +1231,7 @@ def act(business_id, initiative_id):
         raise InitiativeError("Не осталось объектов, по которым можно действовать.")
 
     made = []
-    decisions = {"done": 0, "approval": 0, "deny": 0, "failed": 0,
+    decisions = {"done": 0, "approval": 0, "deny": 0, "nowhere": 0, "failed": 0,
                  "already": 0, "skipped": 0}
     for target_id in ids:
         try:
@@ -1260,6 +1269,8 @@ def _act_note(d):
         bits.append("%d уже было в работе" % d["already"])
     if d.get("deny"):
         bits.append("%d не разрешено" % d["deny"])
+    if d.get("nowhere"):
+        bits.append("%d некуда отправить — не подключён Telegram-бот" % d["nowhere"])
     if d.get("failed"):
         bits.append("%d не получилось" % d["failed"])
     if d.get("skipped"):
