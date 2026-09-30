@@ -1,0 +1,41 @@
+# Будильник для бесплатной базы.
+#
+# Бесплатный проект Supabase встаёт на паузу примерно после недели без
+# обращений к базе. 2026-09-27 это уронило продакшен: пулер стал отвечать
+# «tenant not found», сервер падал при старте, и сайт сутками показывал
+# страницу загрузки Render.
+#
+# Раз в 6 часов дёргаем /api/alive — запрос доходит до базы, база не засыпает,
+# а сервис на Render заодно остаётся тёплым. Задание бесплатное и не зависит
+# от домашнего компьютера.
+#
+# Адрес можно переопределить переменной VELOR_URL в настройках репозитория
+# (Settings → Secrets and variables → Actions → Variables).
+name: keepalive
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:        # кнопка «запустить сейчас» в интерфейсе GitHub
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Разбудить VELOR и его базу
+        run: |
+          URL="${{ vars.VELOR_URL || 'https://velor-ucnt.onrender.com' }}"
+          echo "Стучимся в $URL/api/alive"
+          # Первый запрос будит уснувший сервис Render — он может думать
+          # до минуты, поэтому таймаут щедрый, а попыток три.
+          for i in 1 2 3; do
+            code=$(curl -sS -o /tmp/ans.txt -w "%{http_code}" --max-time 150 "$URL/api/alive" || echo 000)
+            echo "попытка $i: $code $(cat /tmp/ans.txt)"
+            if [ "$code" = "200" ]; then
+              echo "база жива"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::VELOR не ответил 200 на /api/alive — проверьте базу и логи Render"
+          exit 1
