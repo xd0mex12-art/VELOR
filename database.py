@@ -178,7 +178,42 @@ def _translate(sql: str) -> str:
     s = re.sub(r"CREATE\s+TABLE\s+(?!IF NOT EXISTS)", "CREATE TABLE IF NOT EXISTS ", s, flags=re.I)
     s = re.sub(r"ADD\s+COLUMN\s+(?!IF NOT EXISTS)", "ADD COLUMN IF NOT EXISTS ", s, flags=re.I)
     # ---- плейсшолдеры в самом конце ----
-    return s.replace("?", "%s")
+    # Знак вопроса ВНУТРИ комментария -- … плейсхолдером не считается.
+    #
+    # Иначе безобидная строка «-- то, что стоит в ?ref=» превращала запрос в
+    # запрос с одним параметром, которого никто не передавал, — и psycopg
+    # отвечал «the query has 1 placeholders but 0 parameters were passed».
+    # 2026-09-30 на этом легла вся init_db на продакшене: комментарий в
+    # описании таблицы уронил сервер целиком, а искать такое в SQL-комментарии
+    # никому не придёт в голову.
+    # Кавычки при этом учитываем: последовательность «--» внутри строкового
+    # значения комментарий не начинает, и знаки вопроса после неё остаются
+    # настоящими параметрами.
+    out, i, n, in_str, in_comment = [], 0, len(s), False, False
+    while i < n:
+        ch = s[i]
+        if in_comment:
+            if ch == "\n":
+                in_comment = False
+            out.append(ch)
+        elif in_str:
+            out.append(ch)
+            if ch == "'":
+                in_str = False
+        elif ch == "'":
+            in_str = True
+            out.append(ch)
+        elif ch == "-" and s[i:i + 2] == "--":
+            in_comment = True
+            out.append("--")
+            i += 2
+            continue
+        elif ch == "?":
+            out.append("%s")
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
 
 
 def _split_sql(script: str):

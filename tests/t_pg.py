@@ -374,5 +374,29 @@ finally:
     demo_business.clean(demo["business_id"])
 
 
+
+# ── Знак вопроса не везде плейсхолдер ──────────────────────────────────────
+# 2026-09-30 комментарий «-- то, что стоит в ?ref=» в описании таблицы уронил
+# init_db на продакшене целиком: перевод сделал из него параметр, а параметра
+# никто не передавал — psycopg отвечал «the query has 1 placeholders but 0
+# parameters were passed». Искать причину в SQL-комментарии никому не придёт
+# в голову, поэтому проверяем здесь.
+print("\n== ПЛЕЙСХОЛДЕРЫ ==")
+for name, sql, want in [
+    ("обычные параметры", "UPDATE t SET a = ?, b = ? WHERE id = ?", 3),
+    ("вопрос в комментарии не считается",
+     "SELECT * FROM t WHERE a = ?  -- то, что стоит в ?ref=", 1),
+    ("комментарий целой строкой", "-- ?ref= и ещё ?\nSELECT 1", 0),
+    ("вопрос внутри строкового значения",
+     "SELECT * FROM t WHERE s = 'что?' AND id = ?", 1),
+    ("двойной дефис внутри значения комментарий не начинает",
+     "SELECT * FROM t WHERE s = 'a--b' AND id = ?", 1),
+    ("экранированная кавычка не сбивает разбор",
+     "SELECT * FROM t WHERE s = 'it''s' AND id = ?", 1),
+]:
+    check("перевод: " + name, database._translate(sql).count("%s") == want,
+          database._translate(sql))
+
+
 print("\nИТОГО: успешно %d, провалено %d" % (ok, fail))
 sys.exit(1 if fail else 0)
