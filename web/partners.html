@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR AI — Партнёры</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<link rel="stylesheet" href="velor.css?v=19">
+<style>
+  /* Кто приводит клиентов и сколько им причитается.
+     Страница владельца сервиса: у самих партнёров входа в VELOR нет, и
+     ничего о компаниях их клиентов здесь не показывается — только номера
+     и деньги. Цвета и радиусы берутся из velor.css, своего тут только
+     раскладка таблиц. */
+
+  .kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:24px; margin-bottom:48px; }
+  @media(max-width:760px){ .kpis{ grid-template-columns:repeat(2,1fr); gap:20px; } }
+  .kpi .v{ font-weight:400; font-size:clamp(26px,4vw,44px); letter-spacing:-0.03em; }
+  .kpi:nth-child(1) .v{ color:var(--iris); }
+  .kpi:nth-child(2) .v{ color:var(--verdant); }
+  .kpi:nth-child(3) .v{ color:var(--saffron); }
+  .kpi .c{ margin-top:8px; text-transform:uppercase; letter-spacing:.15em;
+    font-weight:600; font-size:var(--fs-caption); color:var(--ash); }
+  .num{ font-variant-numeric:tabular-nums; }
+
+  .p{ border-bottom:1px solid var(--hairline); }
+  .p .row{ display:grid; grid-template-columns:1fr repeat(4,auto) auto; gap:26px;
+    align-items:center; padding:22px 0; cursor:pointer; transition:background .3s, padding-left .3s; }
+  @media(max-width:760px){ .p .row{ grid-template-columns:1fr auto; gap:10px; } .p .m{ display:none; } }
+  .p .row:hover{ background:linear-gradient(90deg,rgba(128,82,255,.07),transparent 70%); padding-left:12px; }
+  .p .nm{ font-weight:400; font-size:clamp(17px,2vw,22px); }
+  .p .code{ margin-top:4px; font-weight:200; font-size:var(--fs-sm); color:var(--ash); }
+  .p .m{ text-align:right; }
+  .p .m .mv{ font-weight:400; font-size:var(--fs-lead); }
+  .p .m .ml{ font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.15em; color:var(--ash); }
+  .p .m.due .mv{ color:var(--saffron); }
+  .chev{ color:var(--ash); transition:transform .3s; }
+  .p.open .chev{ transform:rotate(90deg); }
+  .off .nm{ color:var(--ash); text-decoration:line-through; }
+
+  .detail{ display:none; padding:4px 0 34px; }
+  .p.open .detail{ display:block; }
+  .link{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:20px; }
+  .link code{ background:rgba(255,255,255,.06); padding:10px 14px; border-radius:var(--r-md);
+    font-size:var(--fs-sm); word-break:break-all; }
+
+  table{ width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
+  th{ text-align:left; font-weight:600; font-size:var(--fs-micro); letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ash); padding:0 12px 10px 0; }
+  td{ padding:11px 12px 11px 0; border-top:1px solid var(--hairline); }
+  td.r, th.r{ text-align:right; }
+  .tag{ display:inline-block; padding:3px 10px; border-radius:var(--r-lg);
+    font-size:var(--fs-micro); letter-spacing:.08em; text-transform:uppercase; }
+  .tag.paid{ background:rgba(47,212,178,.16); color:var(--verdant); }
+  .tag.debt{ background:rgba(255,184,41,.16); color:var(--saffron); }
+
+  .acts{ display:flex; gap:10px; flex-wrap:wrap; margin-top:22px; }
+  .btn{ border:none; border-radius:var(--r-lg); padding:11px 20px; font-weight:600;
+    font-size:var(--fs-caption); letter-spacing:.12em; text-transform:uppercase;
+    background:rgba(255,255,255,.05); color:var(--silver); transition:background .2s,color .2s; }
+  .btn:hover{ background:rgba(255,255,255,.1); color:var(--bone); }
+  .btn.main{ background:var(--iris); color:#fff; }
+  .btn.main:hover{ filter:brightness(1.15); }
+
+  .new{ display:grid; grid-template-columns:repeat(4,1fr) auto; gap:12px; margin:8px 0 46px; }
+  @media(max-width:760px){ .new{ grid-template-columns:1fr; } }
+  .new input{ background:rgba(255,255,255,.05); border:1px solid var(--hairline);
+    border-radius:var(--r-md); padding:13px 15px; color:var(--bone); font-family:inherit;
+    font-size:var(--fs-sm); }
+  .new input:focus{ outline:2px solid var(--iris); outline-offset:1px; }
+  .empty{ color:var(--ash); font-weight:200; padding:28px 0; }
+</style>
+</head>
+<body>
+
+<main>
+  <header class="v-head">
+    <div>
+      <h1>Партнёры</h1>
+      <p class="v-lead">Кто приводит клиентов и сколько им причитается. Доля
+        считается с каждой оплаты приведённого клиента и начисляется, пока он
+        платит. Деньги отправляются вручную — здесь отмечается факт выплаты.</p>
+    </div>
+  </header>
+
+  <section class="kpis" id="kpis"></section>
+
+  <h2 class="v-h2">Завести партнёра</h2>
+  <div class="new">
+    <input id="nName" placeholder="Имя" maxlength="80">
+    <input id="nCode" placeholder="Код для ссылки (латиницей)" maxlength="40">
+    <input id="nShare" placeholder="Доля, %" value="15" maxlength="3">
+    <input id="nContact" placeholder="Куда слать отчёт" maxlength="80">
+    <button class="btn main" id="nAdd">Добавить</button>
+  </div>
+
+  <h2 class="v-h2">Список</h2>
+  <div id="list"></div>
+</main>
+
+<div class="v-toast" id="toast"></div>
+
+<script src="panel-auth.js"></script>
+<script src="nav.js"></script>
+<script src="velor-field.js?v=19"></script>
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (n||0).toLocaleString('ru-RU');
+let toastT;
+function toast(m){
+  const t = document.getElementById('toast');
+  t.textContent = m; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+async function api(url, opts={}){
+  const o = { ...opts };
+  if (o.body && !o.headers) o.headers = { 'Content-Type': 'application/json' };
+  const r = await fetch(url, o);
+  if (r.status === 401) throw new Error('auth');       // panel-auth уводит на вход
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || 'Не получилось');
+  return d;
+}
+
+// Ссылка партнёра строится от текущего адреса: на localhost она localhost,
+// на боевом — боевая. Иначе с тестового стенда копируется нерабочая ссылка.
+const refLink = code => location.origin + '/?ref=' + encodeURIComponent(code);
+
+function kpiRow(list){
+  const t = list.reduce((a, p) => ({
+    clients: a.clients + p.totals.clients,
+    paying:  a.paying  + p.totals.paying,
+    accrued: a.accrued + p.totals.accrued,
+    due:     a.due     + p.totals.due,
+  }), {clients:0, paying:0, accrued:0, due:0});
+  document.getElementById('kpis').innerHTML = [
+    ['Партнёров', list.filter(p => p.active).length],
+    ['Приведено клиентов', t.clients],
+    ['Из них платят', t.paying],
+    ['К выплате, ₽', money(t.due)],
+  ].map(([c, v]) => `<div class="kpi"><div class="v num">${esc(v)}</div><div class="c">${c}</div></div>`).join('');
+}
+
+function render(list){
+  kpiRow(list);
+  const box = document.getElementById('list');
+  if (!list.length){
+    box.innerHTML = '<div class="empty">Партнёров пока нет. Заведите первого выше — и дайте ему ссылку.</div>';
+    return;
+  }
+  box.innerHTML = list.map(p => `
+    <div class="p ${p.active ? '' : 'off'}" data-id="${p.id}">
+      <div class="row">
+        <div>
+          <div class="nm">${esc(p.name)}</div>
+          <div class="code">код ${esc(p.code)} · доля ${p.share_pct}%${p.contact ? ' · ' + esc(p.contact) : ''}</div>
+        </div>
+        <div class="m"><div class="mv num">${p.totals.clients}</div><div class="ml">клиентов</div></div>
+        <div class="m"><div class="mv num">${p.totals.paying}</div><div class="ml">платят</div></div>
+        <div class="m"><div class="mv num">${money(p.totals.accrued)}</div><div class="ml">начислено</div></div>
+        <div class="m due"><div class="mv num">${money(p.totals.due)}</div><div class="ml">к выплате</div></div>
+        <div class="chev">›</div>
+      </div>
+      <div class="detail" data-detail="${p.id}"></div>
+    </div>`).join('');
+
+  box.querySelectorAll('.p .row').forEach(row => {
+    row.addEventListener('click', () => {
+      const card = row.parentElement;
+      card.classList.toggle('open');
+      if (card.classList.contains('open')) loadEarnings(card.dataset.id);
+    });
+  });
+}
+
+async function loadEarnings(pid){
+  const host = document.querySelector(`[data-detail="${pid}"]`);
+  const p = STATE.find(x => String(x.id) === String(pid));
+  host.innerHTML = '<div class="empty">Загружаю…</div>';
+  try{
+    const d = await api('/api/admin/partners/' + pid + '/earnings');
+    const rows = d.earnings;
+    host.innerHTML = `
+      <div class="link">
+        <span class="ml">ссылка партнёра:</span>
+        <code>${esc(refLink(p.code))}</code>
+        <button class="btn" data-copy="${esc(refLink(p.code))}">Скопировать</button>
+      </div>
+      ${rows.length ? `
+      <table>
+        <thead><tr>
+          <th>Когда</th><th>Клиент</th><th>Тариф</th>
+          <th class="r">Оплата, ₽</th><th class="r">Доля</th>
+          <th class="r">Комиссия, ₽</th><th>Состояние</th>
+        </tr></thead>
+        <tbody>${rows.map(r => `
+          <tr>
+            <td>${esc(String(r.created_at || '').slice(0, 10))}</td>
+            <td>№ ${r.business_id}</td>
+            <td>${esc(r.plan || '—')}${r.months > 1 ? ' × ' + r.months + ' мес.' : ''}</td>
+            <td class="r num">${money(r.amount)}</td>
+            <td class="r num">${r.share_pct}%</td>
+            <td class="r num">${money(r.commission)}</td>
+            <td>${r.paid_out_at
+                  ? '<span class="tag paid">выплачено</span>'
+                  : '<span class="tag debt">к выплате</span>'}</td>
+          </tr>`).join('')}</tbody>
+      </table>` : '<div class="empty">Начислений пока нет.</div>'}
+      <div class="acts">
+        ${d.totals.due > 0 ? `<button class="btn main" data-payout="${pid}">Выплатил ${money(d.totals.due)} ₽ — отметить</button>` : ''}
+        <button class="btn" data-share="${pid}">Сменить долю</button>
+        <button class="btn" data-fix="${pid}">Поправить начисление</button>
+        <button class="btn" data-toggle="${pid}">${p.active ? 'Выключить' : 'Включить'}</button>
+      </div>`;
+  }catch(e){
+    if (e.message === 'auth') return;
+    host.innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  }
+}
+
+// Клики внутри раскрытой карточки: один слушатель на всю страницу, чтобы
+// кнопки продолжали работать после перерисовки списка.
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-copy],[data-payout],[data-share],[data-toggle],[data-fix]');
+  if (!t) return;
+  e.stopPropagation();
+
+  if (t.dataset.copy){
+    try{ await navigator.clipboard.writeText(t.dataset.copy); toast('Ссылка скопирована'); }
+    catch(err){ toast('Скопируйте вручную: ' + t.dataset.copy); }
+    return;
+  }
+  const pid = t.dataset.payout || t.dataset.share || t.dataset.toggle || t.dataset.fix;
+  const p = STATE.find(x => String(x.id) === String(pid));
+  try{
+    if (t.dataset.payout){
+      const d = await api('/api/admin/partners/' + pid + '/earnings?unpaid=1');
+      const ids = d.earnings.map(r => r.id);
+      if (!ids.length){ toast('Долга нет'); return; }
+      if (!confirm('Отметить выплату ' + money(d.totals.due) + ' ₽ партнёру ' + p.name + '?')) return;
+      const res = await api('/api/admin/partners/payout', {method:'POST', body: JSON.stringify({ids})});
+      toast('Отмечено строк: ' + res.closed);
+    } else if (t.dataset.share){
+      const v = prompt('Новая доля партнёра ' + p.name + ', в процентах:', p.share_pct);
+      if (v === null) return;
+      await api('/api/admin/partners/' + pid + '/share', {method:'POST', body: JSON.stringify({share_pct: parseInt(v, 10)})});
+      toast('Доля изменена. Уже начисленное не пересчитывается.');
+    } else if (t.dataset.fix){
+      // Возврат клиенту или ошибочно отмеченная оплата. Строки не удаляются:
+      // правка идёт отдельной записью, чтобы в истории было видно, что
+      // именно изменили.
+      const bidStr = prompt('Номер клиента, по которому правим (он есть в столбце «Клиент»):');
+      if (bidStr === null) return;
+      const sum = prompt('На сколько поправить комиссию? Со знаком: -1485 снять, 1485 доначислить.');
+      if (sum === null) return;
+      await api('/api/admin/partners/' + pid + '/adjust', {method:'POST', body: JSON.stringify({
+        business_id: parseInt(bidStr, 10), commission: parseInt(sum, 10)})});
+      toast('Правка записана отдельной строкой');
+    } else {
+      await api('/api/admin/partners/' + pid + '/active', {method:'POST', body: JSON.stringify({active: !p.active})});
+      toast(p.active ? 'Партнёр выключен' : 'Партнёр включён');
+    }
+    await load();
+  }catch(err){ if (err.message !== 'auth') toast(err.message); }
+});
+
+document.getElementById('nAdd').addEventListener('click', async () => {
+  const name = document.getElementById('nName').value.trim();
+  const code = document.getElementById('nCode').value.trim();
+  if (!name || !code){ toast('Нужны имя и код'); return; }
+  try{
+    await api('/api/admin/partners', {method:'POST', body: JSON.stringify({
+      name, code,
+      share_pct: parseInt(document.getElementById('nShare').value, 10) || 15,
+      contact: document.getElementById('nContact').value.trim(),
+    })});
+    document.getElementById('nName').value = '';
+    document.getElementById('nCode').value = '';
+    document.getElementById('nContact').value = '';
+    toast('Партнёр заведён');
+    await load();
+  }catch(e){ if (e.message !== 'auth') toast(e.message); }
+});
+
+let STATE = [];
+async function load(){
+  try{
+    STATE = (await api('/api/admin/partners')).partners;
+    render(STATE);
+  }catch(e){
+    if (e.message !== 'auth')
+      document.getElementById('list').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

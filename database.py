@@ -517,12 +517,28 @@ def _migrate_columns(conn):
         # заводить не пришлось; здесь хранится только момент, с которого старые
         # отказы больше не в счёт.
         ("businesses", "initiative_heard", "TEXT"),
+        # ── Партнёр, приведший этот бизнес ──────────────────────────────────
+        # Ставится ОДИН РАЗ при регистрации и больше не меняется: на этом
+        # держится обещание «партнёр получает долю, пока клиент платит».
+        ("businesses", "partner_id", "INTEGER"),
+        ("businesses", "partner_at", "TEXT"),
     ]
     for tbl, col, typ in migrations:
         try:
             conn.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
             pass  # колонка уже есть (SQLite); на Postgres ADD COLUMN IF NOT EXISTS
+
+
+def ping():
+    """Достучаться до базы одним дешёвым запросом.
+
+    Нужна для /api/alive: отличить «сервер жив, база мертва» от «всё хорошо».
+    Ошибку не глушим — её текст и есть ответ на вопрос, что случилось.
+    """
+    with _connect() as conn:
+        conn.execute("SELECT 1").fetchone()
+    return True
 
 
 def init_db():
@@ -960,6 +976,46 @@ def init_db():
         )
         conn.execute("CREATE INDEX IF NOT EXISTS ix_payments_biz "
                      "ON payments(business_id, created_at)")
+
+        # ── ПАРТНЁРЫ ────────────────────────────────────────────────────────
+        # Кто приводит клиентов и получает долю с каждой их оплаты.
+        # У партнёра НЕТ входа в VELOR и нет доступа к данным клиентов — это
+        # просто справочник для начислений, которые видит владелец сервиса.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS partners (
+                   id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                   name             TEXT NOT NULL,
+                   code             TEXT NOT NULL,     -- то, что стоит в ?ref=
+                   share_pct        INTEGER NOT NULL DEFAULT 15,
+                   contact          TEXT,              -- куда слать отчёт
+                   own_business_id  INTEGER,           -- свой кабинет: сам себя не приводит
+                   active           INTEGER NOT NULL DEFAULT 1,
+                   created_at       TEXT DEFAULT (datetime('now'))
+               )"""
+        )
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_partners_code "
+                     "ON partners(code)")
+
+        # Начисления. Одна строка — одна оплата клиента.
+        # share_pct дублируется сюда НАМЕРЕННО: доля фиксируется в момент
+        # начисления. Иначе смена процента завтра переписала бы историю за
+        # прошлый год, а это деньги, и задним числом они не меняются.
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS partner_earnings (
+                   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                   partner_id   INTEGER NOT NULL,
+                   business_id  INTEGER NOT NULL,
+                   plan         TEXT,
+                   months       INTEGER DEFAULT 1,
+                   amount       INTEGER NOT NULL,      -- сколько заплатил клиент, рубли целыми
+                   share_pct    INTEGER NOT NULL,      -- доля на момент начисления
+                   commission   INTEGER NOT NULL,      -- сколько причитается партнёру
+                   created_at   TEXT DEFAULT (datetime('now')),
+                   paid_out_at  TEXT                   -- пусто = долг
+               )"""
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_earnings_partner "
+                     "ON partner_earnings(partner_id, created_at)")
 
         # Личность владельца бизнеса (Owner Identity) — сущность, к которой
         # ПРИВЯЗЫВАЕТСЯ триал (а НЕ к Telegram-боту: бота легко пересоздать).
@@ -2678,6 +2734,160 @@ def list_payments(business_id, limit=20):
         rows = conn.execute(
             "SELECT * FROM payments WHERE business_id = ? "
             "ORDER BY id DESC LIMIT ?", (business_id, int(limit))).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------- ПАРТНЁРЫ ----------
+# Только хранение. Правила (кого можно привязать, сколько начислить) живут в
+# partners.py — здесь ни одного решения, чтобы их нельзя было обойти мимо
+# модуля.
+
+def create_partner(name, code, share_pct=15, contact=None, own_business_id=None):
+    """Завести партнёра. Код хранится в нижнем регистре: ссылки набирают руками."""
+    try:
+        with _connect() as conn:
+            cur = conn.execute(
+                """INSERT INTO partners (name, code, share_pct, contact, own_business_id)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (name, str(code).strip().lower(), int(share_pct), contact,
+                 int(own_business_id) if own_business_id else None))
+            pid = cur.lastrowid
+    except Exception as e:
+        # Код уже разошёлся по чьим-то ссылкам — занимать его вторым партнёром
+        # нельзя: начисления пошли бы не тому человеку.
+        if _is_unique_violation(e):
+            raise DuplicateError("code") from e
+        raise
+    return get_partner(pid)
+
+
+def get_partner(partner_id):
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM partners WHERE id = ?",
+                           (int(partner_id),)).fetchone()
+    return dict(row) if row else None
+
+
+def get_partner_by_code(code, active_only=True):
+    """Найти партнёра по коду из ссылки. Регистр не важен."""
+    if not code:
+        return None
+    sql = "SELECT * FROM partners WHERE code = ?"
+    if active_only:
+        sql += " AND active = 1"
+    with _connect() as conn:
+        row = conn.execute(sql, (str(code).strip().lower(),)).fetchone()
+    return dict(row) if row else None
+
+
+def list_partners():
+    with _connect() as conn:
+        rows = conn.execute("SELECT * FROM partners ORDER BY id").fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_partner(partner_id, **fields):
+    """Поменять долю, контакт или включённость. Код не меняется никогда:
+    он уже разошёлся по ссылкам, и его смена сломала бы чужие публикации."""
+    allowed = {"name", "share_pct", "contact", "active", "own_business_id"}
+    sets, params = [], []
+    for k, v in fields.items():
+        if k in allowed:
+            sets.append(f"{k} = ?")
+            params.append(v)
+    if not sets:
+        return get_partner(partner_id)
+    params.append(int(partner_id))
+    with _connect() as conn:
+        conn.execute("UPDATE partners SET " + ", ".join(sets) + " WHERE id = ?",
+                     tuple(params))
+    return get_partner(partner_id)
+
+
+def add_earning(partner_id, business_id, *, plan, months, amount,
+                share_pct, commission):
+    with _connect() as conn:
+        cur = conn.execute(
+            """INSERT INTO partner_earnings
+                   (partner_id, business_id, plan, months, amount,
+                    share_pct, commission)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (int(partner_id), int(business_id), plan, int(months), int(amount),
+             int(share_pct), int(commission)))
+        eid = cur.lastrowid
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM partner_earnings WHERE id = ?",
+                           (eid,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_earnings(partner_id=None, unpaid_only=False, limit=500):
+    conds, params = [], []
+    if partner_id:
+        conds.append("partner_id = ?")
+        params.append(int(partner_id))
+    if unpaid_only:
+        conds.append("(paid_out_at IS NULL OR paid_out_at = '')")
+    sql = "SELECT * FROM partner_earnings"
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY id DESC LIMIT ?"
+    params.append(int(limit))
+    with _connect() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def mark_earnings_paid(earning_ids):
+    """Отметить выплату. Уже выплаченные строки второй раз не трогаем."""
+    ids = [int(x) for x in (earning_ids or [])]
+    if not ids:
+        return 0
+    marks = ", ".join("?" for _ in ids)
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE partner_earnings SET paid_out_at = datetime('now') "
+            "WHERE id IN (" + marks + ") AND (paid_out_at IS NULL OR paid_out_at = '')",
+            tuple(ids))
+        return cur.rowcount or 0
+
+
+def set_business_partner(business_id, partner_id):
+    """
+    Закрепить бизнес за партнёром. True — если закрепили именно сейчас.
+
+    Условие «партнёра ещё нет» стоит В САМОМ UPDATE, а не отдельной проверкой
+    перед ним. Иначе два одновременных запроса могли бы перебить друг друга, а
+    привязка — это чужие деньги на годы вперёд: она ставится один раз и не
+    переписывается. По той же причине партнёра нет в белом списке
+    update_business: сменить его случайной правкой настроек невозможно.
+    """
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE businesses SET partner_id = ?, partner_at = datetime('now') "
+            "WHERE id = ? AND (partner_id IS NULL OR partner_id = 0)",
+            (int(partner_id), int(business_id)))
+        return bool(cur.rowcount)
+
+
+def clear_business_partner(business_id):
+    """Снять привязку. Только для владельца VELOR — исправить свою же ошибку."""
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE businesses SET partner_id = NULL, partner_at = NULL WHERE id = ?",
+            (int(business_id),))
+
+
+def partner_businesses(partner_id):
+    """Номера бизнесов, приведённых партнёром, и их состояние подписки.
+
+    НАМЕРЕННО не отдаёт ни названий, ни данных компаний: партнёрская отчётность
+    не должна становиться дверью в чужой кабинет.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, subscription_status FROM businesses WHERE partner_id = ?",
+            (int(partner_id),)).fetchall()
     return [dict(r) for r in rows]
 
 

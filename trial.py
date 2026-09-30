@@ -89,7 +89,7 @@ def start(bid):
     launch(bid)
 
 
-def activate_subscription(bid, plan="business", months=1):
+def activate_subscription(bid, plan="business", months=1, amount=None):
     """Активировать платную подписку.
 
     Вызывается ТОЛЬКО из billing.apply_paid (подтверждённая оплата) и из
@@ -106,9 +106,29 @@ def activate_subscription(bid, plan="business", months=1):
         subscription_started=_fmt(now),
         subscription_expires=_fmt(now + datetime.timedelta(days=30 * max(1, int(months)))),
     )
+    _accrue_partner(bid, plan, months, amount)
 
 
-def extend_subscription(bid, months=1):
+def _accrue_partner(bid, plan, months, amount):
+    """Начислить долю тому, кто привёл этот бизнес.
+
+    ЕДИНСТВЕННАЯ точка начисления во всём продукте: сюда сходится и ручная
+    отметка оплаты владельцем, и будущий платёж из ЮKassa (billing.apply_paid
+    вызывает эти же две функции). Поэтому включение онлайн-оплаты ничего в
+    партнёрской программе не поменяет.
+
+    Обёрнуто в try НАМЕРЕННО: сбой в отчётности партнёра не должен помешать
+    клиенту получить доступ, за который он уже заплатил. Деньги клиента важнее
+    нашей бухгалтерии — её всегда можно досчитать руками.
+    """
+    try:
+        import partners
+        partners.accrue(bid, plan=plan, months=months, amount=amount)
+    except Exception:
+        pass
+
+
+def extend_subscription(bid, months=1, amount=None):
     """Продлить действующую подписку (после повторной оплаты). В отличие от
     activate_subscription НЕ сбрасывает срок к «сейчас + месяц», а ДОБАВЛЯЕТ время
     к текущей дате окончания (или к «сейчас», если подписка уже истекла).
@@ -122,6 +142,7 @@ def extend_subscription(bid, months=1):
         subscription_status="active",
         subscription_expires=_fmt(base + datetime.timedelta(days=30 * max(1, int(months)))),
     )
+    _accrue_partner(bid, b.get("subscription_plan"), months, amount)
 
 
 def extend_trial(bid, days=7):

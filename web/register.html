@@ -43,6 +43,7 @@
     <input id="about" placeholder="Чем занимаетесь (напр. стрижки и бороды)" maxlength="200">
     <input id="login" placeholder="Придумайте логин" autocomplete="username">
     <input id="pass" type="password" placeholder="Придумайте пароль" autocomplete="new-password">
+    <input id="ref" placeholder="Код партнёра, если вас кто-то пригласил (необязательно)" maxlength="40" autocomplete="off">
     <label class="consent">
       <input type="checkbox" id="consent">
       <span>Я принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и даю <a href="consent.html" target="_blank" rel="noopener">Согласие на обработку персональных данных</a> (<a href="privacy.html" target="_blank" rel="noopener">Политика конфиденциальности</a>).</span>
@@ -52,8 +53,16 @@
   </form>
   <div class="alt">Уже есть аккаунт? <a href="biz-login.html">Войти</a></div>
 </div>
+<script src="ref.js"></script>
 <script>
 if (localStorage.getItem('coreon_biz_token')) location.replace('dashboard.html');
+
+// Код из ссылки, по которой человек пришёл, — подставляем, но не прячем:
+// поле видно и его можно исправить.
+(function(){
+  var f = document.getElementById('ref'), saved = (window.velorRefCode && velorRefCode()) || '';
+  if (f && saved && !f.value) f.value = saved;
+})();
 
 // Отпечаток устройства — вспомогательный сигнал против повторного триала (не единственный).
 function velorFingerprint(){
@@ -88,6 +97,9 @@ document.getElementById('f').addEventListener('submit', async e => {
     password: document.getElementById('pass').value,
     consent: true,
     fingerprint: velorFingerprint(),
+    // Вписанный руками код побеждает запомненный из ссылки.
+    partner_code: document.getElementById('ref').value.trim()
+                  || ((window.velorRefCode && velorRefCode()) || ''),
   };
   try{
     const r = await fetch('/api/register', {

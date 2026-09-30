@@ -90,6 +90,7 @@
   // глазами клиента — иначе его болячки замечаешь последним.
   var OWNER_SECTION = { t: 'VELOR', h: 'owner.html', kids: [
     { t: 'Клиенты VELOR', h: 'owner.html' },
+    { t: 'Партнёры', h: 'partners.html' },
     { t: 'Журнал ошибок', h: 'errors.html' },
   ] };
 
@@ -126,6 +127,7 @@
     'tools.html': 'work.html',
     // Журнал ошибок — служебная страница владельца сервиса.
     'errors.html': 'owner.html',
+    'partners.html': 'owner.html',
   };
 
   var here = (location.pathname.split('/').pop() || 'dashboard.html').toLowerCase();

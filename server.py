@@ -60,6 +60,7 @@ import initiatives
 import followup
 import qualify
 import outputs
+import partners
 from urllib.parse import quote as _urlquote
 from config import (OWNER_LOGIN, OWNER_PASSWORD,
                     ACCESS_TTL_MIN, REFRESH_TTL_DAYS)
@@ -67,7 +68,21 @@ from config import (OWNER_LOGIN, OWNER_PASSWORD,
 app = FastAPI(title="VELOR AI API")
 
 # Гарантируем, что база и таблицы существуют.
-database.init_db()
+#
+# ПОЧЕМУ ЧЕРЕЗ try. 2026-09-27 бесплатный проект Supabase встал на паузу после
+# недели без обращений, пулер начал отвечать «tenant not found», эта строка
+# падала — и приложение умирало ДО старта. Render поднимал его заново, оно
+# снова падало, и сайт сутками показывал бесконечную страницу загрузки: причину
+# было видно только в логах Render.
+#
+# Теперь сервер поднимается в любом случае и честно говорит, что с базой, —
+# на /api/alive. Каждый запрос всё равно пойдёт в базу и упадёт своей ошибкой,
+# если она мертва; смысл в том, чтобы причина была видна снаружи за секунду.
+DB_ERROR = ""
+try:
+    database.init_db()
+except Exception as _db_exc:          # noqa: BLE001 — причина важна любая
+    DB_ERROR = str(_db_exc)
 
 
 # ---------- ЛОГИРОВАНИЕ И ЕДИНАЯ ОБРАБОТКА ОШИБОК ----------
@@ -251,6 +266,7 @@ class RegisterIn(BaseModel):
     about: str | None = None
     consent: bool = False   # согласие с условиями и обработкой ПД (152-ФЗ)
     fingerprint: str | None = None   # отпечаток устройства (защита от повторного триала)
+    partner_code: str | None = None  # кто привёл: код из ссылки ?ref= или вписанный руками
 
 
 @app.post("/api/register")
@@ -294,6 +310,15 @@ def api_register(body: RegisterIn, request: Request):
     #    стартует по кнопке «Запустить VELOR» (/api/trial/start). Fingerprint —
     #    только МЯГКИЙ сигнал: считаем risk_score, при высоком сообщаем владельцу,
     #    но НЕ блокируем (жёсткий блок — по Telegram при запуске). ──
+    # Кто привёл клиента. Ставится ОДИН РАЗ и больше не меняется — на этом
+    # держится обещание партнёру «доля, пока клиент платит». Неизвестный код
+    # молча игнорируется: чужая опечатка в адресной строке не повод не пустить
+    # человека в продукт.
+    try:
+        partners.attach(bid, (body.partner_code or "").strip())
+    except Exception:
+        pass
+
     fp = (body.fingerprint or "").strip() or None
     trial.register_state(bid)
     # Заводим личность владельца (Owner Identity) — к ней будет привязан триал.
@@ -558,6 +583,10 @@ class TrialAdminIn(BaseModel):
     plan: str | None = None       # start | business | network
     founder_pilot: bool | None = None
     months: int | None = None
+    # Сколько клиент заплатил НА САМОМ ДЕЛЕ. Нужна там, где цена отличается от
+    # каталожной (Founder Pilot, скидка): с этой суммы считается доля партнёра.
+    # Не указана — берётся цена тарифа из каталога.
+    amount: int | None = None
 
 
 @app.post("/api/admin/businesses/{bid}/trial-extend")
@@ -590,7 +619,8 @@ def api_admin_subscription(bid: int, body: TrialAdminIn, x_auth: str = Header(de
     """Владелец VELOR: активировать платную подписку или сменить тариф после оплаты.
     Смена тарифа — тот же вызов с другим plan. Архитектурный хук для будущей платёжки."""
     require_owner(x_auth)
-    trial.activate_subscription(bid, plan=(body.plan or "business"), months=(body.months or 1))
+    trial.activate_subscription(bid, plan=(body.plan or "business"),
+                                months=(body.months or 1), amount=body.amount)
     return {"ok": True, **trial.access(database.get_business(bid))}
 
 
@@ -599,7 +629,7 @@ def api_admin_subscription_extend(bid: int, body: TrialAdminIn, x_auth: str = He
     """Владелец VELOR: продлить действующую подписку (аддитивно). После повторной
     оплаты будущая платёжка вызовет этот же путь."""
     require_owner(x_auth)
-    trial.extend_subscription(bid, months=(body.months or 1))
+    trial.extend_subscription(bid, months=(body.months or 1), amount=body.amount)
     return {"ok": True, **trial.access(database.get_business(bid))}
 
 
@@ -614,6 +644,131 @@ def api_admin_founder_pilot(bid: int, body: TrialAdminIn,
     on = True if body.founder_pilot is None else bool(body.founder_pilot)
     database.update_business(bid, founder_pilot=1 if on else 0)
     return {"ok": True, "founder_pilot": on}
+
+
+# ---------- ПАРТНЁРЫ (владелец VELOR) ----------
+# Партнёр приводит клиентов и получает долю с каждой их оплаты. Входа в VELOR
+# у него НЕТ — все ручки ниже только для владельца сервиса, и ни одна из них
+# не отдаёт данных приведённых компаний: наружу идут номера и суммы.
+
+class PartnerIn(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    share_pct: int | None = None
+    contact: str | None = None
+    own_business_id: int | None = None
+    active: bool | None = None
+
+
+class PayoutIn(BaseModel):
+    ids: list[int] = []
+
+
+@app.get("/api/admin/partners")
+def api_admin_partners(x_auth: str = Header(default="")):
+    """Список партнёров с итогами: сколько привели и сколько им должны."""
+    require_owner(x_auth)
+    out = []
+    for p in partners.list_all():
+        out.append({**p, "totals": partners.totals(p["id"])})
+    return {"partners": out}
+
+
+@app.post("/api/admin/partners")
+def api_admin_partner_create(body: PartnerIn, x_auth: str = Header(default="")):
+    require_owner(x_auth)
+    try:
+        p = partners.create(
+            name=(body.name or "").strip() or "Без имени",
+            code=(body.code or "").strip(),
+            share_pct=15 if body.share_pct is None else int(body.share_pct),
+            contact=(body.contact or "").strip() or None,
+            own_business_id=body.own_business_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except database.DuplicateError:
+        raise HTTPException(status_code=409, detail="Такой код уже занят")
+    return {"ok": True, "partner": p}
+
+
+@app.post("/api/admin/partners/{pid}/share")
+def api_admin_partner_share(pid: int, body: PartnerIn,
+                            x_auth: str = Header(default="")):
+    """Сменить долю. Уже начисленное не пересчитывается — там свой процент."""
+    require_owner(x_auth)
+    try:
+        p = partners.set_share(pid, int(body.share_pct or 0))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "partner": p}
+
+
+@app.post("/api/admin/partners/{pid}/active")
+def api_admin_partner_active(pid: int, body: PartnerIn,
+                             x_auth: str = Header(default="")):
+    """Выключить партнёра: его код перестаёт привязывать новых клиентов.
+    Уже приведённые остаются за ним, и начисления по ним идут дальше."""
+    require_owner(x_auth)
+    p = partners.set_active(pid, True if body.active is None else bool(body.active))
+    return {"ok": True, "partner": p}
+
+
+@app.get("/api/admin/partners/{pid}/earnings")
+def api_admin_partner_earnings(pid: int, unpaid: int = 0,
+                               x_auth: str = Header(default="")):
+    require_owner(x_auth)
+    return {"earnings": partners.earnings(pid, unpaid_only=bool(unpaid)),
+            "totals": partners.totals(pid)}
+
+
+class AdjustIn(BaseModel):
+    business_id: int
+    commission: int              # со знаком: минус — снять, плюс — доначислить
+    amount: int | None = None    # сумма оплаты клиента, если она была
+
+
+@app.post("/api/admin/partners/{pid}/adjust")
+def api_admin_partner_adjust(pid: int, body: AdjustIn,
+                             x_auth: str = Header(default="")):
+    """Поправить начисления: возврат клиенту, ошибочная отметка оплаты, доплата.
+
+    Строки не удаляются никогда — правка добавляется отдельной записью, чтобы в
+    истории было видно, что именно изменили.
+    """
+    require_owner(x_auth)
+    if not partners.get(pid):
+        raise HTTPException(status_code=404, detail="Партнёр не найден")
+    try:
+        row = partners.adjust(pid, body.business_id, body.commission,
+                              amount=body.amount or 0)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"ok": True, "earning": row, "totals": partners.totals(pid)}
+
+
+@app.post("/api/admin/partners/payout")
+def api_admin_partner_payout(body: PayoutIn, x_auth: str = Header(default="")):
+    """Отметить, что деньги партнёру отправлены. Сами деньги уходят вручную."""
+    require_owner(x_auth)
+    return {"ok": True, "closed": partners.mark_paid(body.ids)}
+
+
+@app.post("/api/admin/businesses/{bid}/partner")
+def api_admin_business_partner(bid: int, body: PartnerIn,
+                               x_auth: str = Header(default="")):
+    """Привязать клиента к партнёру задним числом.
+
+    Нужна на спорные случаи: человек пришёл по ссылке с телефона, а
+    зарегистрировался с компьютера. Привязать можно ТОЛЬКО если партнёра ещё
+    нет: переписать чужой заработок нельзя даже владельцу.
+    """
+    require_owner(x_auth)
+    if not partners.attach(bid, (body.code or "").strip()):
+        raise HTTPException(status_code=409, detail=(
+            "Не привязано: либо код неизвестен или выключен, либо у клиента "
+            "уже есть партнёр."))
+    p = partners.partner_of(bid)
+    return {"ok": True, "partner": {"id": p["id"], "name": p["name"], "code": p["code"]}}
 
 
 def _days_since(stamp):
@@ -4143,6 +4298,27 @@ def api_agent_delete(agent_id: int, business_id: int = 0, x_auth: str = Header(d
 
 
 # ---------- ТАРИФЫ И ЛИМИТЫ ----------
+
+@app.get("/api/alive")
+def api_alive():
+    """
+    Жив ли сервис и жива ли база. Без входа — это дверной звонок, а не данные.
+
+    Отвечает на два вопроса сразу: поднялся ли процесс (раз вы читаете ответ —
+    поднялся) и досталась ли ему база. Сюда же раз в 6 часов стучится
+    keepalive из GitHub Actions: запрос доходит до базы и не даёт бесплатному
+    Supabase уснуть, а Render — остыть.
+    """
+    err = DB_ERROR
+    if not err:
+        try:
+            database.ping()
+        except Exception as exc:      # noqa: BLE001 — наружу отдаём текст
+            err = str(exc)
+    if err:
+        raise HTTPException(status_code=503, detail="База недоступна: " + err)
+    return {"ok": True}
+
 
 @app.get("/api/public/plans")
 def api_public_plans():
