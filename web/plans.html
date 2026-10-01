@@ -261,8 +261,23 @@ function say(text, cls){
   el.textContent = text || '';
 }
 
+// Почта нужна для чека по 54-ФЗ: ЮKassa отправит его туда. Спрашиваем один
+// раз — дальше она сохранена и подставляется сама.
+function askEmail(){
+  if (!STATE || !STATE.receipt_required) return '';
+  const saved = STATE.receipt_email || '';
+  if (saved) return saved;
+  const v = (prompt('На какую почту прислать чек об оплате?') || '').trim();
+  return v;
+}
+
 async function buy(kind, plan, btn){
   const was = btn.textContent;
+  const email = askEmail();
+  if (STATE && STATE.receipt_required && !email){
+    say('Без почты чек выписать не получится — оплата не пройдёт.', 'bad');
+    return;
+  }
   btn.disabled = true; btn.textContent = 'Готовим оплату…';
   say('');
   try{
@@ -270,7 +285,7 @@ async function buy(kind, plan, btn){
       method:'POST', headers:{'Content-Type':'application/json'},
       // Адрес возврата собирает сервер: присланный отсюда был бы открытым
       // редиректом — платёжка увела бы человека на любой указанный сайт.
-      body: JSON.stringify({ kind: kind, plan: plan || '', months: 1 })
+      body: JSON.stringify({ kind: kind, plan: plan || '', months: 1, email: email })
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || 'не получилось');

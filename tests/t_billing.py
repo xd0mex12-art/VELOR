@@ -320,7 +320,7 @@ print("\n== ОПЛАТА: ЦЕНУ СЧИТАЕТ СЕРВЕР ==")
 bid4, H4 = new_business("payfour", "Покупатель")
 launch(bid4)
 r = c.post("/api/billing/checkout", headers=H4,
-           json={"kind": "subscription", "plan": "business", "months": 1})
+           json={"email": "test@example.ru", "kind": "subscription", "plan": "business", "months": 1})
 check("платёж создан", r.status_code == 200, r.json())
 pay = r.json()["payment"]
 check("сумма — из каталога, а не от фронта", pay["amount"] == 9900, pay)
@@ -337,7 +337,7 @@ check("адрес возврата — наш собственный",
       _body["confirmation"]["return_url"])
 
 r = c.post("/api/billing/checkout", headers=H4,
-           json={"kind": "subscription", "plan": "нет-такого"})
+           json={"email": "test@example.ru", "kind": "subscription", "plan": "нет-такого"})
 check("несуществующий тариф не купить", r.status_code == 400, r.status_code)
 
 print("\n== ВОЗВРАТ НА САЙТ САМ ПО СЕБЕ НИЧЕГО НЕ ВКЛЮЧАЕТ ==")
@@ -414,7 +414,7 @@ print("\n== WEBHOOK НЕ ВЕРИТ ТЕЛУ ЗАПРОСА ==")
 bid5, H5 = new_business("payfive", "Хитрец")
 launch(bid5)
 r5 = c.post("/api/billing/checkout", headers=H5,
-            json={"kind": "subscription", "plan": "network"}).json()["payment"]
+            json={"email": "test@example.ru", "kind": "subscription", "plan": "network"}).json()["payment"]
 _pid5 = database.get_payment(r5["id"])["provider_id"]
 r = c.post("/api/billing/webhook",
            json={"event": "payment.succeeded",
@@ -442,7 +442,7 @@ print("\n== ПЛАТЁЖНАЯ СИСТЕМА МОЛЧИТ — ПРОСИМ ПО
 bid6, H6 = new_business("paysix", "Терпеливый")
 launch(bid6)
 r6 = c.post("/api/billing/checkout", headers=H6,
-            json={"kind": "subscription", "plan": "start"}).json()["payment"]
+            json={"email": "test@example.ru", "kind": "subscription", "plan": "start"}).json()["payment"]
 _pid6 = database.get_payment(r6["id"])["provider_id"]
 pay_at_provider(_pid6)
 YK["down"] = True
@@ -466,7 +466,7 @@ print("\n== ПРОДЛЕНИЕ, А НЕ ПЕРЕЗАПУСК ==")
 # Оплатил второй месяц заранее — должен получить два, а не потерять остаток.
 _was = database.get_business(bid4)["subscription_expires"]
 r = c.post("/api/billing/checkout", headers=H4,
-           json={"kind": "subscription", "plan": "business"}).json()["payment"]
+           json={"email": "test@example.ru", "kind": "subscription", "plan": "business"}).json()["payment"]
 _pid7 = database.get_payment(r["id"])["provider_id"]
 pay_at_provider(_pid7)
 c.post("/api/billing/webhook", json={"object": {"id": _pid7}})
@@ -490,13 +490,13 @@ _amount, _label = billing.quote(bid7, "subscription", "business")
 check("первый месяц BUSINESS по цене START", _amount == 4900, _amount)
 check("и это названо в описании платежа", "Founder Pilot" in _label, _label)
 check("настройка входит в условия", billing.quote(bid7, "setup")[0] == 0)
-r = c.post("/api/billing/checkout", headers=H7, json={"kind": "setup"}).json()["payment"]
+r = c.post("/api/billing/checkout", headers=H7, json={"email": "test@example.ru", "kind": "setup"}).json()["payment"]
 check("бесплатная настройка проводится сразу", r["status"] == "paid", r)
 check("и видна в истории строкой на ноль",
       any(x["kind"] == "setup" and x["amount"] == 0
           for x in c.get("/api/billing", headers=H7).json()["history"]))
 r = c.post("/api/billing/checkout", headers=H7,
-           json={"kind": "subscription", "plan": "business"}).json()["payment"]
+           json={"email": "test@example.ru", "kind": "subscription", "plan": "business"}).json()["payment"]
 check("первый платёж пилота — 4 900", r["amount"] == 4900, r)
 _pid8 = database.get_payment(r["id"])["provider_id"]
 pay_at_provider(_pid8)
@@ -511,7 +511,7 @@ check("второй месяц уже по обычной цене",
 print("\n== НАСТРОЙКА — РАЗОВАЯ УСЛУГА ==")
 bid8, H8 = new_business("payeight", "Настройка")
 launch(bid8)
-r = c.post("/api/billing/checkout", headers=H8, json={"kind": "setup"}).json()["payment"]
+r = c.post("/api/billing/checkout", headers=H8, json={"email": "test@example.ru", "kind": "setup"}).json()["payment"]
 check("настройка стоит 15 000", r["amount"] == 15000, r)
 _pid9 = database.get_payment(r["id"])["provider_id"]
 pay_at_provider(_pid9)
@@ -525,7 +525,7 @@ _shop = server.config.YOOKASSA_SHOP_ID
 server.config.YOOKASSA_SHOP_ID = None
 check("оплата недоступна", not billing.configured())
 r = c.post("/api/billing/checkout", headers=H8,
-           json={"kind": "subscription", "plan": "business"})
+           json={"email": "test@example.ru", "kind": "subscription", "plan": "business"})
 check("покупка отклонена понятной ошибкой", r.status_code == 400, r.status_code)
 check("и человеку сказано, что делать",
       "вручную" in r.json()["detail"], r.json())
@@ -544,6 +544,68 @@ check("лимиты показаны", _s["limits"]["sources"] == plans.limit("b
 check("история платежей есть", len(_s["history"]) >= 1)
 check("в истории нет чужих полей",
       all("provider_id" not in x for x in _s["history"]))
+
+
+print("\n== ЧЕК ПО 54-ФЗ ==")
+# Продажа без чека — нарушение закона, а платёж без данных чека ЮKassa просто
+# не примет. Проверяем, что чек уходит, уходит правильный и что без почты мы
+# честно останавливаемся, а не узнаём об отказе на полпути.
+
+bid_r, H_r = new_business("chek1", "Чековая компания")
+trial.launch(bid_r)
+
+# 1. Без почты платёж не создаётся.
+YK["created"] = []
+try:
+    billing.start(bid_r, billing.KIND_SUBSCRIPTION, plan_key="business", months=1,
+                  base_url="https://velor.test")
+    check("без почты платёж не создаётся", False, "исключения не было")
+except billing.BillingError as e:
+    check("без почты платёж не создаётся", "почт" in str(e).lower(), str(e))
+check("в ЮKassa ничего не ушло", not YK["created"], str(YK["created"]))
+
+# 2. Кривая почта не считается почтой.
+try:
+    billing.start(bid_r, billing.KIND_SUBSCRIPTION, plan_key="business", months=1,
+                  base_url="https://velor.test", email="не-почта")
+    check("кривая почта отбивается", False, "исключения не было")
+except billing.BillingError:
+    check("кривая почта отбивается", True)
+
+# 3. С почтой — платёж уходит вместе с чеком.
+YK["created"] = []
+row = billing.start(bid_r, billing.KIND_SUBSCRIPTION, plan_key="business", months=1,
+                    base_url="https://velor.test", email="vladelec@example.ru")
+sent = YK["created"][-1]["body"] if YK["created"] else {}
+rec = sent.get("receipt") or {}
+check("чек ушёл вместе с платежом", bool(rec), str(sent)[:200])
+check("чек адресован плательщику",
+      (rec.get("customer") or {}).get("email") == "vladelec@example.ru", str(rec))
+items = rec.get("items") or []
+check("в чеке одна позиция", len(items) == 1, str(items))
+if items:
+    it = items[0]
+    check("сумма позиции равна сумме платежа",
+          it.get("amount", {}).get("value") == "%d.00" % row["amount"], str(it))
+    check("ставка НДС из настроек", it.get("vat_code") == __import__('config').YOOKASSA_VAT_CODE, str(it))
+    check("подписка — услуга", it.get("payment_subject") == "service", str(it))
+    check("оплата вперёд — полная предоплата",
+          it.get("payment_mode") == "full_prepayment", str(it))
+
+# 4. Почта запомнилась: второй раз не спрашиваем.
+check("почта сохранена у владельца",
+      billing.contact_of(bid_r) == "vladelec@example.ru", billing.contact_of(bid_r))
+YK["created"] = []
+billing.start(bid_r, billing.KIND_SUBSCRIPTION, plan_key="start", months=1,
+              base_url="https://velor.test")
+check("второй платёж проходит без повторного вопроса", bool(YK["created"]))
+
+# 5. Состояние для кабинета говорит фронту, спрашивать ли почту.
+st_r = billing.state(bid_r)
+check("кабинет знает, что чек обязателен", st_r["receipt_required"] is True, str(st_r)[:120])
+check("кабинет знает сохранённую почту",
+      st_r["receipt_email"] == "vladelec@example.ru", str(st_r)[:160])
+
 
 print("\nИТОГО: успешно %d, провалено %d" % (ok, fail))
 sys.exit(1 if fail else 0)

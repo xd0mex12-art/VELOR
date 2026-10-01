@@ -112,6 +112,29 @@ def check_owner_credentials() -> str | None:
 YOOKASSA_SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
 YOOKASSA_SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
 
+# ---------- ЧЕК ПО 54-ФЗ ----------
+# Если в кабинете ЮKassa подключены «Чеки от ЮKassa», платёж БЕЗ данных чека
+# она не примет, а продажа без чека — нарушение закона. Поэтому по умолчанию
+# чек отправляется; выключать осознанно и только если чеки пробивает своя касса.
+YOOKASSA_RECEIPTS = (os.getenv("YOOKASSA_RECEIPTS", "on").strip().lower()
+                     not in ("off", "0", "false", "no", "нет"))
+
+# Ставка НДС в чеке. 1 — «без НДС» (УСН и прочие спецрежимы), 2 — 0%,
+# 3 — 10%, 4 — 20%. Значение по умолчанию — для упрощёнки: большинство
+# небольших компаний работает именно так. Неверная ставка в чеке — это
+# претензия налоговой, а не косметика, поэтому её стоит сверить с бухгалтером.
+try:
+    YOOKASSA_VAT_CODE = int(os.getenv("YOOKASSA_VAT_CODE") or 1)
+except ValueError:
+    YOOKASSA_VAT_CODE = 1
+
+# Система налогообложения в чеке. Обязательна ТОЛЬКО если в кабинете ЮKassa у
+# магазина их несколько; иначе поле не отправляем и ЮKassa подставит свою.
+# 1 — ОСН, 2 — УСН доходы, 3 — УСН доходы минус расходы, 4 — ЕНВД,
+# 5 — ЕСХН, 6 — патент.
+_tax = (os.getenv("YOOKASSA_TAX_SYSTEM") or "").strip()
+YOOKASSA_TAX_SYSTEM = int(_tax) if _tax.isdigit() else None
+
 JWT_SECRET = os.getenv("JWT_SECRET")
 # Время жизни токенов — настраивается через .env.
 ACCESS_TTL_MIN = int(os.getenv("ACCESS_TTL_MIN", "30"))      # access-токен: минуты

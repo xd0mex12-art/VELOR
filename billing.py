@@ -32,6 +32,7 @@ BILLING — деньги и подписка.
 """
 import json
 import logging
+import re
 import uuid
 
 import requests
@@ -103,7 +104,7 @@ def _paid_subscription_before(bid):
 
 
 # ---------- СОЗДАНИЕ ПЛАТЕЖА ----------
-def start(bid, kind, plan_key=None, months=1, base_url=None):
+def start(bid, kind, plan_key=None, months=1, base_url=None, email=None):
     """
     Завести платёж и получить адрес страницы оплаты.
 
@@ -139,6 +140,19 @@ def start(bid, kind, plan_key=None, months=1, base_url=None):
         raise BillingError(
             "Приём оплаты ещё не подключён. Напишите нам — оформим вручную.")
 
+    # Чек по 54-ФЗ нельзя выписать «в никуда»: нужна почта плательщика. Лучше
+    # честно попросить её здесь, чем получить отказ от ЮKassa на полпути.
+    contact = contact_of(bid, email)
+    if receipts_on() and not contact:
+        raise BillingError(
+            "Укажите почту — на неё придёт чек. Без неё платёж провести нельзя.")
+    if contact:
+        try:
+            import identity
+            identity.ensure(bid, email=contact)   # чтобы не спрашивать второй раз
+        except Exception:
+            pass
+
     row = database.create_payment(bid, kind=kind, amount=amount,
                                   plan=plan_key, months=months,
                                   description=label)
@@ -146,7 +160,7 @@ def start(bid, kind, plan_key=None, months=1, base_url=None):
     if base_url:
         ret = "%s/plans.html?payment=%d" % (str(base_url).rstrip("/"), row["id"])
     try:
-        yk = _create_remote(row, label, ret)
+        yk = _create_remote(row, label, ret, email=contact)
     except BillingError:
         database.cancel_payment(row["id"])
         raise
@@ -159,7 +173,58 @@ def start(bid, kind, plan_key=None, months=1, base_url=None):
     return database.attach_provider_payment(row["id"], yk["id"], confirm)
 
 
-def _create_remote(row, label, return_url):
+# ---------- ЧЕК ----------
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$")
+
+
+def receipts_on():
+    """Отправляем ли данные чека. Выключается только если чеки бьёт своя касса."""
+    return bool(getattr(config, "YOOKASSA_RECEIPTS", True))
+
+
+def contact_of(bid, email=None):
+    """
+    Куда отправить чек: почта плательщика.
+
+    Сначала берём то, что человек ввёл сейчас, потом — то, что он оставлял
+    раньше. Телефон тоже годится для чека, но мы его нигде не спрашиваем, и
+    делать вид, что он есть, незачем.
+    """
+    email = (email or "").strip()
+    if email and _EMAIL_RE.match(email):
+        return email
+    try:
+        import identity
+        saved = ((identity.get(bid) or {}).get("email") or "").strip()
+    except Exception:
+        saved = ""
+    return saved if _EMAIL_RE.match(saved or "") else ""
+
+
+def _receipt(row, label, email):
+    """
+    Чек по 54-ФЗ: одна позиция на всю сумму платежа.
+
+    payment_mode «полная предоплата», payment_subject «услуга» — подписка
+    оплачивается вперёд и является услугой. Сумма позиции обязана совпадать с
+    суммой платежа, иначе ЮKassa отклонит запрос.
+    """
+    item = {
+        "description": label[:128],
+        "quantity": "1.00",
+        "amount": {"value": "%d.00" % int(row["amount"]), "currency": "RUB"},
+        "vat_code": int(getattr(config, "YOOKASSA_VAT_CODE", 1)),
+        "payment_mode": "full_prepayment",
+        "payment_subject": "service",
+    }
+    receipt = {"customer": {"email": email}, "items": [item]}
+    tax = getattr(config, "YOOKASSA_TAX_SYSTEM", None)
+    if tax:
+        receipt["tax_system_code"] = int(tax)
+    return receipt
+
+
+def _create_remote(row, label, return_url, email=None):
     """POST /payments в ЮKassa.
 
     Idempotence-Key — требование ЮKassa: при повторе того же запроса она вернёт
@@ -176,6 +241,8 @@ def _create_remote(row, label, return_url):
     }
     if return_url:
         body["confirmation"] = {"type": "redirect", "return_url": return_url}
+    if receipts_on() and email:
+        body["receipt"] = _receipt(row, label, email)
     r = requests.post(API + "/payments", auth=_auth(), json=body, timeout=TIMEOUT,
                       headers={"Idempotence-Key": "velor-pay-%s" % row["id"]})
     if r.status_code >= 400:
@@ -277,10 +344,15 @@ def apply_paid(row):
     b = database.get_business(bid) or {}
     st = trial.access(b)
 
+    # Доля партнёра считается от СУММЫ, которую человек заплатил на самом деле,
+    # а не от цены тарифа в каталоге. Иначе при скидке или условиях Founder
+    # Pilot партнёру начислялось бы больше, чем вообще пришло денег.
+    paid = int(row.get("amount") or 0)
+
     if st["phase"] == "subscribed" and plans.normalize(b.get("subscription_plan")) == key:
-        trial.extend_subscription(bid, months=months)
+        trial.extend_subscription(bid, months=months, amount=paid)
     else:
-        trial.activate_subscription(bid, plan=key, months=months)
+        trial.activate_subscription(bid, plan=key, months=months, amount=paid)
 
     database.log_event(bid, "plan", "Подписка активна",
                        "Тариф «%s». Доступ открыт." % plans.name(key),
@@ -308,6 +380,10 @@ def state(bid):
                       paid=bool(b.get("setup_paid"))),
         "founder_pilot": bool(b.get("founder_pilot")),
         "payments_enabled": configured(),
+        # Фронту нужно знать, спрашивать ли почту перед оплатой и не оставлял
+        # ли человек её раньше — чтобы не спрашивать второй раз.
+        "receipt_required": receipts_on(),
+        "receipt_email": contact_of(bid),
         "entitlements": sorted(entitlements(bid)),
         "limits": plans.limits(key),
         "history": [

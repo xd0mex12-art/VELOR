@@ -296,5 +296,38 @@ r = c.post("/api/admin/partners/%d/adjust" % dima["id"],
 check("правка без владельца закрыта", r.status_code in (401, 403), r.status_code)
 
 
+
+# ── 8. Оплата через ЮKassa начисляет долю ──────────────────────────────────
+# Вторая дорога денег: не ручная отметка владельца, а подтверждённый платёж.
+# Она обязана приводить в ту же точку начисления — иначе включение оплаты
+# тихо оставит партнёров без комиссии.
+import billing
+
+bpay = new_business("Клиника Оплата", partner_code="dima")
+pid_biz = bpay["business_id"]
+
+# Платёж на сумму МЕНЬШЕ каталожной: так бывает при скидке и Founder Pilot.
+# Доля обязана считаться от того, что человек заплатил на самом деле.
+pay = database.create_payment(pid_biz, kind=billing.KIND_SUBSCRIPTION,
+                              amount=7000, plan="business", months=1,
+                              description="тест", provider="internal")
+database.attach_provider_payment(pay["id"], "test:%d" % pay["id"])
+check("платёж отмечен оплаченным", database.mark_payment_paid(pay["id"]) is True)
+
+before = len(partners.earnings(dima["id"]))
+billing.apply_paid(database.get_payment(pay["id"]))
+rows_pay = partners.earnings(dima["id"])
+check("оплата через billing начислила долю", len(rows_pay) == before + 1,
+      "%s → %s" % (before, len(rows_pay)))
+check("сумма взята фактическая, а не каталожная", rows_pay[0]["amount"] == 7000,
+      str(rows_pay[0]))
+check("комиссия 15% от 7000 = 1050", rows_pay[0]["commission"] == 1050,
+      str(rows_pay[0]))
+
+# Подписка при этом включилась — деньги клиента важнее нашей бухгалтерии.
+check("подписка после оплаты активна",
+      (database.get_business(pid_biz) or {}).get("subscription_status") == "active")
+
+
 print("\nуспешно %d, провалено %d" % (ok, fail))
 sys.exit(1 if fail else 0)

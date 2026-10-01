@@ -426,6 +426,9 @@ class CheckoutIn(BaseModel):
     kind: str = billing.KIND_SUBSCRIPTION
     plan: str = ""
     months: int = 1
+    # Почта плательщика — на неё ЮKassa пришлёт чек. Без неё платёж с чеком
+    # провести нельзя, поэтому спрашиваем один раз и запоминаем.
+    email: str = ""
 
 
 @app.get("/api/billing")
@@ -455,7 +458,8 @@ def api_billing_checkout(body: CheckoutIn, request: Request,
         # открытый редирект — ЮKassa увела бы человека на любой присланный сайт.
         row = billing.start(bid, body.kind, plan_key=(body.plan or None),
                             months=body.months or 1,
-                            base_url=str(request.base_url))
+                            base_url=str(request.base_url),
+                            email=(body.email or "").strip())
     except billing.BillingError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "payment": {
