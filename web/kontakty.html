@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VELOR — Контакты и реквизиты</title>
+<link href="vendor/inter.css" rel="stylesheet">
+<style>
+  /* Страница собрана по образцу privacy.html: тот же узкий текстовый лист,
+     та же шапка. Юридические страницы должны выглядеть одинаково — иначе
+     возникает ощущение, что одну из них дописали наспех. */
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  body{ background:var(--void); color:var(--bone); font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    font-weight:200; font-size:var(--fs-base); line-height:1.65; }
+  a{ color:#a99cff; text-decoration:none; } a:hover{ color:#fff; }
+  nav{ display:flex; align-items:center; justify-content:space-between; padding:22px 24px; border-bottom:1px solid var(--hairline);
+    position:sticky; top:0; background:rgba(0,0,0,.8); backdrop-filter:blur(10px); z-index:10; }
+  .logo{ display:flex; align-items:center; gap:9px; font-weight:500; font-size:var(--fs-lead); letter-spacing:.12em; color:var(--bone); }
+  .logo-sub{ font-weight:500; font-size:var(--fs-micro); letter-spacing:.16em; text-transform:uppercase; color:var(--ash); border-left:1px solid var(--hairline); padding-left:9px; }
+  .back{ font-size:var(--fs-body); color:var(--ash); } .back:hover{ color:#fff; }
+  main{ max-width:760px; margin:0 auto; padding:64px 24px 90px; }
+  .label{ font-weight:600; font-size:var(--fs-sm); letter-spacing:.18em; text-transform:uppercase; color:#a99cff; }
+  h1{ font-weight:400; font-size:var(--fs-h1); letter-spacing:-0.02em; margin:10px 0 8px; }
+  .upd{ color:var(--ash); font-size:var(--fs-body); margin-bottom:44px; }
+  h2{ font-weight:500; font-size:var(--fs-h3); letter-spacing:-0.01em; margin:40px 0 12px; }
+  p{ color:var(--silver); margin-bottom:14px; }
+  ul{ color:var(--silver); margin:0 0 14px 22px; } li{ margin-bottom:8px; }
+  .box{ border:1px solid var(--hairline); border-radius:var(--r-md); padding:22px 24px; background:rgba(128,82,255,.05); margin:24px 0; }
+  .box b{ color:var(--bone); font-weight:500; }
+
+  /* Реквизиты — таблицей, а не строкой через запятую: человек ищет глазами
+     одну конкретную строку (чаще всего ИНН), и она должна находиться сразу. */
+  .rekv{ border:1px solid var(--hairline); border-radius:var(--r-md); overflow:hidden; margin:24px 0; }
+  .rekv div{ display:flex; gap:18px; padding:14px 20px; border-top:1px solid var(--hairline); }
+  .rekv div:first-child{ border-top:0; }
+  .rekv dt{ flex:0 0 190px; color:var(--ash); font-size:var(--fs-sm); }
+  .rekv dd{ color:var(--bone); font-weight:400; }
+  @media(max-width:600px){
+    .rekv div{ flex-direction:column; gap:4px; }
+    .rekv dt{ flex:none; }
+  }
+</style>
+<link rel="stylesheet" href="velor.css?v=19">
+<style>
+  body main{ max-width:760px; padding:var(--sp-16) var(--gutter) 90px; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="index.html" class="logo"><svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 1 L17 16 L1 16 Z" fill="#8052ff"/></svg>VELOR<span class="logo-sub">AI Employee</span></a>
+  <a href="index.html" class="back">← На главную</a>
+</nav>
+<main>
+  <span class="label">Контакты</span>
+  <h1>Кто мы и как с нами связаться</h1>
+  <p class="upd">Обновлено: 3 октября 2026</p>
+
+  <div class="box"><b>Коротко.</b> VELOR делает один человек — Константин Савин, самозанятый.
+    Пишите на почту или в Telegram, отвечаю лично. Если сервис вам не подошёл или не работал —
+    деньги вернём, порядок описан ниже.</div>
+
+  <h2>Реквизиты</h2>
+  <dl class="rekv">
+    <div><dt>Продавец</dt><dd>Савин Константин Дмитриевич</dd></div>
+    <div><dt>Статус</dt><dd>Плательщик налога на профессиональный доход (самозанятый)</dd></div>
+    <div><dt>ИНН</dt><dd>503126289703</dd></div>
+    <div><dt>Почта</dt><dd><a href="mailto:xdomex1@mail.com">xdomex1@mail.com</a></dd></div>
+    <div><dt>Telegram</dt><dd><a href="https://t.me/xdomex1" target="_blank" rel="noopener">@xdomex1</a></dd></div>
+    <div><dt>Сайт</dt><dd>velor-ucnt.onrender.com</dd></div>
+  </dl>
+
+  <h2>Как связаться</h2>
+  <p>По любому вопросу — оплата, возврат, поломка, предложение — пишите на
+    <a href="mailto:xdomex1@mail.com">xdomex1@mail.com</a> или в Telegram
+    <a href="https://t.me/xdomex1" target="_blank" rel="noopener">@xdomex1</a>.
+    Отвечаю обычно в тот же день, в выходные — на следующий рабочий.</p>
+  <p>Отдельной службы поддержки нет и обещать её было бы нечестно: вы пишете напрямую
+    тому, кто делает продукт.</p>
+
+  <h2>Что вы покупаете</h2>
+  <p>Доступ к сервису VELOR на один месяц. Это услуга, а не товар: ничего не доставляется,
+    доступ открывается сразу после оплаты. Тарифы и состав каждого —
+    <a href="index.html#pricing">на главной странице</a>.</p>
+  <p>Перед оплатой доступны 14 дней бесплатно, со всеми возможностями тарифа. Это сделано
+    специально: решать, подходит ли сервис, лучше на своих данных, а не по описанию.</p>
+
+  <h2>Оплата</h2>
+  <p>Оплата картой через ЮKassa. Деньги списываются один раз за выбранный период, подписка
+    сама не продлевается — следующий месяц оплачивается отдельно, когда вы этого захотите.</p>
+  <p>Чек приходит на почту, которую вы указываете при оплате.</p>
+
+  <h2>Возврат денег</h2>
+  <p>Правило простое: <b>вы не должны платить за то, чем не пользовались.</b></p>
+  <ul>
+    <li><b>Сервис не работал по нашей вине</b> — возвращаем деньги за всё время простоя.
+      Считать самому ничего не нужно, достаточно написать.</li>
+    <li><b>Передумали в первые 7 дней оплаченного месяца</b> — возвращаем всю сумму,
+      без объяснения причин.</li>
+    <li><b>Решили уйти позже</b> — возвращаем за неиспользованные дни месяца.</li>
+  </ul>
+  <p>Чтобы вернуть деньги, напишите на <a href="mailto:xdomex1@mail.com">xdomex1@mail.com</a>
+    или в Telegram и укажите, за какой платёж. Мы отвечаем в течение 3 рабочих дней,
+    деньги уходят обратно на ту же карту в течение 10 рабочих дней — срок зачисления
+    зависит от вашего банка.</p>
+  <p>Ваши данные при возврате никуда не деваются: доступ переходит в режим чтения,
+    записи остаются на месте. Если захотите удалить их совсем — скажите, удалим.</p>
+
+  <h2>Если что-то пошло не так</h2>
+  <p>Сначала просто напишите. Почти всё решается в переписке за день, и это дешевле
+    и быстрее для обеих сторон, чем любой формальный путь.</p>
+  <p>Правила пользования сервисом — в <a href="terms.html">Пользовательском соглашении</a>,
+    про данные — в <a href="privacy.html">Политике конфиденциальности</a>.</p>
+</main>
+</body>
+</html>
