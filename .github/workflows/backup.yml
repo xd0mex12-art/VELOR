@@ -54,6 +54,23 @@ jobs:
           sudo apt-get install -y -qq postgresql-client-17
           pg_dump --version
 
+      # Сначала простое «алло, база?». Без этого шага любая беда — неверный
+      # пароль, устаревший адрес, закрытый порт — выглядит одинаково: «pg_dump
+      # вышел с ошибкой». А чинятся они по-разному.
+      - name: Дозвониться до базы
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          # Разбираем строку, чтобы показать всё, кроме пароля.
+          safe=$(printf '%s' "$DB" | sed -E 's#(//[^:]+):[^@]*@#\1:***@#')
+          echo "подключаюсь к: $safe"
+          if psql "$DB" -t -c "select 'связь есть, версия ' || version();" ; then
+            echo "база отвечает"
+          else
+            echo "::error::Не удалось подключиться. Частые причины: пароль в строке неверный либо содержит символы @ : / # ? (их надо кодировать — проще сменить пароль на буквы и цифры); адрес не тот (нужен Session pooler, порт 5432, хост с pooler.supabase.com); проект Supabase на паузе."
+            exit 1
+          fi
+
       - name: Снять копию
         env:
           DB: ${{ secrets.SUPABASE_DB_URL }}
@@ -61,7 +78,20 @@ jobs:
           set -o pipefail
           # --no-owner и --no-acl: восстанавливать копию можно будет в любой
           # проект, не повторяя ролей исходного. Нам нужны данные, а не права.
-          pg_dump "$DB" --no-owner --no-acl --format=plain > velor-backup.sql
+          #
+          # Схемы Supabase (auth, storage, realtime и прочие служебные) не
+          # берём: они принадлежат самой платформе, создаются ею заново и на
+          # чужой проект всё равно не лягут. Нам нужна наша public — и только
+          # из-за неё затевалось. Заодно это снимает отказ pg_dump на объектах,
+          # к которым у обычного пользователя нет прав.
+          pg_dump "$DB" --no-owner --no-acl --format=plain --schema=public \
+            > velor-backup.sql 2> oshibka.txt || {
+              echo "::error::pg_dump не справился. Текст ошибки ниже."
+              cat oshibka.txt
+              exit 1
+            }
+          # Предупреждения pg_dump пишет туда же — показываем, но не падаем.
+          [ -s oshibka.txt ] && { echo "замечания pg_dump:"; cat oshibka.txt; }
           gzip -9 velor-backup.sql
           ls -lh velor-backup.sql.gz
 
