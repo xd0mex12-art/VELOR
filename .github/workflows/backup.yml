@@ -46,13 +46,21 @@ jobs:
       # Версия клиента должна быть не старше сервера, иначе pg_dump откажется
       # работать со словами «server version mismatch». Ставим свежий из
       # официального репозитория PostgreSQL, а не тот, что лежит в образе.
+      #
+      # Поставить мало — надо ещё добиться, чтобы вызывался именно он. В образе
+      # GitHub уже лежит клиент 16, и «pg_dump» по умолчанию попадал на него:
+      # задание падало с «server version: 17.6; pg_dump version: 16.15». Поэтому
+      # папку нового клиента кладём в начало пути поиска программ, а в конце
+      # печатаем версию — чтобы в журнале было видно, кто на самом деле работает.
       - name: Поставить pg_dump посвежее
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
-          pg_dump --version
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          echo "будем работать этим:"
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       # Сначала простое «алло, база?». Без этого шага любая беда — неверный
       # пароль, устаревший адрес, закрытый порт — выглядит одинаково: «pg_dump
@@ -76,6 +84,8 @@ jobs:
           DB: ${{ secrets.SUPABASE_DB_URL }}
         run: |
           set -o pipefail
+          echo "беру pg_dump отсюда: $(command -v pg_dump)"
+          pg_dump --version
           # --no-owner и --no-acl: восстанавливать копию можно будет в любой
           # проект, не повторяя ролей исходного. Нам нужны данные, а не права.
           #
