@@ -596,25 +596,62 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // красивый вход героя: заголовок по словам, затем подпись и кнопки
-  if (window.Motion && window.Motion.animate) {
-    const { animate, stagger } = window.Motion;
-    const noMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const display = document.querySelector('.hero-text .display');
+  // Красивый вход героя: заголовок по словам, затем подпись и кнопки.
+  //
+  // Здесь легко потерять всю страницу, и мы её теряли. Вход гасит заголовок
+  // (opacity:0) и показывает его обратно анимацией. Анимация с фильтром идёт
+  // покадрово, а кадры в НЕАКТИВНОЙ вкладке браузер не выдаёт. Значит, ссылку,
+  // открытую в фоновой вкладке — средней кнопкой, «открыть в новой», из мессенджера —
+  // человек потом раскрывает и видит пустоту: анимация замерла на нулевом кадре,
+  // а нулевой кадр — это невидимый текст. Проверено на боевом сайте: через
+  // восемь секунд заголовка всё ещё не было.
+  //
+  // Поэтому два правила. Первое: пока страница не на виду, не гасим вообще
+  // ничего — покажем как есть, а красоту сделаем, когда на неё посмотрят.
+  // Второе: сторож. Что бы ни случилось с библиотекой движения, через полторы
+  // секунды текст виден. Витрина не имеет права зависеть от украшения.
+  (function () {
+    const hero = document.querySelector('.hero-text');
+    if (!hero) return;
+    const display = hero.querySelector('.display');
     const rest = document.querySelectorAll('.hero-text .label, .hero-text .body-dim, .hero-text .cta-row, .scroll-cue');
-    if (display && !noMotion) {
+
+    function показать() {
+      if (display) {
+        display.querySelectorAll('span').forEach(s => {
+          s.style.opacity = '1'; s.style.transform = 'none'; s.style.filter = 'none';
+        });
+      }
+      rest.forEach(el => { el.style.opacity = '1'; el.style.transform = 'none'; });
+    }
+
+    const noMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!window.Motion || !window.Motion.animate || noMotion || document.hidden) {
+      // Вкладка в фоне или движение не нужно/недоступно — просто показываем.
+      показать();
+      return;
+    }
+
+    const { animate, stagger } = window.Motion;
+    const сторож = setTimeout(показать, 2600);
+
+    if (display) {
       const words = display.textContent.trim().split(/\s+/);
       display.innerHTML = words.map(w => `<span style="display:inline-block;opacity:0;will-change:transform">${w}</span>`).join(' ');
       animate(display.querySelectorAll('span'),
         { opacity: [0, 1], y: [40, 0], filter: ['blur(8px)', 'blur(0px)'] },
         { delay: stagger(0.09, { startDelay: 0.15 }), duration: 0.9, ease: [0.16, 1, 0.3, 1] });
     }
-    if (rest.length && !noMotion) {
+    if (rest.length) {
       rest.forEach(el => { el.style.opacity = '0'; });
       animate(rest, { opacity: [0, 1], y: [20, 0] },
         { delay: stagger(0.12, { startDelay: 0.5 }), duration: 0.8, ease: [0.16, 1, 0.3, 1] });
     }
-  }
+    // Ушли со страницы, пока шёл вход, — досматривать нечего, показываем всё.
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { clearTimeout(сторож); показать(); }
+    }, { once: true });
+  })();
 });
 </script>
 <script>
