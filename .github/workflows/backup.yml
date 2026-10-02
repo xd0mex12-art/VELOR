@@ -1,0 +1,89 @@
+# Резервная копия базы.
+#
+# Зачем. В текущем боевом укладе (Render + бесплатный Supabase) копий не делает
+# никто: скрипт docker/backup.py написан под Docker-развёртывание, которого у
+# нас нет, а бесплатный тариф Supabase не хранит точку восстановления. Это
+# значит, что одна ошибка в миграции или случайное удаление — и данных клиента
+# больше нет. Пока клиентов нет, копия стоит ноль; после первого клиента она
+# обязательна, и заводить её лучше заранее, а не после потери.
+#
+# Что делает. Раз в сутки снимает полный дамп через pg_dump, сжимает и кладёт в
+# артефакты запуска. GitHub хранит их 90 дней — для нашего объёма (база меньше
+# мегабайта) этого достаточно с огромным запасом.
+#
+# Что нужно настроить один раз:
+#   Settings → Secrets and variables → Actions → New repository secret
+#   имя:     SUPABASE_DB_URL
+#   значение: строка подключения из Supabase → Project Settings → Database →
+#             Connection string → URI (та, что начинается с postgresql://).
+#             Пароль в ней — пароль базы, а не пароль от аккаунта Supabase.
+#
+# Без этого секрета задание не падает молча, а честно говорит, чего не хватает.
+#
+# Восстановление (когда понадобится): скачать артефакт, распаковать и
+#   psql "<строка подключения>" -f velor-backup.sql
+name: backup
+
+on:
+  schedule:
+    - cron: "30 2 * * *"      # каждый день в 02:30 UTC — ночь по Москве
+  workflow_dispatch:          # и кнопкой, когда нужно прямо сейчас
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Проверить, что строка подключения задана
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          if [ -z "$DB" ]; then
+            echo "::error::Нет секрета SUPABASE_DB_URL. Settings → Secrets and variables → Actions → New repository secret. Значение берётся в Supabase → Project Settings → Database → Connection string → URI."
+            exit 1
+          fi
+          echo "строка подключения на месте"
+
+      # Версия клиента должна быть не старше сервера, иначе pg_dump откажется
+      # работать со словами «server version mismatch». Ставим свежий из
+      # официального репозитория PostgreSQL, а не тот, что лежит в образе.
+      - name: Поставить pg_dump посвежее
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/pgdg.gpg
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Снять копию
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -o pipefail
+          # --no-owner и --no-acl: восстанавливать копию можно будет в любой
+          # проект, не повторяя ролей исходного. Нам нужны данные, а не права.
+          pg_dump "$DB" --no-owner --no-acl --format=plain > velor-backup.sql
+          gzip -9 velor-backup.sql
+          ls -lh velor-backup.sql.gz
+
+      # Проверка, что сняли не пустоту: молчаливый нулевой дамп — худший вид
+      # резервной копии, потому что о нём узнают только в день восстановления.
+      - name: Убедиться, что копия не пустая
+        run: |
+          size=$(stat -c%s velor-backup.sql.gz)
+          echo "размер копии: $size байт"
+          if [ "$size" -lt 2000 ]; then
+            echo "::error::Копия подозрительно мала ($size байт) — похоже, дамп не снялся."
+            exit 1
+          fi
+          if ! zcat velor-backup.sql.gz | grep -q "CREATE TABLE public.businesses"; then
+            echo "::error::В копии нет таблицы businesses — это не наша база."
+            exit 1
+          fi
+          echo "таблицы на месте"
+
+      - name: Положить в артефакты
+        uses: actions/upload-artifact@v4
+        with:
+          name: velor-backup-${{ github.run_id }}
+          path: velor-backup.sql.gz
+          retention-days: 90

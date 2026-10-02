@@ -291,11 +291,11 @@ function cardHTML(d){
     </div>`;
   return `
     <div class="fields">
-      <div class="f"><label>Имя</label><input name="name" value="${esc(c.name)}"></div>
-      <div class="f"><label>Телефон</label><input name="phone" type="tel" inputmode="tel" value="${esc(c.phone)}"></div>
-      <div class="f"><label>День рождения</label><input name="birthday" placeholder="например 14 марта" value="${esc(c.birthday)}"></div>
-      <div class="f"><label>Предпочтения</label><input name="favorite" placeholder="что важно для клиента" value="${esc(c.favorite)}"></div>
-      <div class="f" style="grid-column:1/-1"><label>Заметки</label><textarea name="notes" rows="2">${esc(c.notes)}</textarea></div>
+      <div class="f"><label>Имя</label><input name="name" aria-label="Имя клиента" value="${esc(c.name)}"></div>
+      <div class="f"><label>Телефон</label><input name="phone" type="tel" inputmode="tel" aria-label="Телефон" value="${esc(c.phone)}"></div>
+      <div class="f"><label>День рождения</label><input name="birthday" aria-label="День рождения" placeholder="например 14 марта" value="${esc(c.birthday)}"></div>
+      <div class="f"><label>Предпочтения</label><input name="favorite" aria-label="Что важно для клиента" placeholder="что важно для клиента" value="${esc(c.favorite)}"></div>
+      <div class="f" style="grid-column:1/-1"><label>Заметки</label><textarea name="notes" aria-label="Заметки о клиенте" rows="2">${esc(c.notes)}</textarea></div>
     </div>
     <div class="card-acts">
       <button class="v-btn save">Сохранить</button>

@@ -50,16 +50,26 @@
 
   .newgoal{ border:1px dashed rgba(255,255,255,.18); border-radius:var(--r-lg); padding:24px 28px; }
   .newgoal .cap{ font-weight:500; font-size:var(--fs-base); margin-bottom:16px; }
-  .row{ display:flex; gap:10px; flex-wrap:wrap; }
-  .row > *{ background:rgba(255,255,255,.05); border:1px solid var(--hairline); border-radius:var(--r-xs);
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  /* Оформление поля — на само поле, а не на всё подряд: иначе рамку и фон
+     получала бы и подпись над ним. */
+  .row select, .row input, .row > button{
+    background:rgba(255,255,255,.05); border:1px solid var(--hairline); border-radius:var(--r-xs);
     padding:11px 15px; color:var(--bone); font-family:inherit; font-weight:200; font-size:var(--fs-body); }
   .row select{ min-width:170px; } .row select option{ background:var(--sheet); }
-  .row .t{ flex:1; min-width:180px; } .row .n{ width:150px; } .row .d{ width:170px; }
+  /* Пара «подпись + поле» — одна колонка; ширину задаёт пара, а не поле. */
+  .fg{ display:flex; flex-direction:column; }
+  .fg.t{ flex:1; min-width:180px; } .fg.n{ width:150px; } .fg.d{ width:170px; }
+  .fg input, .fg select{ width:100%; }
   .row button{ border:none; background:var(--iris); color:#fff; font-weight:600; font-size:var(--fs-caption);
     letter-spacing:.1em; text-transform:uppercase; padding:0 22px; min-height:44px; }
   .hint{ font-size:var(--fs-sm); color:var(--ash); margin-top:12px; }
   .empty{ color:var(--ash); margin-bottom:16px; }
   @media(max-width:620px){ .goal,.newgoal{ padding:20px; } .row > *{ width:100%; } }
+
+  .glab, .elab, .alab{ display:block; margin:0 0 6px; font-size:var(--fs-caption);
+    font-weight:var(--fw-med); color:var(--silver); }
+  .glab .opt, .elab .opt, .alab .opt{ font-weight:var(--fw-thin); color:var(--ash); }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
 </head>
@@ -76,10 +86,10 @@
   <div class="newgoal">
     <div class="cap">Новая цель</div>
     <div class="row">
-      <select id="metric"></select>
-      <input class="t" id="title" placeholder="Название цели, например «Выйти на 300 000 в месяц»" maxlength="160">
-      <input class="n num" id="target" type="number" min="1" placeholder="Сколько">
-      <input class="d" id="deadline" type="date">
+      <div class="fg"><label class="glab" for="metric">Показатель</label><select id="metric"></select></div>
+      <div class="fg t"><label class="glab" for="title">Название цели</label><input class="t" id="title" placeholder="Напр. «Выйти на 300 000 в месяц»" maxlength="160"></div>
+      <div class="fg n"><label class="glab" for="target">Сколько</label><input class="n num" id="target" type="number" min="1" placeholder="300000"></div>
+      <div class="fg d"><label class="glab" for="deadline">К какому сроку</label><input class="d" id="deadline" type="date"></div>
       <button type="button" id="add">Поставить</button>
     </div>
     <div class="hint" id="hint">Доход, прибыль, клиенты и заявки считаются автоматически с сегодняшнего дня.

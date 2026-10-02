@@ -20,7 +20,7 @@
   input:focus{ border-color:var(--iris); outline:none; }
   button{ width:100%; min-height:52px; margin-top:8px; border:none; border-radius:var(--r-xl); background:var(--iris); color:#fff;
     font-family:inherit; font-weight:600; font-size:var(--fs-body); letter-spacing:.15em; text-transform:uppercase; cursor:pointer; transition:filter .2s; }
-  button:hover{ filter:brightness(1.2)); }
+  button:hover{ filter:brightness(1.2); }
   button:disabled{ opacity:.4; }
   .err{ color:#ff4fd8; font-size:var(--fs-body); min-height:20px; margin-top:12px; }
   .alt{ margin-top:22px; font-size:var(--fs-body); color:var(--ash); }
@@ -29,6 +29,23 @@
   .consent{ display:flex; align-items:flex-start; gap:10px; text-align:left; margin:4px 2px 6px;
     font-size:var(--fs-caption); line-height:1.5; color:var(--ash); }
   .consent input{ width:18px; height:18px; min-height:0; margin:2px 0 0; flex:none; accent-color:var(--iris); cursor:pointer; }
+
+  /* Подпись у поля. Серый текст внутри поля подписью не считается: он исчезает
+     на первой же букве, и человек, отвлёкшись, уже не помнит, что сюда вводил.
+     Подпись остаётся на месте всегда — и её же читает вслух экранная читалка. */
+  .fld{ text-align:left; margin-bottom:14px; }
+  .fld > label{ display:block; margin-bottom:6px; font-size:var(--fs-sm);
+    font-weight:400; color:var(--silver); letter-spacing:.01em; }
+  .fld input{ margin-bottom:0; }
+  .fld .hint{ margin-top:5px; font-size:var(--fs-caption); color:var(--ash); line-height:1.45; }
+
+  /* Обещание одного окна. Человек ещё не видел продукт, и «AI-ассистент» ему
+     ничего не говорит; а «кидайте сюда что угодно, разбирать буду не я» —
+     говорит. Поэтому главное свойство стоит прямо под формой. */
+  .promise{ margin-top:26px; text-align:left; border:1px solid var(--hairline);
+    border-radius:var(--r-md); background:rgba(255,255,255,.035); padding:18px 20px; }
+  .promise b{ display:block; font-weight:500; font-size:var(--fs-body); color:var(--bone); margin-bottom:6px; }
+  .promise p{ font-size:var(--fs-sm); line-height:1.55; color:var(--ash); }
   .consent a{ color:var(--lilac); } .consent a:hover{ color:#fff; }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
@@ -39,11 +56,27 @@
   <h1>Подключить бизнес</h1>
   <p class="sub">Создайте аккаунт за минуту — дальше подскажем, как включить бота</p>
   <form id="f" autocomplete="off">
-    <input id="name" placeholder="Название бизнеса (напр. Барбершоп BRODA)" maxlength="120">
-    <input id="about" placeholder="Чем занимаетесь (напр. стрижки и бороды)" maxlength="200">
-    <input id="login" placeholder="Придумайте логин" autocomplete="username">
-    <input id="pass" type="password" placeholder="Придумайте пароль" autocomplete="new-password">
-    <input id="ref" placeholder="Код партнёра, если вас кто-то пригласил (необязательно)" maxlength="40" autocomplete="off">
+    <div class="fld">
+      <label for="name">Название бизнеса</label>
+      <input id="name" placeholder="Напр. Барбершоп BRODA" maxlength="120">
+    </div>
+    <div class="fld">
+      <label for="about">Чем занимаетесь</label>
+      <input id="about" placeholder="Напр. стрижки и бороды" maxlength="200">
+    </div>
+    <div class="fld">
+      <label for="login">Логин для входа</label>
+      <input id="login" placeholder="Придумайте логин" autocomplete="username">
+    </div>
+    <div class="fld">
+      <label for="pass">Пароль</label>
+      <input id="pass" type="password" placeholder="Придумайте пароль" autocomplete="new-password">
+      <div class="hint">Не меньше 6 символов.</div>
+    </div>
+    <div class="fld">
+      <label for="ref">Код партнёра <span style="color:var(--ash)">— необязательно</span></label>
+      <input id="ref" placeholder="Если вас кто-то пригласил" maxlength="40" autocomplete="off">
+    </div>
     <label class="consent">
       <input type="checkbox" id="consent">
       <span>Я принимаю <a href="terms.html" target="_blank" rel="noopener">Пользовательское соглашение</a> и даю <a href="consent.html" target="_blank" rel="noopener">Согласие на обработку персональных данных</a> (<a href="privacy.html" target="_blank" rel="noopener">Политика конфиденциальности</a>).</span>
@@ -51,6 +84,13 @@
     <button type="submit" id="btn">Зарегистрироваться</button>
     <div class="err" id="err"></div>
   </form>
+  <div class="promise">
+    <b>Что будет сразу после регистрации</b>
+    <p>В кабинете вас ждёт одно окно — «Передать VELOR». Туда можно скинуть прайс,
+      фото чека, выписку, скриншот переписки или просто мысль на ходу. Выбирать
+      раздел и заполнять карточки не нужно: он сам разберёт, что это, и разложит
+      по местам. Этим продукт и занимается — снимает с вас разбор бумажек.</p>
+  </div>
   <div class="alt">Уже есть аккаунт? <a href="biz-login.html">Войти</a></div>
 </div>
 <script src="ref.js"></script>

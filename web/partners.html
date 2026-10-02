@@ -62,8 +62,14 @@
   .btn.main{ background:var(--iris); color:#fff; }
   .btn.main:hover{ filter:brightness(1.15); }
 
-  .new{ display:grid; grid-template-columns:repeat(4,1fr) auto; gap:12px; margin:8px 0 46px; }
-  @media(max-width:760px){ .new{ grid-template-columns:1fr; } }
+  /* Форма «завести партнёра». Поля стоят в ряд, поэтому подпись живёт над
+     каждым, а кнопка выравнивается по низу — иначе она висела бы напротив
+     подписей, а не напротив полей. */
+  .new{ display:grid; grid-template-columns:repeat(4,1fr) auto; gap:12px;
+    margin:8px 0 46px; align-items:end; }
+  @media(max-width:760px){ .new{ grid-template-columns:1fr; align-items:stretch; } }
+  .new .f{ display:flex; flex-direction:column; gap:6px; }
+  .new .f label{ font-size:var(--fs-caption); font-weight:var(--fw-med); color:var(--silver); }
   .new input{ background:rgba(255,255,255,.05); border:1px solid var(--hairline);
     border-radius:var(--r-md); padding:13px 15px; color:var(--bone); font-family:inherit;
     font-size:var(--fs-sm); }
@@ -87,10 +93,14 @@
 
   <h2 class="v-h2">Завести партнёра</h2>
   <div class="new">
-    <input id="nName" placeholder="Имя" maxlength="80">
-    <input id="nCode" placeholder="Код для ссылки (латиницей)" maxlength="40">
-    <input id="nShare" placeholder="Доля, %" value="15" maxlength="3">
-    <input id="nContact" placeholder="Куда слать отчёт" maxlength="80">
+    <div class="f"><label for="nName">Имя партнёра</label>
+      <input id="nName" placeholder="Напр. Лена Соколова" maxlength="80"></div>
+    <div class="f"><label for="nCode">Код для ссылки</label>
+      <input id="nCode" placeholder="латиницей, напр. lena" maxlength="40"></div>
+    <div class="f"><label for="nShare">Доля, %</label>
+      <input id="nShare" inputmode="numeric" value="15" maxlength="3"></div>
+    <div class="f"><label for="nContact">Куда слать отчёт</label>
+      <input id="nContact" placeholder="телефон или @ник" maxlength="80"></div>
     <button class="btn main" id="nAdd">Добавить</button>
   </div>
 

@@ -155,6 +155,10 @@
     .health{ padding:22px 20px; }
     .facts, .h-notes{ grid-template-columns:1fr; }
     .ring{ width:124px; height:124px; } .ring .num{ font-size:var(--fs-display); } }
+
+  .glab, .elab, .alab{ display:block; margin:0 0 6px; font-size:var(--fs-caption);
+    font-weight:var(--fw-med); color:var(--silver); }
+  .glab .opt, .elab .opt, .alab .opt{ font-weight:var(--fw-thin); color:var(--ash); }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
 </head>
@@ -204,7 +208,7 @@
       <div class="msg core">Здравствуйте. Я изучил ваш бизнес — спросите что угодно по делу.</div>
     </div>
     <form class="ask" id="ask">
-      <input id="askInput" placeholder="Спросите про заказы, клиентов или что подсказать по делу…" autocomplete="off">
+      <input id="askInput" aria-label="Вопрос вашему AI-сотруднику" placeholder="Спросите про заказы, клиентов или что подсказать по делу…" autocomplete="off">
       <button class="v-btn" type="submit" aria-label="Отправить сообщение сотруднику">→</button>
     </form>
   </section>
@@ -249,9 +253,9 @@
     <h3>Свой AI-сотрудник</h3>
     <p class="m-sub">Опишите характер и задачу — он появится чипом рядом с ролями.
       Чтобы удалить своего сотрудника, дважды кликните по его чипу.</p>
-    <input id="agName" placeholder="Имя, например Ольга" maxlength="60">
-    <input id="agAvatar" placeholder="Эмодзи или буква (необязательно)" maxlength="4">
-    <textarea id="agPersona" placeholder="Кто он и как себя ведёт. Например: строгий закупщик, считает деньги, всегда предлагает более дешёвого поставщика." maxlength="1200"></textarea>
+    <label class="alab" for="agName">Имя сотрудника</label><input id="agName" placeholder="Например Ольга" maxlength="60">
+    <label class="alab" for="agAvatar">Значок <span class="opt">— необязательно</span></label><input id="agAvatar" placeholder="Эмодзи или буква" maxlength="4">
+    <label class="alab" for="agPersona">Кто он и как себя ведёт</label><textarea id="agPersona" placeholder="Например: строгий закупщик, считает деньги, всегда предлагает более дешёвого поставщика." maxlength="1200"></textarea>
     <div class="m-btns">
       <button class="no" type="button" id="agCancel">Отмена</button>
       <button class="ok" type="button" id="agSave">Создать</button>

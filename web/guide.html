@@ -64,6 +64,10 @@
     color:var(--bone); font-weight:600; font-size:var(--fs-body); letter-spacing:.15em; text-transform:uppercase; }
 
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+
+  .glab, .elab, .alab{ display:block; margin:0 0 6px; font-size:var(--fs-caption);
+    font-weight:var(--fw-med); color:var(--silver); }
+  .glab .opt, .elab .opt, .alab .opt{ font-weight:var(--fw-thin); color:var(--ash); }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
 </head>
@@ -99,7 +103,7 @@
     <div>
       <h3>Скопируйте токен</h3>
       <p>В ответ BotFather пришлёт сообщение с длинной строкой — это <b>токен</b>. Выглядит так:</p>
-      <p><code>8521842437:AAF8K8zwVmmHPpg...</code></p>
+      <p><code>1234567890:AAEexampleExampleExampleExample...</code></p>
       <p class="mini">Нажмите на него, чтобы скопировать. Никому не показывайте — это ключ от вашего бота.</p>
     </div>
   </div>
@@ -115,7 +119,7 @@
   <div class="connect">
     <h2>Токен вашего бота</h2>
     <p>Вставьте строку от BotFather — VELOR AI сразу свяжет её с вашим бизнесом.</p>
-    <input id="token" placeholder="8521842437:AAF8K8zwVmmHPpg..." autocomplete="off">
+    <label class="glab" for="token">Строка от BotFather</label><input id="token" placeholder="1234567890:AAEexampleExampleExampleExample..." autocomplete="off">
     <br>
     <button class="save" id="saveBtn">Подключить бота</button>
     <div class="status" id="status"></div>
@@ -132,7 +136,7 @@
   <div class="connect">
     <h2>База знаний бизнеса</h2>
     <p>Пишите свободно. Пример хорошей базы — в подсказке ниже, можно взять за образец.</p>
-    <textarea id="knowledge" maxlength="4000" placeholder="Например: Букет из 15 роз — 2500₽. Доставка по городу 300₽, бесплатно от 5000₽. Работаем 9:00–21:00 без выходных. Оплата картой и наличными."></textarea>
+    <label class="glab" for="knowledge">Что должен знать сотрудник</label><textarea id="knowledge" maxlength="4000" placeholder="Например: Букет из 15 роз — 2500₽. Доставка по городу 300₽, бесплатно от 5000₽. Работаем 9:00–21:00 без выходных. Оплата картой и наличными."></textarea>
     <details class="kb-example">
       <summary>Показать пример хорошей базы знаний →</summary>
       <pre>Услуги и цены:

@@ -20,9 +20,14 @@
   input:focus{ border-color:var(--iris); outline:none; }
   button{ width:100%; min-height:52px; margin-top:8px; border:none; border-radius:var(--r-xl); background:var(--iris); color:#fff;
     font-family:inherit; font-weight:600; font-size:var(--fs-body); letter-spacing:.15em; text-transform:uppercase; cursor:pointer; transition:filter .2s; }
-  button:hover{ filter:brightness(1.2)); }
+  button:hover{ filter:brightness(1.2); }
   button:disabled{ opacity:.4; }
   .err{ color:#ff4fd8; font-size:var(--fs-body); min-height:20px; margin-top:14px; }
+  /* Подпись у поля: серый текст внутри исчезает на первой букве, подпись — нет. */
+  .fld{ text-align:left; margin-bottom:14px; }
+  .fld > label{ display:block; margin-bottom:6px; font-size:var(--fs-sm);
+    font-weight:400; color:var(--silver); }
+  .fld input{ margin-bottom:0; }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
 </head>
@@ -32,8 +37,14 @@
   <h1>Личный кабинет</h1>
   <p class="sub">Запасной вход для владельца сервиса.<br>Обычный вход — <a href="biz-login.html" style="color:#a99cff">здесь</a>.</p>
   <form id="f" autocomplete="off">
-    <input id="login" placeholder="Логин" autocomplete="username">
-    <input id="pass" type="password" placeholder="Пароль" autocomplete="current-password">
+    <div class="fld">
+      <label for="login">Логин</label>
+      <input id="login" placeholder="Ваш логин" autocomplete="username">
+    </div>
+    <div class="fld">
+      <label for="pass">Пароль</label>
+      <input id="pass" type="password" placeholder="Ваш пароль" autocomplete="current-password">
+    </div>
     <button type="submit" id="btn">Войти</button>
     <div class="err" id="err"></div>
   </form>

@@ -55,6 +55,10 @@
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+
+  .glab, .elab, .alab{ display:block; margin:0 0 6px; font-size:var(--fs-caption);
+    font-weight:var(--fw-med); color:var(--silver); }
+  .glab .opt, .elab .opt, .alab .opt{ font-weight:var(--fw-thin); color:var(--ash); }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
 </head>
@@ -67,10 +71,10 @@
   <p class="lead">Дайте ссылку на сайт конкурента — VELOR откроет его сам, сравнит с вашим бизнесом и покажет, где вы сильнее, а где стоит подтянуться.</p>
 
   <div class="panel">
-    <div class="fld">Ссылка на конкурента</div>
+    <label class="fld" for="rUrl">Ссылка на конкурента</label>
     <input id="rUrl" placeholder="например, konkurent.ru или https://instagram.com/...">
     <div class="or">— или вставьте описание / текст вручную —</div>
-    <textarea id="rText" placeholder="Услуги, цены, предложения конкурента — если ссылку открыть не получается."></textarea>
+    <label class="fld" for="rText">Описание конкурента</label><textarea id="rText" placeholder="Услуги, цены, предложения конкурента — если ссылку открыть не получается."></textarea>
     <button class="btn" id="rBtn">Проанализировать</button>
     <div class="out" id="rOut"></div>
   </div>

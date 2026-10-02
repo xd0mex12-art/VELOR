@@ -252,9 +252,9 @@ function demoHTML(d){
         возможностей ${DEMO_CREDS.leads}${DEMO_CREDS.flaws === 0
           ? ', противоречий нет' : ''}.</div>
       <div class="f" style="margin-bottom:10px"><label>Логин</label>
-        <input value="${esc(DEMO_CREDS.login)}" readonly></div>
+        <input aria-label="Логин демо-кабинета" value="${esc(DEMO_CREDS.login)}" readonly></div>
       <div class="f" style="margin-bottom:14px"><label>Пароль — записан не будет нигде</label>
-        <input value="${esc(DEMO_CREDS.password)}" readonly></div>
+        <input aria-label="Пароль демо-кабинета" value="${esc(DEMO_CREDS.password)}" readonly></div>
       <div class="rowbtns">
         <button class="ghost" id="demoHide" type="button">Записал, скрыть</button>
       </div></div>`;
@@ -410,13 +410,13 @@ async function load(){
         </div>
         <div class="pane set active">
           <div class="fields">
-            <div class="f"><label>Название</label><input name="name" value="${esc(b.name)}"></div>
-            <div class="f"><label>Абонплата ₽/мес</label><input name="fee" type="number" value="${b.fee||0}"></div>
-            <div class="f"><label>Токен бота (Telegram)</label><input name="tg_bot_token" value="${esc(b.tg_bot_token)}" placeholder="от @BotFather"></div>
-            <div class="f"><label>Логин входа бизнеса</label><input name="login" value="${esc(b.login)}" placeholder="логин сотрудника"></div>
-            <div class="f"><label>Пароль входа бизнеса</label><input name="password" value="" placeholder="пусто = не менять"></div>
-            <div class="f"><label>Чем занимается (для ИИ)</label><input name="about" value="${esc(b.about)}"></div>
-            <div class="f"><label>Приветствие клиенту</label><textarea name="greeting" rows="2">${esc(b.greeting)}</textarea></div>
+            <div class="f"><label>Название</label><input name="name" aria-label="Название компании" value="${esc(b.name)}"></div>
+            <div class="f"><label>Абонплата ₽/мес</label><input name="fee" type="number" aria-label="Абонентская плата" value="${b.fee||0}"></div>
+            <div class="f"><label>Токен бота (Telegram)</label><input name="tg_bot_token" aria-label="Токен Telegram-бота" value="${esc(b.tg_bot_token)}" placeholder="от @BotFather"></div>
+            <div class="f"><label>Логин входа бизнеса</label><input name="login" aria-label="Логин для входа" value="${esc(b.login)}" placeholder="логин сотрудника"></div>
+            <div class="f"><label>Пароль входа бизнеса</label><input name="password" aria-label="Новый пароль" value="" placeholder="пусто = не менять"></div>
+            <div class="f"><label>Чем занимается (для ИИ)</label><input name="about" aria-label="Чем занимается" value="${esc(b.about)}"></div>
+            <div class="f"><label>Приветствие клиенту</label><textarea name="greeting" aria-label="Приветствие в боте" rows="2">${esc(b.greeting)}</textarea></div>
           </div>
           <div class="rowbtns">
             <button class="save">Сохранить</button>

@@ -5,7 +5,14 @@
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>VELOR — AI-сотрудник для вашего бизнеса</title>
 <link href="vendor/inter.css" rel="stylesheet"/>
-<script src="vendor/three.min.js"></script>
+<!-- 656 КБ трёхмерной библиотеки стояли здесь без defer и держали отрисовку:
+     на медленном мобильном человек несколько секунд видел пустоту вместо
+     заголовка. С defer браузер качает их параллельно, а выполняет после
+     разбора страницы — текст и кнопка появляются сразу. Порядок сохранён:
+     defer-скрипты выполняются в порядке записи, поэтому three.js по-прежнему
+     готов раньше, чем landing-3d.js (у него тоже defer — иначе он выполнился
+     бы первым, не нашёл THREE и молча вышел, оставив героя без фона). -->
+<script src="vendor/three.min.js" defer></script>
 <style>
   /* ===== Dala design tokens ===== */
   :root{
@@ -38,12 +45,12 @@
 
   /* --- компоненты --- */
   .pill{
-    display:inline-block; background:var(--iris); color:#fff;
+    display:inline-block; white-space:nowrap; background:var(--iris); color:#fff;
     font-weight:600; font-size:14px; letter-spacing:.35px; text-transform:uppercase;
     padding:14px 26px; border-radius:24px; transition:filter .3s; will-change:transform;
   }
   .pill:hover{ filter:brightness(1.2); }
-  .ghost{ font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; }
+  .ghost{ white-space:nowrap; font-weight:400; font-size:14px; letter-spacing:.35px; text-transform:uppercase; color:var(--ash); transition:color .3s; }
   .ghost:hover{ color:var(--bone); }
 
   /* --- навигация: прозрачная, без рамок --- */
@@ -56,7 +63,53 @@
   .logo-sub{ font-weight:500; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--ash);
     border-left:1px solid rgba(255,255,255,.14); padding-left:9px; margin-left:3px; }
   .nav-links{ display:flex; gap:36px; align-items:center; }
-  @media(max-width:760px){ .nav-links .ghost{ display:none; } }
+
+  /* Кнопка меню. На широком экране её нет — все ссылки и так в строке. */
+  .burger{
+    display:none; width:44px; height:44px; flex:0 0 44px;
+    align-items:center; justify-content:center;
+    background:none; border:0; cursor:pointer; color:var(--bone); border-radius:12px;
+  }
+  .burger:hover{ background:rgba(255,255,255,.08); }
+  .burger span{ display:block; width:20px; height:2px; background:currentColor;
+    border-radius:2px; transition:transform .25s, opacity .2s; }
+  .burger span + span{ margin-top:5px; }
+  .burger[aria-expanded="true"] span:nth-child(1){ transform:translateY(7px) rotate(45deg); }
+  .burger[aria-expanded="true"] span:nth-child(2){ opacity:0; }
+  .burger[aria-expanded="true"] span:nth-child(3){ transform:translateY(-7px) rotate(-45deg); }
+
+  /* Телефон. Раньше здесь просто прятались ссылки — вместе с «Войти»: человек
+     с телефона не мог попасть в свой кабинет из шапки, а кнопка «Подключить»
+     наезжала на логотип и ломалась на три строки. Теперь в строке остаются
+     только знак и кнопка меню, а всё остальное живёт в выпадающей панели. */
+  /* Порог — 1000, а не 760. На 800–1000 строка ссылок формально помещалась, но
+     «Как работает» ломалось на две строки, а кнопка — на три: шапка выглядела
+     сломанной ровно там, где её чаще всего и видят, на планшете и узком ноуте. */
+  @media(max-width:1000px){
+    nav{ padding:16px 20px; }
+    .logo-sub{ display:none; }
+    .burger{ display:flex; }
+    .nav-links{
+      position:absolute; top:100%; right:12px; left:12px;
+      flex-direction:column; align-items:stretch; gap:4px;
+      padding:10px; border-radius:18px;
+      background:rgba(12,12,18,.97); border:1px solid rgba(255,255,255,.12);
+      box-shadow:0 24px 60px rgba(0,0,0,.6);
+      opacity:0; visibility:hidden; transform:translateY(-8px);
+      transition:opacity .22s ease, transform .22s ease, visibility .22s;
+    }
+    .nav-links[data-open="1"]{ opacity:1; visibility:visible; transform:none; }
+    .nav-links .ghost{
+      display:flex; align-items:center; min-height:48px; padding:0 14px;
+      border-radius:12px; font-size:15px; letter-spacing:.02em;
+      text-transform:none; color:var(--bone);
+    }
+    .nav-links .ghost:hover{ background:rgba(255,255,255,.06); }
+    .nav-links .pill{ margin-top:6px; text-align:center; padding:15px 18px; border-radius:14px; }
+  }
+  @media(max-width:1000px) and (prefers-reduced-motion:reduce){
+    .nav-links{ transition:none; }
+  }
 
   /* --- амбиент-поле треугольников --- */
 
@@ -87,6 +140,35 @@
   .zig .label{ display:block; margin-bottom:18px; }
   .zig .h-lg{ margin-bottom:24px; }
   .zig .body-dim{ max-width:520px; }
+
+  /* — окно приёма: показываем само окно, а не рассказываем о нём —
+     Главное обещание продукта («скиньте что угодно одним движением»)
+     словами звучит как любое другое обещание. Поэтому рядом с текстом стоит
+     тот самый блок из кабинета: та же формулировка, те же кнопки. Это
+     рисунок, а не рабочее поле — до регистрации складывать некуда. */
+  .door-shot{
+    border:1px solid rgba(255,255,255,.12); border-radius:20px;
+    background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+    padding:28px; box-shadow:0 30px 70px rgba(0,0,0,.45);
+  }
+  .door-shot .t{ font-size:20px; font-weight:500; color:var(--bone); }
+  .door-shot .s{ margin-top:8px; font-size:14px; line-height:1.5; color:var(--ash); }
+  .door-shot .box{
+    margin-top:18px; min-height:92px; border-radius:14px; padding:14px 16px;
+    background:rgba(0,0,0,.35); border:1px dashed rgba(255,255,255,.16);
+    font-size:14px; line-height:1.6; color:var(--ash);
+  }
+  .door-shot .tags{ display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+  .door-shot .tag{
+    font-size:12px; letter-spacing:.02em; color:var(--silver);
+    border:1px solid rgba(255,255,255,.14); border-radius:999px; padding:6px 12px;
+  }
+  .door-shot .go{
+    margin-top:18px; display:inline-block; background:var(--iris); color:#fff;
+    font-size:13px; font-weight:600; letter-spacing:.35px; text-transform:uppercase;
+    padding:12px 22px; border-radius:22px;
+  }
+  @media(max-width:900px){ .door-shot{ padding:20px; } }
 
   .stat-row{ display:flex; gap:96px; flex-wrap:wrap; justify-content:center;
     max-width:1280px; margin:0 auto; padding:120px 24px; }
@@ -127,6 +209,13 @@
   .trust-links a{ color:#a99cff; font-size:15px; } .trust-links a:hover{ color:#fff; }
   .foot-links{ display:flex; gap:22px; align-items:center; flex-wrap:wrap; }
 
+  /* Палец — не курсор. Текстовые ссылки высотой в строку (21 px) человек на
+     ходу не попадает; минимум по правилам Apple и Google — 44. Рамка кнопки
+     при этом не рисуется: растёт только область касания. */
+  .cta-row .ghost, .foot-links a, .trust-links a, .scroll-cue{
+    display:inline-flex; align-items:center; min-height:44px;
+  }
+
   .fade-up{ opacity:0; transform:translateY(48px); transition:opacity 1.1s cubic-bezier(.16,1,.3,1), transform 1.1s cubic-bezier(.16,1,.3,1); }
   .fade-up.visible{ opacity:1; transform:translateY(0); }
 
@@ -155,7 +244,11 @@
     <svg width="18" height="18" viewBox="0 0 18 18"><path d="M9 1 L17 16 L1 16 Z" fill="#8052ff"/></svg>
     VELOR<span class="logo-sub">AI Employee</span>
   </a>
-  <div class="nav-links">
+  <button class="burger" id="burger" type="button"
+          aria-label="Меню" aria-expanded="false" aria-controls="navLinks">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="nav-links" id="navLinks">
     <a class="ghost" href="#use">Как работает</a>
     <a class="ghost" href="#trust">Безопасность</a>
     <a class="ghost" href="#pricing">Тарифы</a>
@@ -163,6 +256,31 @@
     <a class="pill" href="register.html">Подключить AI-сотрудника</a>
   </div>
 </nav>
+<script>
+  /* Меню на телефоне. Открывается кнопкой, закрывается ею же, Esc, выбором
+     пункта и щелчком мимо — каждый из этих путей человек пробует первым. */
+  (function () {
+    var b = document.getElementById('burger'), m = document.getElementById('navLinks');
+    if (!b || !m) return;
+    function set(open) {
+      b.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) { m.setAttribute('data-open', '1'); } else { m.removeAttribute('data-open'); }
+    }
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      set(b.getAttribute('aria-expanded') !== 'true');
+    });
+    m.addEventListener('click', function (e) { if (e.target.closest('a')) set(false); });
+    document.addEventListener('click', function (e) {
+      if (!m.contains(e.target) && e.target !== b) set(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && b.getAttribute('aria-expanded') === 'true') { set(false); b.focus(); }
+    });
+    /* Экран повернули или окно растянули — панель больше не нужна. */
+    addEventListener('resize', function () { if (innerWidth > 760) set(false); });
+  })();
+</script>
 
 <!-- ГЕРОЙ: 3D-призмы на фоне, текст и кнопки поверх -->
 <section id="top" class="hero">
@@ -182,6 +300,38 @@
 
 <!-- ВОЗМОЖНОСТИ: зигзаг -->
 <section id="features">
+  <!-- Первым идёт не самое громкое обещание, а самое частое действие. Клиенты
+       отвечаются сами раз в день, а скинуть прайс, чек или мысль на ходу
+       человек хочет по десять раз — и именно от этой работы продукт его
+       освобождает. Поэтому окно приёма открывает раздел. -->
+  <div class="zig fade-up">
+    <div>
+      <span class="label">// Одно окно</span>
+      <h2 class="h-lg">Кидайте всё сюда. Разбирать будет он.</h2>
+      <p class="body-dim">Прайс от поставщика, фото чека, выписка из банка, скриншот переписки,
+        мысль на бегу — одно поле на всё. Не нужно выбирать раздел, заполнять карточку
+        и думать, куда это положить: VELOR сам поймёт, что ему прислали, разложит по
+        местам и свяжет с тем, что уже знает о вашем деле.</p>
+      <p class="body-dim" style="margin-top:18px">Это и есть смысл продукта — снять с человека
+        разбор бумажек, а не добавить ещё одну программу, которую надо заполнять.</p>
+    </div>
+    <div>
+      <div class="door-shot" aria-hidden="true">
+        <div class="t">Передать VELOR</div>
+        <div class="s">Прайс, чек, выписка, скриншот переписки, заметка на ходу — что угодно.
+          Разбираться, что это и куда положить, — его работа, а не ваша.</div>
+        <div class="box">Поставщик поднял цену на розы до 180 ₽ · Новая услуга:
+          экспресс-маникюр 2500 ₽ · Вот прайс с сентября</div>
+        <div class="tags">
+          <span class="tag">фото</span><span class="tag">PDF</span>
+          <span class="tag">Word</span><span class="tag">Excel</span>
+          <span class="tag">таблица CSV</span><span class="tag">просто текст</span>
+        </div>
+        <span class="go">Передать VELOR</span>
+      </div>
+    </div>
+  </div>
+
   <div class="zig fade-up">
     <div>
       <span class="label">// Intake</span>
@@ -312,7 +462,7 @@
 <!-- Запоминает ?ref=код партнёра на 90 дней: человек мог прийти сегодня, а
      зарегистрироваться через неделю. -->
 <script src="ref.js"></script>
-<script src="landing-3d.js"></script>
+<script src="landing-3d.js" defer></script>
 <script src="vendor/motion.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {

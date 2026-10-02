@@ -626,24 +626,24 @@ function cardHTML(d){
     fuHTML(d) +
     '<div class="fields">' +
       '<div class="f" style="grid-column:1/-1"><label>Чего хочет человек</label>' +
-        '<input name="title" value="' + esc(l.title) + '"></div>' +
-      '<div class="f"><label>Состояние</label><select name="status">' + statusOpts + '</select></div>' +
+        '<input name="title" aria-label="Название интереса" value="' + esc(l.title) + '"></div>' +
+      '<div class="f"><label>Состояние</label><select name="status" aria-label="Состояние">' + statusOpts + '</select></div>' +
       '<div class="f"><label>Сумма</label>' +
-        '<input name="value" inputmode="numeric" value="' + (l.value || '') + '">' +
+        '<input name="value" inputmode="numeric" aria-label="Сумма" value="' + (l.value || '') + '">' +
         '<div class="hint">Пусто — значит «не знаем».</div></div>' +
-      '<div class="f"><label>Почему не сложилось</label><select name="lost_reason">' + reasonOpts + '</select></div>' +
+      '<div class="f"><label>Почему не сложилось</label><select name="lost_reason" aria-label="Причина отказа">' + reasonOpts + '</select></div>' +
       '<div class="f"><label>Клиент</label>' +
-        '<input value="' + esc(l.client_name || 'не привязан') + '" disabled></div>' +
+        '<input aria-label="Клиент" value="' + esc(l.client_name || 'не привязан') + '" disabled></div>' +
       '<div class="f" style="grid-column:1/-1"><label>Подробности</label>' +
-        '<textarea name="interest" rows="2">' + esc(l.interest || '') + '</textarea></div>' +
+        '<textarea name="interest" aria-label="Чем интересуется" rows="2">' + esc(l.interest || '') + '</textarea></div>' +
       // Оценку можно поправить рукой: владелец знает про клиента то, чего нет
       // ни в одном сообщении. После правки правила это поле не пересчитывают.
       '<div class="f"><label>Хочет купить</label>' +
-        '<select name="intent">' + lvOpts(LV.intent, owned.has('intent') ? l.intent : '') + '</select></div>' +
+        '<select name="intent" aria-label="Намерение">' + lvOpts(LV.intent, owned.has('intent') ? l.intent : '') + '</select></div>' +
       '<div class="f"><label>Наше ли это</label>' +
-        '<select name="fit">' + lvOpts(LV.fit, owned.has('fit') ? l.fit : '') + '</select></div>' +
+        '<select name="fit" aria-label="Подходит ли нам">' + lvOpts(LV.fit, owned.has('fit') ? l.fit : '') + '</select></div>' +
       '<div class="f"><label>Приоритет</label>' +
-        '<select name="priority">' + lvOpts(LV.priority, owned.has('priority') ? l.priority : '') + '</select>' +
+        '<select name="priority" aria-label="Важность">' + lvOpts(LV.priority, owned.has('priority') ? l.priority : '') + '</select>' +
         '<div class="hint">Пусто — считает VELOR, заново при каждом открытии.</div></div>' +
     '</div>' +
     '<div class="card-acts">' +

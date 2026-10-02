@@ -62,6 +62,10 @@
   #toast.show{ opacity:1; transform:translate(-50%,0); }
 
   @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+
+  .glab, .elab, .alab{ display:block; margin:0 0 6px; font-size:var(--fs-caption);
+    font-weight:var(--fw-med); color:var(--silver); }
+  .glab .opt, .elab .opt, .alab .opt{ font-weight:var(--fw-thin); color:var(--ash); }
 </style>
 <link rel="stylesheet" href="velor.css?v=19">
 </head>
@@ -76,7 +80,7 @@
   <section>
     <div class="sec-h">Анализатор контента</div>
     <div class="panel">
-      <textarea id="anText" placeholder="Вставьте пост, описание товара или рекламный текст — VELOR разберёт заголовок, оффер, CTA и шанс привлечь клиента."></textarea>
+      <label class="glab" for="anText">Текст на разбор</label><textarea id="anText" placeholder="Вставьте пост, описание товара или рекламный текст — VELOR разберёт заголовок, оффер, CTA и шанс привлечь клиента."></textarea>
       <button class="btn" id="anBtn">Проанализировать</button>
       <div class="out" id="anOut"></div>
     </div>
@@ -90,7 +94,7 @@
         <button type="button" class="task" data-task="post">Написать пост</button>
         <button type="button" class="task" data-task="ad">Написать рекламу</button>
       </div>
-      <input id="genTopic" maxlength="160" placeholder="Тема или повод (необязательно) — напр. «скидка ко Дню матери»">
+      <label class="glab" for="genTopic">Тема или повод <span class="opt">— необязательно</span></label><input id="genTopic" maxlength="160" placeholder="Напр. «скидка ко Дню матери»">
       <button class="btn" id="genBtn">Сгенерировать</button>
       <div class="out" id="genOut"></div>
     </div>
